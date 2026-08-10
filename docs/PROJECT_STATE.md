@@ -4,9 +4,9 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 6c: add version-bound provider/agent edit previews and apply paths,
-finish the complete CLI setup journey, and close the milestone with backup/restore
-and interactive/headless profile-equivalence evidence.
+Milestone 1 slice 6d: add authenticated snapshot restore, automate a complete cold
+backup/restore drill, and close the milestone with full interactive/headless profile-
+equivalence evidence.
 
 ## Completed
 
@@ -36,10 +36,13 @@ and interactive/headless profile-equivalence evidence.
 - M1 slice 6b added a bounded `doctor`, authenticated redacted setup report/export, content-addressed rollback profiles, version-bound recovery entry/resume, and reuse of the existing administrator identity during recovery recompletion.
 - Recovery entry now writes a pre-transition rollback snapshot in the same relational transaction as the state change and redacted audit event. Exported profiles contain OS secret references but never administrator verifiers or materialized values.
 - Migration 0005 preserves existing administrator state. Credential-shaped agent/provider metadata and actor/correlation identifiers fail before persistence. Windows and Ubuntu locked Release builds, format, host smoke, migration drift, dependency/secret scans, and all 55 tests pass; Windows additionally exercises the complete live DPAPI maintenance CLI path.
+- M1 slice 6c added secure provider credential onboarding through redirected stdin or a hidden interactive prompt; credentials are bounded character buffers, never CLI arguments, and are cleared after the invocation. Failed durable profile commits compensate the exact newly stored secret reference.
+- Provider and agent maintenance now use authenticated, exact-version preview/apply contracts. SHA-256 request hashes bind installation, actor, correlation, target, versions, normalized effective parameters, and provider capability evidence; apply re-evaluates the request and rejects no-op, mismatched, and stale changes.
+- Profile updates and the pure `Configuring → Configuring` installation version transition commit atomically with redacted audit evidence. Windows runs the complete live-DPAPI CLI journey through provider setup, agent creation, recovery, both edit types, and recompletion; Ubuntu verifies deterministic behavior. Both platforms pass locked builds, format, all 57 tests, smoke, vulnerability, and secret scans.
 
 ## Latest gate
 
-`artifacts/gates/M1-06B-20260810.md`: Pass.
+`artifacts/gates/M1-06C-20260810.md`: Pass.
 
 ## Known constraints and risks
 
@@ -48,11 +51,10 @@ and interactive/headless profile-equivalence evidence.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
-- Recovery entry and resume are authenticated and snapshot-backed, but profile edit/diff and automated snapshot restore are not enabled yet. Recovery remains configuration-only and cannot launch autonomous work.
+- Recovery entry, resume, and provider/agent edits are authenticated and snapshot-backed, but automated snapshot restore is not enabled yet. Recovery remains configuration-only and cannot launch autonomous work.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Implement version-bound provider/agent edit preview and apply operations, expose the
-remaining provider setup flow through the CLI, then close M1 only after cold
-backup/restore and complete interactive/headless profile equivalence pass.
+Implement authenticated snapshot restore, exercise a complete cold backup/restore,
+and prove full interactive/headless profile equivalence before closing Milestone 1.

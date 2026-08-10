@@ -17,4 +17,5 @@ public enum InstallationTrigger
     ValidationFailed,
     StartRecovery,
     ResumeConfiguration,
+    ConfigurationChanged,
 }

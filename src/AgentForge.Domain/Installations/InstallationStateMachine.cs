@@ -23,6 +23,7 @@ public static class InstallationStateMachine
             (InstallationState.Configuring, InstallationTrigger.ValidationFailed) => InstallationState.RecoveryRequired,
             (InstallationState.Ready, InstallationTrigger.StartRecovery) => InstallationState.RecoveryRequired,
             (InstallationState.RecoveryRequired, InstallationTrigger.ResumeConfiguration) => InstallationState.Configuring,
+            (InstallationState.Configuring, InstallationTrigger.ConfigurationChanged) => InstallationState.Configuring,
             _ => (InstallationState?)null,
         };
 

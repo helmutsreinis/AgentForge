@@ -44,4 +44,13 @@ public sealed record ConfigureProviderRequest(
     ActorId ActorId,
     CorrelationId CorrelationId);
 
+public sealed record ConfigureProviderCredentialRequest(
+    string Name,
+    string ProviderType,
+    Uri Endpoint,
+    string Model,
+    ReadOnlyMemory<char> Credential,
+    ActorId ActorId,
+    CorrelationId CorrelationId);
+
 public sealed record ConfigureProviderResult(ProviderProfile Profile);

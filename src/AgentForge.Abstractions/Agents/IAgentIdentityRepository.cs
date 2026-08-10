@@ -7,6 +7,11 @@ public interface IAgentIdentityRepository
 {
     ValueTask AddAsync(AgentIdentity agent, CancellationToken cancellationToken);
 
+    ValueTask UpdateAsync(
+        AgentIdentity agent,
+        long expectedVersion,
+        CancellationToken cancellationToken);
+
     ValueTask<AgentIdentity?> FindByNameAsync(
         InstallationId installationId,
         string name,

@@ -22,6 +22,7 @@ internal sealed class SetupApplicationService(
     IUnitOfWork unitOfWork,
     IProviderProfileRepository providerProfiles,
     IProviderProfileValidator providerValidator,
+    IProviderProfileDefinitionEvaluator providerDefinitionEvaluator,
     IAgentIdentityRepository agents,
     IAgentDefinitionEvaluator agentDefinitionEvaluator,
     ILocalAdministratorRepository administrators,
@@ -122,11 +123,13 @@ internal sealed class SetupApplicationService(
             return DomainResult.Fail<ConfigureProviderResult>(requestFailure);
         }
 
-        var candidateFailure = ValidateCandidate(request.Candidate);
-        if (candidateFailure is not null)
+        var normalized = providerDefinitionEvaluator.NormalizeAndValidate(request.Candidate);
+        if (!normalized.IsSuccess)
         {
-            return DomainResult.Fail<ConfigureProviderResult>(candidateFailure);
+            return DomainResult.Fail<ConfigureProviderResult>(normalized.Failure!);
         }
+
+        var candidate = normalized.Value;
 
         var installation = await installations.ReadAsync(cancellationToken);
         if (installation.Id.Value == Guid.Empty || installation.State is not InstallationState.Configuring)
@@ -136,7 +139,7 @@ internal sealed class SetupApplicationService(
                 "A provider can be configured only while installation setup is Configuring."));
         }
 
-        var normalizedName = request.Candidate.Name.Trim();
+        var normalizedName = candidate.Name;
         var existing = await providerProfiles.FindByNameAsync(
             installation.Id,
             normalizedName,
@@ -148,7 +151,7 @@ internal sealed class SetupApplicationService(
                 "A provider profile with this name already exists."));
         }
 
-        var validation = await providerValidator.ValidateAsync(request.Candidate, cancellationToken);
+        var validation = await providerValidator.ValidateAsync(candidate, cancellationToken);
         if (!validation.IsSuccess)
         {
             return DomainResult.Fail<ConfigureProviderResult>(validation.Failure!);
@@ -159,10 +162,10 @@ internal sealed class SetupApplicationService(
             new ProviderProfileId(identifiers.NewGuid()),
             installation.Id,
             normalizedName,
-            request.Candidate.ProviderType.Trim().ToLowerInvariant(),
-            request.Candidate.Endpoint,
-            request.Candidate.Model.Trim(),
-            request.Candidate.SecretReference,
+            candidate.ProviderType,
+            candidate.Endpoint,
+            candidate.Model,
+            candidate.SecretReference,
             validation.Value,
             0,
             now,
@@ -201,6 +204,64 @@ internal sealed class SetupApplicationService(
         return commit.Succeeded
             ? DomainResult.Success(new ConfigureProviderResult(profile))
             : DomainResult.Fail<ConfigureProviderResult>(commit.Failure!);
+    }
+
+    public async Task<DomainResult<ConfigureProviderResult>> ConfigureProviderCredentialAsync(
+        ConfigureProviderCredentialRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var requestFailure = ValidateActorAndCorrelation(request.ActorId, request.CorrelationId);
+        if (requestFailure is not null)
+        {
+            return DomainResult.Fail<ConfigureProviderResult>(requestFailure);
+        }
+
+        if (request.Credential.IsEmpty)
+        {
+            return DomainResult.Fail<ConfigureProviderResult>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Provider credential cannot be empty."));
+        }
+
+        var draft = new ProviderProfileCandidate(
+            request.Name,
+            request.ProviderType,
+            request.Endpoint,
+            request.Model,
+            new SecretReference(secretStore.StoreName, "pending-reference"));
+        var normalized = providerDefinitionEvaluator.NormalizeAndValidate(draft);
+        if (!normalized.IsSuccess)
+        {
+            return DomainResult.Fail<ConfigureProviderResult>(normalized.Failure!);
+        }
+
+        var stored = await secretStore.StoreAsync(
+            $"provider-{identifiers.NewGuid():N}",
+            request.Credential,
+            cancellationToken);
+        if (!stored.IsSuccess)
+        {
+            return DomainResult.Fail<ConfigureProviderResult>(stored.Failure!);
+        }
+
+        var committed = false;
+        try
+        {
+            var result = await ConfigureProviderAsync(new ConfigureProviderRequest(
+                normalized.Value with { SecretReference = stored.Value },
+                request.ActorId,
+                request.CorrelationId), cancellationToken);
+            committed = result.IsSuccess;
+            return result;
+        }
+        finally
+        {
+            if (!committed)
+            {
+                _ = await secretStore.DeleteAsync(stored.Value, CancellationToken.None);
+            }
+        }
     }
 
     public async Task<DomainResult<EffectiveAgentDefinition>> PreviewAgentAsync(
@@ -577,46 +638,6 @@ internal sealed class SetupApplicationService(
             return new DomainFailure(
                 FailureCode.ValidationFailure,
                 "Actor and correlation IDs cannot contain credential-shaped content.");
-        }
-
-        return null;
-    }
-
-    private DomainFailure? ValidateCandidate(ProviderProfileCandidate candidate)
-    {
-        if (candidate is null || candidate.Endpoint is null || candidate.SecretReference is null ||
-            string.IsNullOrWhiteSpace(candidate.Name) || candidate.Name.Length > 128 || candidate.Name.Any(char.IsControl) ||
-            string.IsNullOrWhiteSpace(candidate.ProviderType) || candidate.ProviderType.Length > 64 || candidate.ProviderType.Any(char.IsControl) ||
-            string.IsNullOrWhiteSpace(candidate.Model) || candidate.Model.Length > 256 || candidate.Model.Any(char.IsControl) ||
-            string.IsNullOrWhiteSpace(candidate.SecretReference.Store) || candidate.SecretReference.Store.Length > 128 || candidate.SecretReference.Store.Any(char.IsControl) ||
-            string.IsNullOrWhiteSpace(candidate.SecretReference.Key) || candidate.SecretReference.Key.Length > 512 || candidate.SecretReference.Key.Any(char.IsControl))
-        {
-            return new DomainFailure(FailureCode.ValidationFailure, "Provider profile fields are missing or invalid.");
-        }
-
-        if (redactor.Redact(new
-        {
-            candidate.Name,
-            candidate.ProviderType,
-            candidate.Model,
-            Endpoint = candidate.Endpoint.AbsoluteUri,
-        }).ContainsRedactions)
-        {
-            return new DomainFailure(
-                FailureCode.ValidationFailure,
-                "Provider profile contains credential-shaped content and cannot be persisted.");
-        }
-
-        if (!candidate.Endpoint.IsAbsoluteUri ||
-            candidate.Endpoint.AbsoluteUri.Length > 2048 ||
-            candidate.Endpoint.Scheme is not ("http" or "https") ||
-            !string.IsNullOrEmpty(candidate.Endpoint.UserInfo) ||
-            !string.IsNullOrEmpty(candidate.Endpoint.Query) ||
-            !string.IsNullOrEmpty(candidate.Endpoint.Fragment))
-        {
-            return new DomainFailure(
-                FailureCode.ValidationFailure,
-                "Provider endpoint must be an absolute HTTP or HTTPS URI without credentials, query, or fragment.");
         }
 
         return null;

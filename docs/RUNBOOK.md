@@ -49,7 +49,19 @@ agentforge setup begin --data-directory <absolute-path> --actor <actor-id> --cor
 Use `agentforge setup begin --interactive` for prompts backed by the same service.
 Success returns one JSON object and exit code 0. Validation/state failures return
 JSON and exit code 1; a retryable concurrency conflict returns exit code 3; Ctrl+C
-returns 130. The command currently stops at `Configuring` by design.
+returns 130. The command stops at `Configuring` so provider and agent setup can run.
+
+Configure a provider without placing its credential in shell history or the process
+argument list. For automation, send exactly one bounded line through standard input:
+
+```text
+<secret-producing-command> | agentforge setup provider configure --data-directory <absolute-path> --name primary --type deterministic --endpoint http://127.0.0.1:9000/v1 --model deterministic-text-v1 --credential-stdin --actor <actor-id> --correlation <correlation-id>
+```
+
+Use `--credential-prompt` instead of `--credential-stdin` at an interactive console.
+The prompt does not echo characters. The CLI clears its input buffer after the shared
+setup service has stored the value through the OS secret adapter. Do not provide a
+secret-producing command that exposes its value in its own command line or logs.
 
 ## Secret-store diagnostics
 
@@ -130,9 +142,28 @@ agentforge setup recovery resume --data-directory <absolute-path> --expected-ver
 ```
 
 Entry automatically captures another pre-recovery rollback profile. Resume returns
-to `Configuring`; after approved edits, run `setup complete` to revalidate and return
-to `Ready` using the existing administrator identity. Snapshot restore and CLI edit
-commands are not enabled yet; do not modify SQLite directly.
+to `Configuring`; inspect the exact installation and entity versions before editing.
+Provider edit preview/apply uses the same profile fields and correlation ID in both
+commands:
+
+```text
+agentforge setup provider edit preview --data-directory <absolute-path> --provider-id <guid> --expected-installation-version <n> --expected-provider-version <n> --name <name> --type <type> --endpoint <uri> --model <model> --actor <actor-id> --correlation <correlation-id>
+agentforge setup provider edit apply <same-options> --preview-hash <returned-sha256>
+```
+
+Agent edits use all normal `setup agent` policy options plus the edit binding:
+
+```text
+agentforge setup agent edit preview <agent-options> --agent-id <guid> --expected-installation-version <n> --expected-agent-version <n>
+agentforge setup agent edit apply <same-options> --preview-hash <returned-sha256>
+```
+
+Preview performs no write. Apply re-evaluates the complete candidate and requires the
+same actor, correlation, target, versions, and normalized parameters. Each successful
+apply increments both the entity version and global installation version, so refresh
+before another edit. Then run `setup complete` to revalidate and return to `Ready`
+using the existing administrator identity. Snapshot restore is not enabled yet; do
+not modify SQLite directly.
 
 ## SQLite migration and cold backup
 

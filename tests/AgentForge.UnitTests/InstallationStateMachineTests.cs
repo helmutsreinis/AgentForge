@@ -70,6 +70,41 @@ public sealed class InstallationStateMachineTests
         Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
     }
 
+    [Fact]
+    public void Configuration_change_is_versioned_only_while_configuring()
+    {
+        var configuring = InstallationSnapshot.CreateUninitialized(
+            InstallationId.New(),
+            Now,
+            Actor,
+            Correlation) with
+        {
+            State = InstallationState.Configuring,
+            Version = 5,
+        };
+
+        var changed = InstallationStateMachine.Transition(
+            configuring,
+            InstallationTrigger.ConfigurationChanged,
+            Now.AddMinutes(1),
+            Actor,
+            new CorrelationId("profile-edit"));
+
+        Assert.True(changed.IsSuccess, changed.Failure?.Message);
+        Assert.Equal(InstallationState.Configuring, changed.Value.State);
+        Assert.Equal(6, changed.Value.Version);
+
+        var rejected = InstallationStateMachine.Transition(
+            changed.Value with { State = InstallationState.Ready },
+            InstallationTrigger.ConfigurationChanged,
+            Now.AddMinutes(2),
+            Actor,
+            new CorrelationId("profile-edit-ready"));
+
+        Assert.False(rejected.IsSuccess);
+        Assert.Equal(FailureCode.InvalidStateTransition, rejected.Failure?.Code);
+    }
+
     private static InstallationSnapshot Transition(
         InstallationSnapshot current,
         InstallationTrigger trigger)

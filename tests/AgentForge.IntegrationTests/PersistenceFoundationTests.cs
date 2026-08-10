@@ -718,16 +718,12 @@ public sealed class PersistenceFoundationTests : IDisposable
                 installationId,
                 new ActorId("local-admin"),
                 new CorrelationId("maintenance-begin")), CancellationToken.None)).IsSuccess);
-            var providerSecret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
-                .StoreAsync("maintenance-provider", "provider-fixture".AsMemory(), CancellationToken.None);
-            Assert.True(providerSecret.IsSuccess);
-            var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
-                new ProviderProfileCandidate(
-                    "primary",
-                    "deterministic",
-                    new Uri("http://127.0.0.1:9000/v1"),
-                    "deterministic-text-v1",
-                    providerSecret.Value),
+            var provider = await setup.ConfigureProviderCredentialAsync(new ConfigureProviderCredentialRequest(
+                "primary",
+                "deterministic",
+                new Uri("http://127.0.0.1:9000/v1"),
+                "deterministic-text-v1",
+                "provider-fixture".AsMemory(),
                 new ActorId("local-admin"),
                 new CorrelationId("maintenance-provider")), CancellationToken.None);
             Assert.True(provider.IsSuccess);
@@ -739,6 +735,13 @@ public sealed class PersistenceFoundationTests : IDisposable
                 new ActorId("local-admin"),
                 new CorrelationId("maintenance-ready")), CancellationToken.None)).IsSuccess);
         }
+
+        Assert.DoesNotContain(
+            "provider-fixture",
+            Encoding.UTF8.GetString(await File.ReadAllBytesAsync(
+                Path.Combine(_directory, "agentforge.db"),
+                CancellationToken.None)),
+            StringComparison.Ordinal);
 
         await using var credentialScope = _services.CreateAsyncScope();
         var administrator = await credentialScope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
@@ -877,6 +880,107 @@ public sealed class PersistenceFoundationTests : IDisposable
             Assert.Equal(5, resumed.Value.Installation.Version);
         }
 
+        await using (var agentEditScope = _services.CreateAsyncScope())
+        {
+            var provider = await agentEditScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .FindByNameAsync(installationId, "primary", CancellationToken.None);
+            var agent = await agentEditScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByNameAsync(installationId, "Architect", CancellationToken.None);
+            Assert.NotNull(provider);
+            Assert.NotNull(agent);
+            var candidate = CreateAgentCandidate(provider.Id) with
+            {
+                Mission = "Design, edit, and verify bounded systems.",
+            };
+            var editor = agentEditScope.ServiceProvider.GetRequiredService<ISetupProfileEditor>();
+            var preview = await editor.PreviewAgentAsync(new PreviewAgentEditRequest(
+                agent.Id,
+                5,
+                0,
+                candidate,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-agent-preview"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            Assert.Equal(64, preview.Value.RequestHash.Length);
+            Assert.Single(preview.Value.Changes, change => change.Path == "agent.mission");
+
+            var wrongHash = await editor.ApplyAgentAsync(new ApplyAgentEditRequest(
+                agent.Id,
+                5,
+                0,
+                candidate,
+                new string('0', 64),
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-agent-wrong-hash"),
+                credential.Value), CancellationToken.None);
+            Assert.False(wrongHash.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, wrongHash.Failure?.Code);
+
+            var applied = await editor.ApplyAgentAsync(new ApplyAgentEditRequest(
+                agent.Id,
+                5,
+                0,
+                candidate,
+                preview.Value.RequestHash,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-agent-preview"),
+                credential.Value), CancellationToken.None);
+            Assert.True(applied.IsSuccess, applied.Failure?.Message);
+            Assert.Equal(6, applied.Value.Installation.Version);
+            Assert.Equal(1, applied.Value.Agent.Version);
+
+            var stale = await editor.ApplyAgentAsync(new ApplyAgentEditRequest(
+                agent.Id,
+                5,
+                0,
+                candidate,
+                preview.Value.RequestHash,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-agent-preview"),
+                credential.Value), CancellationToken.None);
+            Assert.False(stale.IsSuccess);
+            Assert.Equal(FailureCode.ConcurrencyConflict, stale.Failure?.Code);
+        }
+
+        await using (var providerEditScope = _services.CreateAsyncScope())
+        {
+            var provider = await providerEditScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .FindByNameAsync(installationId, "primary", CancellationToken.None);
+            Assert.NotNull(provider);
+            var candidate = new ProviderProfileCandidate(
+                provider.Name,
+                provider.ProviderType,
+                provider.Endpoint,
+                "deterministic-text-v2",
+                provider.SecretReference);
+            var editor = providerEditScope.ServiceProvider.GetRequiredService<ISetupProfileEditor>();
+            var preview = await editor.PreviewProviderAsync(new PreviewProviderEditRequest(
+                provider.Id,
+                6,
+                0,
+                candidate,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-provider-preview"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            Assert.Single(preview.Value.Changes, change => change.Path == "provider.model");
+
+            var applied = await editor.ApplyProviderAsync(new ApplyProviderEditRequest(
+                provider.Id,
+                6,
+                0,
+                candidate,
+                preview.Value.RequestHash,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-provider-preview"),
+                credential.Value), CancellationToken.None);
+            Assert.True(applied.IsSuccess, applied.Failure?.Message);
+            Assert.Equal(7, applied.Value.Installation.Version);
+            Assert.Equal(1, applied.Value.Provider.Version);
+            Assert.Equal("deterministic-text-v2", applied.Value.Provider.Model);
+        }
+
         await using (var recompleteScope = _services.CreateAsyncScope())
         {
             var recompleted = await recompleteScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
@@ -886,7 +990,7 @@ public sealed class PersistenceFoundationTests : IDisposable
                     credential.Value), CancellationToken.None);
             Assert.True(recompleted.IsSuccess);
             Assert.Equal(InstallationState.Ready, recompleted.Value.Installation.State);
-            Assert.Equal(7, recompleted.Value.Installation.Version);
+            Assert.Equal(9, recompleted.Value.Installation.Version);
             Assert.Equal(administrator.Id, recompleted.Value.Administrator.Id);
             Assert.Equal(administrator.ClientCredentialReference, recompleted.Value.Administrator.ClientCredentialReference);
         }
@@ -896,7 +1000,7 @@ public sealed class PersistenceFoundationTests : IDisposable
             InstallationState.Ready,
             (await restartScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
                 .ReadAsync(CancellationToken.None)).State);
-        Assert.Equal(8, (await restartScope.ServiceProvider.GetRequiredService<IAuditReader>()
+        Assert.Equal(10, (await restartScope.ServiceProvider.GetRequiredService<IAuditReader>()
             .ReadAsync(installationId, 0, 20, CancellationToken.None)).Count);
     }
 

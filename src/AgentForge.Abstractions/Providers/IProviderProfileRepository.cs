@@ -7,6 +7,11 @@ public interface IProviderProfileRepository
 {
     ValueTask AddAsync(ProviderProfile profile, CancellationToken cancellationToken);
 
+    ValueTask UpdateAsync(
+        ProviderProfile profile,
+        long expectedVersion,
+        CancellationToken cancellationToken);
+
     ValueTask<ProviderProfile?> FindByIdAsync(
         ProviderProfileId profileId,
         CancellationToken cancellationToken);
@@ -26,4 +31,9 @@ public interface IProviderProfileValidator
     Task<DomainResult<ProviderCapabilitySummary>> ValidateAsync(
         ProviderProfileCandidate candidate,
         CancellationToken cancellationToken);
+}
+
+public interface IProviderProfileDefinitionEvaluator
+{
+    DomainResult<ProviderProfileCandidate> NormalizeAndValidate(ProviderProfileCandidate candidate);
 }

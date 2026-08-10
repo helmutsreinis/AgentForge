@@ -156,8 +156,18 @@ public sealed class HeadlessSetupCliTests
         Directory.CreateDirectory(dataDirectory);
         try
         {
-            var providerId = await SeedProviderAsync(dataDirectory, deterministicSecretStore: false);
-            Assert.Equal(0, (await RunAgentCliAsync(dataDirectory, providerId, create: true)).ExitCode);
+            Assert.Equal(0, (await RunCliAsync(dataDirectory)).ExitCode);
+            var configuredProvider = await RunProviderCliAsync(dataDirectory, "e2e-provider-credential");
+            Assert.Equal(0, configuredProvider.ExitCode);
+            Assert.DoesNotContain("e2e-provider-credential", configuredProvider.StandardOutput, StringComparison.Ordinal);
+            using var providerDocument = JsonDocument.Parse(configuredProvider.StandardOutput);
+            var providerId = new ProviderProfileId(Guid.Parse(
+                providerDocument.RootElement.GetProperty("providerId").GetString()!));
+
+            var createdAgent = await RunAgentCliAsync(dataDirectory, providerId, create: true);
+            Assert.Equal(0, createdAgent.ExitCode);
+            using var agentDocument = JsonDocument.Parse(createdAgent.StandardOutput);
+            var agentId = Guid.Parse(agentDocument.RootElement.GetProperty("agentId").GetString()!);
 
             var completed = await RunCompleteCliAsync(dataDirectory);
             Assert.Equal(0, completed.ExitCode);
@@ -234,12 +244,71 @@ public sealed class HeadlessSetupCliTests
                 Assert.Equal(5, resumedJson.RootElement.GetProperty("version").GetInt64());
             }
 
+            var agentEditArguments = new[]
+            {
+                "setup", "agent", "edit", "preview",
+                "--agent-id", agentId.ToString("D"),
+                "--expected-installation-version", "5",
+                "--expected-agent-version", "0",
+                "--name", "Architect",
+                "--mission", "Edit and verify bounded systems.",
+                "--provider-id", providerId.ToString(),
+                "--actor", "local-operator",
+                "--correlation", "agent-edit-e2e",
+                "--max-children", "2",
+                "--max-child-depth", "2",
+                "--max-child-concurrency", "1",
+                "--max-child-tokens", "10000",
+            };
+            var agentPreview = await RunMaintenanceCliAsync(dataDirectory, agentEditArguments);
+            Assert.Equal(0, agentPreview.ExitCode);
+            using var agentPreviewJson = JsonDocument.Parse(agentPreview.StandardOutput);
+            var agentPreviewHash = agentPreviewJson.RootElement.GetProperty("requestHash").GetString()!;
+            agentEditArguments[3] = "apply";
+            var agentApplied = await RunMaintenanceCliAsync(
+                dataDirectory,
+                [.. agentEditArguments, "--preview-hash", agentPreviewHash]);
+            Assert.Equal(0, agentApplied.ExitCode);
+            using (var agentAppliedJson = JsonDocument.Parse(agentApplied.StandardOutput))
+            {
+                Assert.Equal(6, agentAppliedJson.RootElement.GetProperty("installationVersion").GetInt64());
+                Assert.Equal(1, agentAppliedJson.RootElement.GetProperty("agentVersion").GetInt64());
+            }
+
+            var providerEditArguments = new[]
+            {
+                "setup", "provider", "edit", "preview",
+                "--provider-id", providerId.ToString(),
+                "--expected-installation-version", "6",
+                "--expected-provider-version", "0",
+                "--name", "primary",
+                "--type", "deterministic",
+                "--endpoint", "http://127.0.0.1:9000/v1",
+                "--model", "deterministic-text-v2",
+                "--actor", "local-operator",
+                "--correlation", "provider-edit-e2e",
+            };
+            var providerPreview = await RunMaintenanceCliAsync(dataDirectory, providerEditArguments);
+            Assert.Equal(0, providerPreview.ExitCode);
+            using var providerPreviewJson = JsonDocument.Parse(providerPreview.StandardOutput);
+            var providerPreviewHash = providerPreviewJson.RootElement.GetProperty("requestHash").GetString()!;
+            providerEditArguments[3] = "apply";
+            var providerApplied = await RunMaintenanceCliAsync(
+                dataDirectory,
+                [.. providerEditArguments, "--preview-hash", providerPreviewHash]);
+            Assert.Equal(0, providerApplied.ExitCode);
+            using (var providerAppliedJson = JsonDocument.Parse(providerApplied.StandardOutput))
+            {
+                Assert.Equal(7, providerAppliedJson.RootElement.GetProperty("installationVersion").GetInt64());
+                Assert.Equal(1, providerAppliedJson.RootElement.GetProperty("providerVersion").GetInt64());
+            }
+
             var recompleted = await RunCompleteCliAsync(dataDirectory);
             Assert.Equal(0, recompleted.ExitCode);
             using (var recompletedJson = JsonDocument.Parse(recompleted.StandardOutput))
             {
                 Assert.Equal("Ready", recompletedJson.RootElement.GetProperty("state").GetString());
-                Assert.Equal(7, recompletedJson.RootElement.GetProperty("version").GetInt64());
+                Assert.Equal(9, recompletedJson.RootElement.GetProperty("version").GetInt64());
             }
 
             await using var services = BuildServices(dataDirectory, deterministicSecretStore: false);
@@ -351,6 +420,49 @@ public sealed class HeadlessSetupCliTests
         var standardOutput = process.StandardOutput.ReadToEndAsync();
         var standardError = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync(timeout.Token);
+        return new CliResult(process.ExitCode, await standardOutput, await standardError);
+    }
+
+    private static async Task<CliResult> RunProviderCliAsync(string dataDirectory, string credential)
+    {
+        var root = FindRepositoryRoot();
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+            ?? throw new InvalidOperationException("Could not determine the test build configuration.");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[]
+        {
+            Path.Combine(root, "src", "AgentForge.Cli", "bin", configuration, "net10.0", "agentforge.dll"),
+            "setup", "provider", "configure",
+            "--data-directory", dataDirectory,
+            "--name", "primary",
+            "--type", "deterministic",
+            "--endpoint", "http://127.0.0.1:9000/v1",
+            "--model", "deterministic-text-v1",
+            "--credential-stdin",
+            "--actor", "local-operator",
+            "--correlation", "provider-configure-e2e",
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
+        await process.StandardInput.WriteLineAsync(credential);
+        process.StandardInput.Close();
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         await process.WaitForExitAsync(timeout.Token);
         return new CliResult(process.ExitCode, await standardOutput, await standardError);
     }

@@ -24,7 +24,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
         services.AddScoped<ISetupApplicationService, SetupApplicationService>();
         services.AddScoped<ISetupMaintenanceService, SetupMaintenanceService>();
+        services.AddScoped<ISetupProfileEditor, SetupProfileEditor>();
         services.AddScoped<IProviderProfileValidator, DeterministicProviderProfileValidator>();
+        services.AddSingleton<IProviderProfileDefinitionEvaluator, ConservativeProviderProfileDefinitionEvaluator>();
         services.AddSingleton<IAgentDefinitionEvaluator, ConservativeAgentDefinitionEvaluator>();
         return services;
     }

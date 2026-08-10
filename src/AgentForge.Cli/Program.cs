@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
@@ -28,6 +29,21 @@ if (args is ["setup", "begin", .. var beginArguments])
     return await BeginSetupAsync(beginArguments);
 }
 
+if (args is ["setup", "provider", "configure", .. var providerConfigureArguments])
+{
+    return await ConfigureProviderCredentialAsync(providerConfigureArguments);
+}
+
+if (args is ["setup", "provider", "edit", "preview", .. var providerEditPreviewArguments])
+{
+    return await EditProviderAsync(providerEditPreviewArguments, apply: false);
+}
+
+if (args is ["setup", "provider", "edit", "apply", .. var providerEditApplyArguments])
+{
+    return await EditProviderAsync(providerEditApplyArguments, apply: true);
+}
+
 if (args is ["setup", "agent", "preview", .. var previewArguments])
 {
     return await ConfigureAgentAsync(previewArguments, create: false);
@@ -36,6 +52,16 @@ if (args is ["setup", "agent", "preview", .. var previewArguments])
 if (args is ["setup", "agent", "create", .. var createArguments])
 {
     return await ConfigureAgentAsync(createArguments, create: true);
+}
+
+if (args is ["setup", "agent", "edit", "preview", .. var agentEditPreviewArguments])
+{
+    return await EditAgentAsync(agentEditPreviewArguments, apply: false);
+}
+
+if (args is ["setup", "agent", "edit", "apply", .. var agentEditApplyArguments])
+{
+    return await EditAgentAsync(agentEditApplyArguments, apply: true);
 }
 
 if (args is ["setup", "complete", .. var completeArguments])
@@ -214,6 +240,183 @@ static async Task<int> BeginSetupAsync(string[] arguments)
     }
 }
 
+static async Task<int> ConfigureProviderCredentialAsync(string[] arguments)
+{
+    if (!TryParseProviderConfigureOptions(arguments, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Provider setup", async cancellationToken =>
+    {
+        var credentialResult = await ReadProviderCredentialAsync(options.ReadFromStandardInput, cancellationToken);
+        if (!credentialResult.IsSuccess)
+        {
+            return await WriteFailureAsync(credentialResult.Failure!);
+        }
+
+        var credential = credentialResult.Value;
+        try
+        {
+            await using var provider = BuildSetupProvider(dataDirectory);
+            await using var scope = provider.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                .InitializeAsync(cancellationToken);
+            var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .ConfigureProviderCredentialAsync(new ConfigureProviderCredentialRequest(
+                    options.Name,
+                    options.ProviderType,
+                    options.Endpoint,
+                    options.Model,
+                    credential,
+                    new ActorId(options.ActorId),
+                    new CorrelationId(options.CorrelationId)), cancellationToken);
+            if (!result.IsSuccess)
+            {
+                return await WriteFailureAsync(result.Failure!);
+            }
+
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                providerId = result.Value.Profile.Id.ToString(),
+                result.Value.Profile.Name,
+                type = result.Value.Profile.ProviderType,
+                endpoint = result.Value.Profile.Endpoint.AbsoluteUri,
+                result.Value.Profile.Model,
+                secretReference = new
+                {
+                    store = result.Value.Profile.SecretReference.Store,
+                    key = result.Value.Profile.SecretReference.Key,
+                },
+                result.Value.Profile.Capabilities,
+                version = result.Value.Profile.Version,
+            });
+            return 0;
+        }
+        finally
+        {
+            Array.Clear(credential);
+        }
+    });
+}
+
+static async Task<int> EditProviderAsync(string[] arguments, bool apply)
+{
+    if (!TryParseProviderEditOptions(arguments, apply, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Provider profile edit", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var current = await scope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .FindByIdAsync(options.ProviderProfileId, cancellationToken);
+        if (current is null)
+        {
+            return await WriteFailureAsync(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Provider profile was not found."));
+        }
+
+        var candidate = new ProviderProfileCandidate(
+            options.Name,
+            options.ProviderType,
+            options.Endpoint,
+            options.Model,
+            current.SecretReference);
+        var editor = scope.ServiceProvider.GetRequiredService<ISetupProfileEditor>();
+        if (!apply)
+        {
+            var preview = await editor.PreviewProviderAsync(new PreviewProviderEditRequest(
+                options.ProviderProfileId,
+                options.ExpectedInstallationVersion,
+                options.ExpectedProviderVersion,
+                candidate,
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId),
+                credential.Value), cancellationToken);
+            if (!preview.IsSuccess)
+            {
+                return await WriteFailureAsync(preview.Failure!);
+            }
+
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                applied = false,
+                requestHash = preview.Value.RequestHash,
+                changes = preview.Value.Changes,
+                effective = new
+                {
+                    preview.Value.Effective.Name,
+                    type = preview.Value.Effective.ProviderType,
+                    endpoint = preview.Value.Effective.Endpoint.AbsoluteUri,
+                    preview.Value.Effective.Model,
+                    preview.Value.Effective.Capabilities,
+                    version = preview.Value.Effective.Version,
+                },
+            });
+            return 0;
+        }
+
+        var applied = await editor.ApplyProviderAsync(new ApplyProviderEditRequest(
+            options.ProviderProfileId,
+            options.ExpectedInstallationVersion,
+            options.ExpectedProviderVersion,
+            candidate,
+            options.PreviewHash!,
+            new ActorId(options.ActorId),
+            new CorrelationId(options.CorrelationId),
+            credential.Value), cancellationToken);
+        if (!applied.IsSuccess)
+        {
+            return await WriteFailureAsync(applied.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            applied = true,
+            installationVersion = applied.Value.Installation.Version,
+            providerVersion = applied.Value.Provider.Version,
+            requestHash = applied.Value.RequestHash,
+            changes = applied.Value.Changes,
+        });
+        return 0;
+    });
+}
+
 static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
 {
     if (!TryParseAgentOptions(arguments, out var options, out var error))
@@ -259,29 +462,7 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
     {
         await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
             .InitializeAsync(cancellation.Token);
-        var candidate = new AgentIdentityCandidate(
-            options.Name,
-            options.Expertise,
-            options.Mission,
-            options.Language,
-            options.TimeZone,
-            options.Style,
-            options.Workspace,
-            new AgentModelPolicy(options.ProviderId, options.DataLocality, options.AllowFallback),
-            new AgentMemoryPolicy(options.MemoryScope, options.MemoryRetentionDays),
-            new AgentCapabilityPolicy(options.NetworkPosture, [], []),
-            new AgentBudget(
-                options.MaxTurns,
-                options.MaxToolInvocations,
-                options.MaxInputTokens,
-                options.MaxOutputTokens,
-                options.MaxWallClockSeconds),
-            new ChildAgentLimits(
-                options.MaxChildDepth,
-                options.MaxChildren,
-                options.MaxChildConcurrency,
-                options.MaxChildTotalTokens),
-            new AgentLearningPolicy(options.LearningMode, options.MutableSkillScope));
+        var candidate = CreateAgentCandidate(options);
         var setup = scope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
         if (!create)
         {
@@ -330,6 +511,124 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
         Console.CancelKeyPress -= cancelHandler;
     }
 }
+
+static async Task<int> EditAgentAsync(string[] arguments, bool apply)
+{
+    if (!TryParseAgentEditOptions(arguments, apply, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.Agent.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Agent profile edit", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var candidate = CreateAgentCandidate(options.Agent);
+        var editor = scope.ServiceProvider.GetRequiredService<ISetupProfileEditor>();
+        if (!apply)
+        {
+            var preview = await editor.PreviewAgentAsync(new PreviewAgentEditRequest(
+                options.AgentIdentityId,
+                options.ExpectedInstallationVersion,
+                options.ExpectedAgentVersion,
+                candidate,
+                new ActorId(options.Agent.ActorId),
+                new CorrelationId(options.Agent.CorrelationId),
+                credential.Value), cancellationToken);
+            if (!preview.IsSuccess)
+            {
+                return await WriteFailureAsync(preview.Failure!);
+            }
+
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                applied = false,
+                requestHash = preview.Value.RequestHash,
+                changes = preview.Value.Changes,
+                effective = new
+                {
+                    preview.Value.Effective.Agent.Name,
+                    preview.Value.Effective.ProviderName,
+                    preview.Value.Effective.Model,
+                    preview.Value.Effective.Capabilities,
+                    version = preview.Value.Current.Version + 1,
+                },
+            });
+            return 0;
+        }
+
+        var applied = await editor.ApplyAgentAsync(new ApplyAgentEditRequest(
+            options.AgentIdentityId,
+            options.ExpectedInstallationVersion,
+            options.ExpectedAgentVersion,
+            candidate,
+            options.PreviewHash!,
+            new ActorId(options.Agent.ActorId),
+            new CorrelationId(options.Agent.CorrelationId),
+            credential.Value), cancellationToken);
+        if (!applied.IsSuccess)
+        {
+            return await WriteFailureAsync(applied.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            applied = true,
+            installationVersion = applied.Value.Installation.Version,
+            agentVersion = applied.Value.Agent.Version,
+            requestHash = applied.Value.RequestHash,
+            changes = applied.Value.Changes,
+        });
+        return 0;
+    });
+}
+
+static AgentIdentityCandidate CreateAgentCandidate(SetupAgentOptions options) => new(
+    options.Name,
+    options.Expertise,
+    options.Mission,
+    options.Language,
+    options.TimeZone,
+    options.Style,
+    options.Workspace,
+    new AgentModelPolicy(options.ProviderId, options.DataLocality, options.AllowFallback),
+    new AgentMemoryPolicy(options.MemoryScope, options.MemoryRetentionDays),
+    new AgentCapabilityPolicy(options.NetworkPosture, [], []),
+    new AgentBudget(
+        options.MaxTurns,
+        options.MaxToolInvocations,
+        options.MaxInputTokens,
+        options.MaxOutputTokens,
+        options.MaxWallClockSeconds),
+    new ChildAgentLimits(
+        options.MaxChildDepth,
+        options.MaxChildren,
+        options.MaxChildConcurrency,
+        options.MaxChildTotalTokens),
+    new AgentLearningPolicy(options.LearningMode, options.MutableSkillScope));
 
 static async Task<int> CompleteSetupAsync(string[] arguments)
 {
@@ -643,6 +942,114 @@ static async Task<DomainResult<AgentForge.Domain.Security.SecretLease>> Material
         .MaterializeAsync(administrator.ClientCredentialReference, cancellationToken);
 }
 
+static async Task<DomainResult<char[]>> ReadProviderCredentialAsync(
+    bool readFromStandardInput,
+    CancellationToken cancellationToken)
+{
+    const int maximumCredentialLength = 16_384;
+    if (readFromStandardInput && !Console.IsInputRedirected)
+    {
+        return DomainResult.Fail<char[]>(new DomainFailure(
+            FailureCode.ValidationFailure,
+            "--credential-stdin requires redirected standard input."));
+    }
+
+    if (!readFromStandardInput && Console.IsInputRedirected)
+    {
+        return DomainResult.Fail<char[]>(new DomainFailure(
+            FailureCode.ValidationFailure,
+            "--credential-prompt requires an interactive console."));
+    }
+
+    var buffer = new char[maximumCredentialLength + 1];
+    var count = 0;
+    var promptWritten = false;
+    try
+    {
+        if (readFromStandardInput)
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var read = await Console.In.ReadAsync(buffer.AsMemory(count, 1), cancellationToken);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (buffer[count] == '\n')
+                {
+                    break;
+                }
+
+                if (buffer[count] != '\r')
+                {
+                    if (count == maximumCredentialLength)
+                    {
+                        return DomainResult.Fail<char[]>(new DomainFailure(
+                            FailureCode.ValidationFailure,
+                            $"Provider credential exceeds {maximumCredentialLength} characters."));
+                    }
+
+                    count++;
+                }
+            }
+        }
+        else
+        {
+            await Console.Error.WriteAsync("Provider credential: ");
+            promptWritten = true;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var key = Console.ReadKey(intercept: true);
+                if (key.Key is ConsoleKey.Enter)
+                {
+                    break;
+                }
+
+                if (key.Key is ConsoleKey.Backspace)
+                {
+                    if (count > 0)
+                    {
+                        buffer[--count] = '\0';
+                    }
+
+                    continue;
+                }
+
+                if (char.IsControl(key.KeyChar))
+                {
+                    continue;
+                }
+
+                if (count == maximumCredentialLength)
+                {
+                    return DomainResult.Fail<char[]>(new DomainFailure(
+                        FailureCode.ValidationFailure,
+                        $"Provider credential exceeds {maximumCredentialLength} characters."));
+                }
+
+                buffer[count++] = key.KeyChar;
+            }
+        }
+
+        return count == 0
+            ? DomainResult.Fail<char[]>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Provider credential cannot be empty."))
+            : DomainResult.Success(buffer.AsSpan(0, count).ToArray());
+    }
+    finally
+    {
+        Array.Clear(buffer);
+        if (promptWritten)
+        {
+            await Console.Error.WriteLineAsync();
+        }
+    }
+}
+
 static async Task<int> RunCancellableMaintenanceAsync(
     string operation,
     Func<CancellationToken, Task<int>> action)
@@ -815,6 +1222,244 @@ static bool TryParseBeginOptions(
     }
 
     options = new SetupBeginOptions(dataDirectory, actorId, correlationId, installationId);
+    return true;
+}
+
+static bool TryParseProviderConfigureOptions(
+    string[] arguments,
+    out SetupProviderConfigureOptions? options,
+    out string? error)
+{
+    options = null;
+    error = null;
+    var values = new Dictionary<string, string>(StringComparer.Ordinal);
+    var allowed = new HashSet<string>(
+        ["--actor", "--correlation", "--data-directory", "--endpoint", "--model", "--name", "--type"],
+        StringComparer.Ordinal);
+    var credentialMode = string.Empty;
+    for (var index = 0; index < arguments.Length; index++)
+    {
+        var name = arguments[index];
+        if (name is "--credential-stdin" or "--credential-prompt")
+        {
+            if (!string.IsNullOrEmpty(credentialMode))
+            {
+                error = "Specify exactly one credential input mode.";
+                return false;
+            }
+
+            credentialMode = name;
+            continue;
+        }
+
+        if (!allowed.Contains(name))
+        {
+            error = $"Unknown provider option '{name}'.";
+            return false;
+        }
+
+        if (++index >= arguments.Length)
+        {
+            error = $"Option '{name}' requires a value.";
+            return false;
+        }
+
+        if (!values.TryAdd(name, arguments[index]))
+        {
+            error = $"Option '{name}' may be specified only once.";
+            return false;
+        }
+    }
+
+    if (!Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--name", out var providerName, out error) ||
+        !Require(values, "--type", out var providerType, out error) ||
+        !Require(values, "--endpoint", out var endpointText, out error) ||
+        !Require(values, "--model", out var model, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    if (!Uri.TryCreate(endpointText, UriKind.Absolute, out var endpoint))
+    {
+        error = "--endpoint must be an absolute URI.";
+        return false;
+    }
+
+    if (string.IsNullOrEmpty(credentialMode))
+    {
+        error = "Specify --credential-stdin or --credential-prompt; credentials are never accepted as arguments.";
+        return false;
+    }
+
+    options = new SetupProviderConfigureOptions(
+        dataDirectory,
+        providerName,
+        providerType,
+        endpoint,
+        model,
+        credentialMode == "--credential-stdin",
+        actorId,
+        correlationId);
+    return true;
+}
+
+static bool TryParseProviderEditOptions(
+    string[] arguments,
+    bool apply,
+    out SetupProviderEditOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(
+        arguments,
+        [
+            "--actor", "--correlation", "--data-directory", "--endpoint", "--expected-installation-version",
+            "--expected-provider-version", "--model", "--name", "--preview-hash", "--provider-id", "--type",
+        ],
+        out var values,
+        out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--provider-id", out var providerIdText, out error) ||
+        !Require(values, "--expected-installation-version", out var installationVersionText, out error) ||
+        !Require(values, "--expected-provider-version", out var providerVersionText, out error) ||
+        !Require(values, "--name", out var providerName, out error) ||
+        !Require(values, "--type", out var providerType, out error) ||
+        !Require(values, "--endpoint", out var endpointText, out error) ||
+        !Require(values, "--model", out var model, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    if (!Guid.TryParseExact(providerIdText, "D", out var providerId) || providerId == Guid.Empty)
+    {
+        error = "--provider-id must be a non-empty GUID in D format.";
+        return false;
+    }
+
+    if (!TryNonNegativeVersion(installationVersionText, "--expected-installation-version", out var installationVersion, out error) ||
+        !TryNonNegativeVersion(providerVersionText, "--expected-provider-version", out var providerVersion, out error))
+    {
+        return false;
+    }
+
+    if (!Uri.TryCreate(endpointText, UriKind.Absolute, out var endpoint))
+    {
+        error = "--endpoint must be an absolute URI.";
+        return false;
+    }
+
+    var previewHash = values.GetValueOrDefault("--preview-hash");
+    if (apply && string.IsNullOrWhiteSpace(previewHash))
+    {
+        error = "Required option '--preview-hash' is missing or empty.";
+        return false;
+    }
+
+    if (!apply && previewHash is not null)
+    {
+        error = "--preview-hash is valid only when applying an edit.";
+        return false;
+    }
+
+    options = new SetupProviderEditOptions(
+        dataDirectory,
+        new ProviderProfileId(providerId),
+        installationVersion,
+        providerVersion,
+        providerName,
+        providerType,
+        endpoint,
+        model,
+        previewHash,
+        actorId,
+        correlationId);
+    error = null;
+    return true;
+}
+
+static bool TryParseAgentEditOptions(
+    string[] arguments,
+    bool apply,
+    out SetupAgentEditOptions? options,
+    out string? error)
+{
+    options = null;
+    error = null;
+    var editValues = new Dictionary<string, string>(StringComparer.Ordinal);
+    var agentArguments = new List<string>();
+    var editOptions = new HashSet<string>(
+        ["--agent-id", "--expected-agent-version", "--expected-installation-version", "--preview-hash"],
+        StringComparer.Ordinal);
+    for (var index = 0; index < arguments.Length; index += 2)
+    {
+        if (index + 1 >= arguments.Length)
+        {
+            error = $"Option '{arguments[index]}' requires a value.";
+            return false;
+        }
+
+        var name = arguments[index];
+        var value = arguments[index + 1];
+        if (editOptions.Contains(name))
+        {
+            if (!editValues.TryAdd(name, value))
+            {
+                error = $"Option '{name}' may be specified only once.";
+                return false;
+            }
+        }
+        else
+        {
+            agentArguments.Add(name);
+            agentArguments.Add(value);
+        }
+    }
+
+    if (!Require(editValues, "--agent-id", out var agentIdText, out error) ||
+        !Require(editValues, "--expected-installation-version", out var installationVersionText, out error) ||
+        !Require(editValues, "--expected-agent-version", out var agentVersionText, out error) ||
+        !TryParseAgentOptions([.. agentArguments], out var agentOptions, out error))
+    {
+        return false;
+    }
+
+    if (!Guid.TryParseExact(agentIdText, "D", out var agentId) || agentId == Guid.Empty)
+    {
+        error = "--agent-id must be a non-empty GUID in D format.";
+        return false;
+    }
+
+    if (!TryNonNegativeVersion(installationVersionText, "--expected-installation-version", out var installationVersion, out error) ||
+        !TryNonNegativeVersion(agentVersionText, "--expected-agent-version", out var agentVersion, out error))
+    {
+        return false;
+    }
+
+    var previewHash = editValues.GetValueOrDefault("--preview-hash");
+    if (apply && string.IsNullOrWhiteSpace(previewHash))
+    {
+        error = "Required option '--preview-hash' is missing or empty.";
+        return false;
+    }
+
+    if (!apply && previewHash is not null)
+    {
+        error = "--preview-hash is valid only when applying an edit.";
+        return false;
+    }
+
+    options = new SetupAgentEditOptions(
+        agentOptions!,
+        new AgentIdentityId(agentId),
+        installationVersion,
+        agentVersion,
+        previewHash);
+    error = null;
     return true;
 }
 
@@ -1140,6 +1785,26 @@ static bool TryLong(
     return false;
 }
 
+static bool TryNonNegativeVersion(
+    string text,
+    string optionName,
+    out long value,
+    out string? error)
+{
+    if (long.TryParse(
+        text,
+        System.Globalization.NumberStyles.None,
+        System.Globalization.CultureInfo.InvariantCulture,
+        out value))
+    {
+        error = null;
+        return true;
+    }
+
+    error = $"{optionName} must be a non-negative integer.";
+    return false;
+}
+
 static bool TryEnum<T>(
     IReadOnlyDictionary<string, string> values,
     string name,
@@ -1194,8 +1859,13 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup status");
     Console.WriteLine("  agentforge setup begin --data-directory <path> --actor <id> --correlation <id> [--installation-id <guid>]");
     Console.WriteLine("  agentforge setup begin --interactive");
+    Console.WriteLine("  agentforge setup provider configure --data-directory <path> --name <name> --type <type> --endpoint <uri> --model <model> (--credential-stdin | --credential-prompt) --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup provider edit preview --data-directory <path> --provider-id <guid> --expected-installation-version <n> --expected-provider-version <n> --name <name> --type <type> --endpoint <uri> --model <model> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup provider edit apply <same-options> --preview-hash <sha256>");
     Console.WriteLine("  agentforge setup agent preview --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
     Console.WriteLine("  agentforge setup agent create --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
+    Console.WriteLine("  agentforge setup agent edit preview <agent-options> --agent-id <guid> --expected-installation-version <n> --expected-agent-version <n>");
+    Console.WriteLine("  agentforge setup agent edit apply <same-options> --preview-hash <sha256>");
     Console.WriteLine("  agentforge setup complete --data-directory <path> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge doctor --data-directory <path> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup export --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
@@ -1208,6 +1878,29 @@ internal sealed record SetupBeginOptions(
     string ActorId,
     string CorrelationId,
     InstallationId? InstallationId);
+
+internal sealed record SetupProviderConfigureOptions(
+    string DataDirectory,
+    string Name,
+    string ProviderType,
+    Uri Endpoint,
+    string Model,
+    bool ReadFromStandardInput,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record SetupProviderEditOptions(
+    string DataDirectory,
+    ProviderProfileId ProviderProfileId,
+    long ExpectedInstallationVersion,
+    long ExpectedProviderVersion,
+    string Name,
+    string ProviderType,
+    Uri Endpoint,
+    string Model,
+    string? PreviewHash,
+    string ActorId,
+    string CorrelationId);
 
 internal sealed record SetupAgentOptions(
     string DataDirectory,
@@ -1237,6 +1930,13 @@ internal sealed record SetupAgentOptions(
     MutableSkillScope MutableSkillScope,
     string ActorId,
     string CorrelationId);
+
+internal sealed record SetupAgentEditOptions(
+    SetupAgentOptions Agent,
+    AgentIdentityId AgentIdentityId,
+    long ExpectedInstallationVersion,
+    long ExpectedAgentVersion,
+    string? PreviewHash);
 
 internal sealed record SetupCompleteOptions(
     string DataDirectory,

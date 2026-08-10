@@ -156,5 +156,17 @@ Entering recovery atomically stores the pre-transition rollback profile, changes
 installation state, and appends its correlated audit event. Recovery is deliberately
 unhealthy and cannot enter normal runtime. Actor/correlation IDs and operator-supplied
 provider/agent metadata are rejected when they resemble credentials, closing sinks
-that sit outside audit payload redaction. Snapshot restore and configuration editing
-remain disabled until their version/diff gates pass.
+that sit outside audit payload redaction.
+
+Provider onboarding never accepts credential material as a process argument. The CLI
+reads a bounded character buffer from redirected stdin or a hidden console prompt,
+passes it to the shared setup service, then clears it. Any failed relational profile
+commit deletes the exact newly created OS secret reference.
+
+Provider and agent changes are available only in `Configuring` after administrator
+authentication. Preview is read-only; apply repeats normalization and capability
+validation, requires exact installation/entity versions, and compares a lowercase
+SHA-256 request hash bound to installation, actor, correlation, target, versions,
+effective parameters, and provider evidence. The profile update, global installation
+version increment, and redacted audit event share one transaction. Snapshot restore
+remains disabled until its separate gate passes.

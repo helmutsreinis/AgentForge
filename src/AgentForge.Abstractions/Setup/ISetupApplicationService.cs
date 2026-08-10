@@ -16,6 +16,10 @@ public interface ISetupApplicationService
         ConfigureProviderRequest request,
         CancellationToken cancellationToken);
 
+    Task<DomainResult<ConfigureProviderResult>> ConfigureProviderCredentialAsync(
+        ConfigureProviderCredentialRequest request,
+        CancellationToken cancellationToken);
+
     Task<DomainResult<EffectiveAgentDefinition>> PreviewAgentAsync(
         PreviewAgentRequest request,
         CancellationToken cancellationToken);

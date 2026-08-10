@@ -28,5 +28,6 @@ dotnet run --project src/AgentForge.Cli -- setup begin --data-directory <path> -
 The interactive equivalent is `agentforge setup begin --interactive`. Shared setup
 services now support validated provider profiles, bounded named agents, minimum-
 viability completion, local administration, doctor, redacted export, and authorized
-recovery. The provider onboarding CLI and version-bound edit/diff path remain the
-final Milestone 1 work; see `docs/RUNBOOK.md` for the currently executable commands.
+recovery. Provider onboarding accepts credentials only through redirected stdin or a
+hidden prompt, and recovery edits require authenticated version/hash-bound preview
+and apply. See `docs/RUNBOOK.md` for the currently executable commands.

@@ -5,6 +5,7 @@
 .vscode/
 .idea/
 .tools/
+.nuget/
 *.user
 *.suo
 *.nupkg

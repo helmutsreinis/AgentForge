@@ -14,5 +14,6 @@
 | D-010 | Keep agent identity independent from provider identity and default bootstrap policy to local-only, no external authority, bounded budgets, and `Propose` learning; preview is write-free and create re-evaluates. | Accepted |
 | D-011 | Generate 256-bit local administrator credentials, keep client material only in the OS secret store, persist a PBKDF2-SHA256 verifier, compare in fixed time, and require it for Ready runtime access. | Accepted |
 | D-012 | Require exact installation versions and the matching local administrator for maintenance mutations; atomically capture a redacted pre-recovery profile before leaving Ready. | Accepted |
+| D-013 | Require profile edit preview hashes to bind installation, actor, correlation, target, entity versions, normalized effective parameters, and provider evidence; apply always re-evaluates before an atomic commit. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

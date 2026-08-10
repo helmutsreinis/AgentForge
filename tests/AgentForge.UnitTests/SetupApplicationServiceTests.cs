@@ -84,9 +84,45 @@ public sealed class SetupApplicationServiceTests
         Assert.Equal(0, repository.ReadCount);
     }
 
+    [Fact]
+    public async Task Provider_credential_is_compensated_when_atomic_profile_commit_fails()
+    {
+        var installation = InstallationSnapshot.CreateUninitialized(
+            new InstallationId(Guid.Parse("9123db1f-526b-4f21-8176-851337e1b566")),
+            Now,
+            new ActorId("operator"),
+            new CorrelationId("provider-begin")) with
+        {
+            State = InstallationState.Configuring,
+            Version = 1,
+        };
+        var secretStore = new StubSecretStore();
+        await using var services = BuildServices(
+            new StubUnitOfWork(CommitResult.ConcurrencyConflict("provider race")),
+            new StubInstallationRepository(installation),
+            secretStore);
+        await using var scope = services.CreateAsyncScope();
+
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+            .ConfigureProviderCredentialAsync(new ConfigureProviderCredentialRequest(
+                "primary",
+                "deterministic",
+                new Uri("http://127.0.0.1:9000/v1"),
+                "model",
+                "temporary-secret".AsMemory(),
+                new ActorId("operator"),
+                new CorrelationId("provider-race")), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ConcurrencyConflict, result.Failure?.Code);
+        Assert.Equal(1, secretStore.StoreCount);
+        Assert.Equal(1, secretStore.DeleteCount);
+    }
+
     private static ServiceProvider BuildServices(
         IUnitOfWork unitOfWork,
-        StubInstallationRepository? repository = null)
+        StubInstallationRepository? repository = null,
+        ISecretStore? secretStore = null)
     {
         var configuration = new ConfigurationBuilder().Build();
         var services = new ServiceCollection();
@@ -97,7 +133,7 @@ public sealed class SetupApplicationServiceTests
         services.AddSingleton<ILocalAdministratorRepository, StubAdministratorRepository>();
         services.AddSingleton<ILocalAdministratorCredentialService, StubAdministratorCredentialService>();
         services.AddSingleton<ILocalAdministratorAuthenticator, StubAdministratorAuthenticator>();
-        services.AddSingleton<ISecretStore, StubSecretStore>();
+        services.AddSingleton(secretStore ?? new StubSecretStore());
         services.AddSingleton<ISensitiveDataRedactor, StubSensitiveDataRedactor>();
         services.AddSingleton<IProviderProfileValidator, StubProviderValidator>();
         services.AddSingleton<IAuditRecorder, StubAuditRecorder>();
@@ -108,7 +144,7 @@ public sealed class SetupApplicationServiceTests
         return services.BuildServiceProvider(validateScopes: true);
     }
 
-    private sealed class StubInstallationRepository : IInstallationRepository
+    private sealed class StubInstallationRepository(InstallationSnapshot? snapshot = null) : IInstallationRepository
     {
         public int ReadCount { get; private set; }
 
@@ -116,11 +152,11 @@ public sealed class SetupApplicationServiceTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             ReadCount++;
-            return ValueTask.FromResult(InstallationSnapshot.CreateUninitialized(
-                new InstallationId(Guid.Empty),
-                DateTimeOffset.UnixEpoch,
-                new ActorId("bootstrap"),
-                new CorrelationId("bootstrap")));
+            return ValueTask.FromResult(snapshot ?? InstallationSnapshot.CreateUninitialized(
+                    new InstallationId(Guid.Empty),
+                    DateTimeOffset.UnixEpoch,
+                    new ActorId("bootstrap"),
+                    new CorrelationId("bootstrap")));
         }
 
         public ValueTask AddAsync(InstallationSnapshot snapshot, CancellationToken cancellationToken)
@@ -166,6 +202,11 @@ public sealed class SetupApplicationServiceTests
         public ValueTask AddAsync(ProviderProfile profile, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
 
+        public ValueTask UpdateAsync(
+            ProviderProfile profile,
+            long expectedVersion,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public ValueTask<ProviderProfile?> FindByIdAsync(
             ProviderProfileId profileId,
             CancellationToken cancellationToken) => ValueTask.FromResult<ProviderProfile?>(null);
@@ -184,6 +225,11 @@ public sealed class SetupApplicationServiceTests
     {
         public ValueTask AddAsync(AgentIdentity agent, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
+
+        public ValueTask UpdateAsync(
+            AgentIdentity agent,
+            long expectedVersion,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<AgentIdentity?> FindByNameAsync(
             InstallationId installationId,
@@ -233,6 +279,10 @@ public sealed class SetupApplicationServiceTests
     {
         public string StoreName => "stub";
 
+        public int StoreCount { get; private set; }
+
+        public int DeleteCount { get; private set; }
+
         public SecretStoreCapability GetCapability() => new(StoreName, false, new DomainFailure(
             FailureCode.UnsupportedCapability,
             "stub"));
@@ -240,7 +290,12 @@ public sealed class SetupApplicationServiceTests
         public Task<DomainResult<SecretReference>> StoreAsync(
             string logicalName,
             ReadOnlyMemory<char> secret,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StoreCount++;
+            return Task.FromResult(DomainResult.Success(new SecretReference(StoreName, "stored-reference")));
+        }
 
         public Task<DomainResult<SecretLease>> MaterializeAsync(
             SecretReference secretReference,
@@ -248,7 +303,12 @@ public sealed class SetupApplicationServiceTests
 
         public Task<DomainResult<bool>> DeleteAsync(
             SecretReference secretReference,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            DeleteCount++;
+            return Task.FromResult(DomainResult.Success(true));
+        }
     }
 
     private sealed class StubSensitiveDataRedactor : ISensitiveDataRedactor

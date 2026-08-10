@@ -16,6 +16,33 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         await dbContext.AgentIdentities.AddAsync(Map(agent), cancellationToken);
     }
 
+    public ValueTask UpdateAsync(
+        AgentIdentity agent,
+        long expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(agent);
+        cancellationToken.ThrowIfCancellationRequested();
+        var entity = dbContext.ChangeTracker
+            .Entries<AgentIdentityEntity>()
+            .FirstOrDefault(item => item.Entity.Id == agent.Id.Value)
+            ?.Entity;
+        if (entity is null)
+        {
+            entity = Map(agent);
+            dbContext.AgentIdentities.Attach(entity);
+        }
+        else
+        {
+            dbContext.Entry(entity).CurrentValues.SetValues(Map(agent));
+        }
+
+        var entry = dbContext.Entry(entity);
+        entry.State = EntityState.Modified;
+        entry.Property(item => item.Version).OriginalValue = expectedVersion;
+        return ValueTask.CompletedTask;
+    }
+
     public async ValueTask<AgentIdentity?> FindByNameAsync(
         InstallationId installationId,
         string name,
