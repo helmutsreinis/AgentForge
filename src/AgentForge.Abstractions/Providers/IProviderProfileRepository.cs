@@ -7,6 +7,10 @@ public interface IProviderProfileRepository
 {
     ValueTask AddAsync(ProviderProfile profile, CancellationToken cancellationToken);
 
+    ValueTask<ProviderProfile?> FindByIdAsync(
+        ProviderProfileId profileId,
+        CancellationToken cancellationToken);
+
     ValueTask<ProviderProfile?> FindByNameAsync(
         InstallationId installationId,
         string name,

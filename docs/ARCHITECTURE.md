@@ -68,6 +68,20 @@ process-tree cleanup. Validators materialize a `SecretLease` for one call and cl
 character buffer on disposal. An unavailable OS facility is a typed failure, never a
 plaintext fallback.
 
+Agent identity is a versioned aggregate separate from provider identity. Its model
+policy points to a provider profile without copying credential material or making the
+provider part of the agent's identity. The setup evaluator normalizes the candidate,
+checks provider evidence and locality, then renders explicit `Allow`, `Deny`, or
+`RequireApproval` decisions. Unknown or not-yet-configured authority is absent and
+therefore denied. Preview performs no writes; create repeats evaluation and commits
+the exact bounded definition with one redacted audit event.
+
+The headless CLI composes the same setup service for agent preview/create. Its secure
+defaults are local-only routing, denied network access, no tool/skill grants, bounded
+budgets, no children unless all child bounds are supplied, and `Propose` learning
+with proposal-workspace-only mutation. These records are policy inputs; M2 adds the
+general per-invocation authorization evaluator and approval binding.
+
 ## Stable seams
 
 - Provider, model, tool, skill, scheduler, channel, device, artifact, secret, audit,

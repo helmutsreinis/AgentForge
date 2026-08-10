@@ -1,5 +1,16 @@
 using System.Diagnostics;
 using System.Text.Json;
+using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.Security;
+using AgentForge.Abstractions.Setup;
+using AgentForge.Audit;
+using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
+using AgentForge.Persistence;
+using AgentForge.Security;
+using AgentForge.Setup;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentForge.EndToEndTests;
 
@@ -80,6 +91,58 @@ public sealed class HeadlessSetupCliTests
         }
     }
 
+    [Fact]
+    public async Task Headless_agent_preview_then_create_persists_the_previewed_policy()
+    {
+        var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var dataDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataDirectory);
+        try
+        {
+            var providerId = await SeedProviderAsync(dataDirectory);
+            var preview = await RunAgentCliAsync(dataDirectory, providerId, create: false);
+            Assert.Equal(0, preview.ExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(preview.StandardError));
+            using (var previewJson = JsonDocument.Parse(preview.StandardOutput))
+            {
+                Assert.False(previewJson.RootElement.GetProperty("created").GetBoolean());
+                Assert.Equal(JsonValueKind.Null, previewJson.RootElement.GetProperty("agentId").ValueKind);
+                var externalNetwork = previewJson.RootElement.GetProperty("capabilities")
+                    .EnumerateArray()
+                    .Single(item => item.GetProperty("id").GetString() == "network.external");
+                Assert.Equal("Deny", externalNetwork.GetProperty("decision").GetString());
+            }
+
+            await using (var previewServices = BuildServices(dataDirectory))
+            await using (var previewScope = previewServices.CreateAsyncScope())
+            {
+                Assert.Null(await previewScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                    .FindByNameAsync(
+                        new InstallationId(Guid.Parse("13985bdc-a735-48db-a58f-61609d20814b")),
+                        "Architect",
+                        CancellationToken.None));
+            }
+
+            var created = await RunAgentCliAsync(dataDirectory, providerId, create: true);
+            Assert.Equal(0, created.ExitCode);
+            using var createdJson = JsonDocument.Parse(created.StandardOutput);
+            Assert.True(createdJson.RootElement.GetProperty("created").GetBoolean());
+            Assert.True(Guid.TryParseExact(
+                createdJson.RootElement.GetProperty("agentId").GetString(),
+                "D",
+                out var createdId));
+
+            await using var verificationServices = BuildServices(dataDirectory);
+            await using var verificationScope = verificationServices.CreateAsyncScope();
+            Assert.NotNull(await verificationScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByIdAsync(new AgentForge.Domain.Agents.AgentIdentityId(createdId), CancellationToken.None));
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
+        }
+    }
+
     private static async Task<CliResult> RunCliAsync(string dataDirectory, bool interactive = false)
     {
         var root = FindRepositoryRoot();
@@ -135,6 +198,96 @@ public sealed class HeadlessSetupCliTests
             process.ExitCode,
             await standardOutput,
             await standardError);
+    }
+
+    private static async Task<CliResult> RunAgentCliAsync(
+        string dataDirectory,
+        ProviderProfileId providerId,
+        bool create)
+    {
+        var root = FindRepositoryRoot();
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+            ?? throw new InvalidOperationException("Could not determine the test build configuration.");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add(Path.Combine(root, "src", "AgentForge.Cli", "bin", configuration, "net10.0", "agentforge.dll"));
+        foreach (var argument in new[]
+        {
+            "setup", "agent", create ? "create" : "preview",
+            "--data-directory", dataDirectory,
+            "--name", "Architect",
+            "--provider-id", providerId.ToString(),
+            "--actor", "local-operator",
+            "--correlation", create ? "agent-create-e2e" : "agent-preview-e2e",
+            "--max-children", "2",
+            "--max-child-depth", "2",
+            "--max-child-concurrency", "1",
+            "--max-child-tokens", "10000",
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync(timeout.Token);
+        return new CliResult(process.ExitCode, await standardOutput, await standardError);
+    }
+
+    private static async Task<ProviderProfileId> SeedProviderAsync(string dataDirectory)
+    {
+        await using var services = BuildServices(dataDirectory);
+        await using var scope = services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(CancellationToken.None);
+        var setup = scope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+        Assert.True((await setup.BeginAsync(new AgentForge.Domain.Setup.BeginSetupRequest(
+            new InstallationId(Guid.Parse("13985bdc-a735-48db-a58f-61609d20814b")),
+            new ActorId("local-operator"),
+            new CorrelationId("agent-seed-begin")), CancellationToken.None)).IsSuccess);
+        var secret = await scope.ServiceProvider.GetRequiredService<ISecretStore>()
+            .StoreAsync("e2e-provider", "e2e-fixture".AsMemory(), CancellationToken.None);
+        Assert.True(secret.IsSuccess);
+        var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+            new ProviderProfileCandidate(
+                "primary",
+                "deterministic",
+                new Uri("http://127.0.0.1:9000/v1"),
+                "deterministic-text-v1",
+                secret.Value),
+            new ActorId("local-operator"),
+            new CorrelationId("agent-seed-provider")), CancellationToken.None);
+        Assert.True(provider.IsSuccess);
+        return provider.Value.Profile.Id;
+    }
+
+    private static ServiceProvider BuildServices(string dataDirectory)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["AgentForge:Installation:DataDirectory"] = dataDirectory,
+                ["AgentForge:Persistence:EnableConnectionPooling"] = "false",
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddAgentForgeSetup(configuration);
+        services.AddAgentForgePersistence(configuration);
+        services.AddAgentForgeSecurity(configuration);
+        services.AddSingleton<ISecretStore, DeterministicSecretStore>();
+        services.AddAgentForgeAudit();
+        return services.BuildServiceProvider(validateScopes: true);
     }
 
     private static void DeleteTemporaryDirectory(string temporaryRoot, string dataDirectory)

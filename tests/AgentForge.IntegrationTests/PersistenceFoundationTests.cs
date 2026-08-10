@@ -1,4 +1,5 @@
 using System.Text;
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
@@ -7,6 +8,7 @@ using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
@@ -402,6 +404,117 @@ public sealed class PersistenceFoundationTests : IDisposable
         Assert.True(conflict.Failure?.IsRetryable);
     }
 
+    [Fact]
+    public async Task Agent_preview_is_write_free_and_creation_persists_exact_effective_bounds()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("27b3ee21-5c8d-4db7-9db6-eac8cf1c605f"));
+        ProviderProfile provider;
+        await using (var setupScope = _services.CreateAsyncScope())
+        {
+            var setup = setupScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("operator"),
+                new CorrelationId("agent-begin")), CancellationToken.None)).IsSuccess);
+
+            var secret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("agent-provider", "fixture-value".AsMemory(), CancellationToken.None);
+            Assert.True(secret.IsSuccess);
+            var configured = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "agent-primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    secret.Value),
+                new ActorId("operator"),
+                new CorrelationId("agent-provider")), CancellationToken.None);
+            Assert.True(configured.IsSuccess);
+            provider = configured.Value.Profile;
+        }
+
+        var candidate = CreateAgentCandidate(provider.Id);
+        await using (var previewScope = _services.CreateAsyncScope())
+        {
+            var preview = await previewScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .PreviewAgentAsync(new PreviewAgentRequest(
+                    candidate,
+                    new ActorId("operator"),
+                    new CorrelationId("agent-preview")), CancellationToken.None);
+            Assert.True(preview.IsSuccess);
+            Assert.Equal("agent-primary", preview.Value.ProviderName);
+            Assert.Equal(
+                CapabilityDecision.Deny,
+                Assert.Single(preview.Value.Capabilities, item => item.CapabilityId == "network.external").Decision);
+            Assert.Null(await previewScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByNameAsync(installationId, "Architect", CancellationToken.None));
+            Assert.Equal(2, (await previewScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 10, CancellationToken.None)).Count);
+        }
+
+        AgentIdentity created;
+        await using (var createScope = _services.CreateAsyncScope())
+        {
+            var result = await createScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .CreateAgentAsync(new CreateAgentRequest(
+                    candidate,
+                    new ActorId("operator"),
+                    new CorrelationId("agent-create")), CancellationToken.None);
+            Assert.True(result.IsSuccess);
+            created = result.Value.Agent;
+            Assert.Equal(LearningMode.Propose, created.LearningPolicy.Mode);
+            Assert.Equal(10_000, created.ChildLimits.MaxTotalTokens);
+        }
+
+        await using (var verificationScope = _services.CreateAsyncScope())
+        {
+            var restored = await verificationScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByIdAsync(created.Id, CancellationToken.None);
+            Assert.NotNull(restored);
+            Assert.Equal(candidate.Budget, restored.Budget);
+            Assert.Equal(candidate.ChildLimits, restored.ChildLimits);
+            Assert.Equal(candidate.ModelPolicy, restored.ModelPolicy);
+            Assert.Equal(candidate.MemoryPolicy, restored.MemoryPolicy);
+            Assert.Equal(candidate.CapabilityPolicy.NetworkPosture, restored.CapabilityPolicy.NetworkPosture);
+            Assert.Equal(candidate.CapabilityPolicy.ToolGrants, restored.CapabilityPolicy.ToolGrants);
+            Assert.Equal(candidate.CapabilityPolicy.SkillGrants, restored.CapabilityPolicy.SkillGrants);
+            Assert.Equal(candidate.LearningPolicy, restored.LearningPolicy);
+            Assert.Equal(3, (await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 10, CancellationToken.None)).Count);
+        }
+    }
+
+    [Fact]
+    public async Task Agent_migration_upgrades_provider_schema_without_losing_profiles()
+    {
+        var installationId = new InstallationId(Guid.Parse("81f68955-fc92-4c43-82e8-dc80eadb589a"));
+        var providerId = new ProviderProfileId(Guid.Parse("82035fd5-3045-44d9-b97e-c5262074a6ae"));
+        await using (var providerSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = providerSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260810171602_ProviderProfiles", CancellationToken.None);
+            await providerSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("upgrade-fixture"),
+                    new CorrelationId("agent-upgrade")), CancellationToken.None);
+            await providerSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "upgrade-provider"), CancellationToken.None);
+            Assert.True((await providerSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.NotNull(await upgradedScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .FindByIdAsync(providerId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .FindByNameAsync(installationId, "missing", CancellationToken.None));
+    }
+
     public void Dispose()
     {
         _services.Dispose();
@@ -459,4 +572,19 @@ public sealed class PersistenceFoundationTests : IDisposable
         Now,
         new ActorId("operator"),
         new CorrelationId("provider-race"));
+
+    private static AgentIdentityCandidate CreateAgentCandidate(ProviderProfileId providerId) => new(
+        "Architect",
+        "C# systems architecture",
+        "Design bounded and verifiable systems.",
+        "en",
+        "UTC",
+        "Concise",
+        null,
+        new AgentModelPolicy(providerId, ModelDataLocality.LocalOnly, AllowFallback: false),
+        new AgentMemoryPolicy(AgentMemoryScope.Agent, 30),
+        new AgentCapabilityPolicy(NetworkPosture.LoopbackOnly, ["tool:repo.read"], ["skill:csharp.review"]),
+        new AgentBudget(64, 32, 16_000, 4_000, 3600),
+        new ChildAgentLimits(2, 4, 2, 10_000),
+        new AgentLearningPolicy(LearningMode.Propose, MutableSkillScope.ProposalWorkspaceOnly));
 }

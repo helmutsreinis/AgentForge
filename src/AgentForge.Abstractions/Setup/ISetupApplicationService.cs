@@ -1,3 +1,4 @@
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Setup;
@@ -12,5 +13,13 @@ public interface ISetupApplicationService
 
     Task<DomainResult<ConfigureProviderResult>> ConfigureProviderAsync(
         ConfigureProviderRequest request,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<EffectiveAgentDefinition>> PreviewAgentAsync(
+        PreviewAgentRequest request,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<CreateAgentResult>> CreateAgentAsync(
+        CreateAgentRequest request,
         CancellationToken cancellationToken);
 }

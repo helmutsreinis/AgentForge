@@ -107,3 +107,20 @@ Provider endpoints reject user info, query strings, and fragments so credentials
 cannot be smuggled into configuration. Profiles are installation-scoped, uniquely
 named, versioned, and foreign-key bound. Tests scan the database, audit payloads, and
 the protected file for the exact plaintext fixture.
+
+## M1 agent-policy update
+
+Agent candidates are normalized and structurally validated before durable state is
+read. A selected provider must belong to the same installation and carry observed
+text capability. `LocalOnly` requires a loopback endpoint and forbids fallback.
+Child depth, count, concurrency, and token allocation are jointly bounded and cannot
+exceed the parent bootstrap token budget. Learning mode and mutable-skill scope must
+match; bootstrap never grants direct credential access, external messaging, device
+write, privileged execution, external network, or autonomous promotion.
+
+Effective previews enumerate explicit `Allow`, `Deny`, and `RequireApproval`
+decisions outside model control. Exact tool/skill identifiers remain approval-gated
+because their catalogs are not available yet. Preview is read-only, while create
+re-evaluates and atomically appends a redacted audit event. M2 must still implement
+request-bound authorization, inheritance/intersection, approval expiration, and the
+global missing-policy-denies evaluator used at invocation time.

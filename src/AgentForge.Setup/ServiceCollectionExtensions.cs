@@ -1,3 +1,4 @@
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Setup;
@@ -23,6 +24,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
         services.AddScoped<ISetupApplicationService, SetupApplicationService>();
         services.AddScoped<IProviderProfileValidator, DeterministicProviderProfileValidator>();
+        services.AddSingleton<IAgentDefinitionEvaluator, ConservativeAgentDefinitionEvaluator>();
         return services;
     }
 }

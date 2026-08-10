@@ -65,6 +65,30 @@ Backups preserve provider database rows and OS secret references together. Resto
 only SQLite can leave valid-looking but non-materializable references; validate every
 reference before proceeding beyond setup.
 
+## Agent policy preview and creation
+
+After a provider profile has been validated, preview a conservative named-agent
+definition without writing state:
+
+```text
+agentforge setup agent preview --data-directory <absolute-path> --name <name> --provider-id <guid> --actor <actor-id> --correlation <correlation-id>
+```
+
+Use `setup agent create` with the same options to persist the previewed defaults.
+Optional flags configure model locality/fallback, memory scope/retention, network
+posture, budgets, child bounds, learning mode, and mutable-skill scope; `--help`
+lists the command shape. Always run preview first and inspect every capability
+decision. `Deny` is the default for external network, credentials, messages, device
+writes, privileged execution, and learning promotion. Exact tool/skill grants are
+available through the application contract but remain approval-gated until their
+catalogs exist.
+
+Creation is allowed only while installation state is `Configuring`, requires a same-
+installation provider with observed text capability, and returns JSON. Exit codes are
+0 for success, 1 for validation/policy/state failure, 3 for a retryable write conflict,
+and 130 for cancellation. Agent creation does not transition the installation to
+`Ready`; minimum viability and administrator bootstrap remain separate gates.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a
@@ -78,6 +102,11 @@ database by copying only its main file.
 Migration 0001 creates a new store and has no data-preserving down migration. On a
 failed first install, retain diagnostics and restore the pre-migration directory. Do
 not delete or overwrite a populated database to simulate rollback.
+
+Migration 0003 creates agent identities and foreign-key binds their installation and
+primary provider. Before upgrading, stop AgentForge and back up the complete SQLite,
+artifact, and secret-reference set. Its generated down migration drops identities;
+restore the pre-upgrade backup instead of applying down to operator state.
 
 ## Gate and recovery rules
 

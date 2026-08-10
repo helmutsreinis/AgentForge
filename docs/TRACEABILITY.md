@@ -16,6 +16,8 @@
 | AF-SET-002 (setup begin) | shared `ISetupApplicationService`, interactive/headless CLI input, atomic installation plus audit commit | unit conflict/validation tests, integration transaction test, CLI restart and equivalence E2E tests | `M1-03-20260810.md` |
 | AF-SET-003..004 (provider portion) | deterministic provider validator, versioned profile repository, capability evidence, secret reference only | provider validation/persistence, baseline upgrade, cold restore, and plaintext-absence integration tests | `M1-04-20260810.md` |
 | AF-SEC-003 (secret-store portion) | disposable leases, Windows DPAPI current-user store, Linux Secret Service adapter, deterministic fake | Windows encrypted-at-rest round trip, Linux typed-unavailable test, lease disposal, DB/audit byte scans | `M1-04-20260810.md` |
+| AF-ID-001 | immutable agent identity plus separate routing, memory, capability, budget, child, and learning policies; versioned repository; CLI preview/create | pure policy unit tests, write-free preview and durable round-trip integration, headless CLI E2E on Windows/Linux | `M1-05-20260810.md` |
+| AF-SEC-001/005 (bootstrap bounds) | conservative `Allow`/`Deny`/`RequireApproval` preview; exact-grant validation; locality, recursion, child-budget, credential, network, device, and promotion restrictions | fail-closed policy decisions, invalid-policy unit fixtures, migration and atomic create integration | `M1-05-20260810.md` |
 
 Requirements marked `In progress` have partial gate evidence but remain open until
 every acceptance criterion in the ledger is implemented and verified.

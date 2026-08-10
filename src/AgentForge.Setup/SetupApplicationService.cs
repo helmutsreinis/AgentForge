@@ -1,9 +1,11 @@
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
@@ -18,6 +20,8 @@ internal sealed class SetupApplicationService(
     IUnitOfWork unitOfWork,
     IProviderProfileRepository providerProfiles,
     IProviderProfileValidator providerValidator,
+    IAgentIdentityRepository agents,
+    IAgentDefinitionEvaluator agentDefinitionEvaluator,
     IClock clock,
     IIdentifierGenerator identifiers) : ISetupApplicationService
 {
@@ -191,6 +195,157 @@ internal sealed class SetupApplicationService(
             : DomainResult.Fail<ConfigureProviderResult>(commit.Failure!);
     }
 
+    public async Task<DomainResult<EffectiveAgentDefinition>> PreviewAgentAsync(
+        PreviewAgentRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var prepared = await PrepareAgentAsync(
+            request.Candidate,
+            request.ActorId,
+            request.CorrelationId,
+            cancellationToken);
+        return prepared.IsSuccess
+            ? DomainResult.Success(prepared.Value.EffectiveDefinition)
+            : DomainResult.Fail<EffectiveAgentDefinition>(prepared.Failure!);
+    }
+
+    public async Task<DomainResult<CreateAgentResult>> CreateAgentAsync(
+        CreateAgentRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var prepared = await PrepareAgentAsync(
+            request.Candidate,
+            request.ActorId,
+            request.CorrelationId,
+            cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return DomainResult.Fail<CreateAgentResult>(prepared.Failure!);
+        }
+
+        var preparation = prepared.Value;
+        var now = clock.UtcNow;
+        var candidate = preparation.EffectiveDefinition.Agent;
+        var agent = new AgentIdentity(
+            new AgentIdentityId(identifiers.NewGuid()),
+            preparation.Installation.Id,
+            candidate.Name,
+            candidate.Expertise,
+            candidate.Mission,
+            candidate.PreferredLanguage,
+            candidate.TimeZone,
+            candidate.ResponseStyle,
+            candidate.DefaultWorkspace,
+            candidate.ModelPolicy,
+            candidate.MemoryPolicy,
+            candidate.CapabilityPolicy,
+            candidate.Budget,
+            candidate.ChildLimits,
+            candidate.LearningPolicy,
+            0,
+            now,
+            now,
+            request.ActorId,
+            request.CorrelationId);
+        await agents.AddAsync(agent, cancellationToken);
+
+        await auditRecorder.RecordAsync(new AuditRecordRequest(
+            preparation.Installation.Id,
+            request.ActorId,
+            request.CorrelationId,
+            preparation.Installation.CorrelationId,
+            "setup.agent-created",
+            AuditOutcome.Succeeded,
+            new
+            {
+                agent.Name,
+                agent.PreferredLanguage,
+                agent.TimeZone,
+                agent.ModelPolicy.PrimaryProviderProfileId,
+                agent.ModelPolicy.DataLocality,
+                agent.MemoryPolicy.Scope,
+                agent.CapabilityPolicy.NetworkPosture,
+                ToolGrantCount = agent.CapabilityPolicy.ToolGrants.Count,
+                SkillGrantCount = agent.CapabilityPolicy.SkillGrants.Count,
+                agent.LearningPolicy.Mode,
+                agent.LearningPolicy.MutableSkillScope,
+            },
+            new
+            {
+                agent.Id,
+                agent.Budget.MaxTurns,
+                agent.Budget.MaxToolInvocations,
+                agent.Budget.MaxInputTokens,
+                agent.Budget.MaxOutputTokens,
+                agent.Budget.MaxWallClockSeconds,
+                agent.ChildLimits.MaxDepth,
+                agent.ChildLimits.MaxChildren,
+                agent.ChildLimits.MaxConcurrency,
+                agent.ChildLimits.MaxTotalTokens,
+                CapabilityDecisions = preparation.EffectiveDefinition.Capabilities
+                    .GroupBy(item => item.Decision)
+                    .ToDictionary(group => group.Key.ToString(), group => group.Count()),
+            },
+            null), cancellationToken);
+
+        var commit = await unitOfWork.CommitAsync(cancellationToken);
+        return commit.Succeeded
+            ? DomainResult.Success(new CreateAgentResult(agent, preparation.EffectiveDefinition))
+            : DomainResult.Fail<CreateAgentResult>(commit.Failure!);
+    }
+
+    private async Task<DomainResult<AgentPreparation>> PrepareAgentAsync(
+        AgentIdentityCandidate candidate,
+        ActorId actorId,
+        CorrelationId correlationId,
+        CancellationToken cancellationToken)
+    {
+        var requestFailure = ValidateActorAndCorrelation(actorId, correlationId);
+        if (requestFailure is not null)
+        {
+            return DomainResult.Fail<AgentPreparation>(requestFailure);
+        }
+
+        var normalized = agentDefinitionEvaluator.NormalizeAndValidate(candidate);
+        if (!normalized.IsSuccess)
+        {
+            return DomainResult.Fail<AgentPreparation>(normalized.Failure!);
+        }
+
+        var installation = await installations.ReadAsync(cancellationToken);
+        if (installation.Id.Value == Guid.Empty || installation.State is not InstallationState.Configuring)
+        {
+            return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                FailureCode.InvalidStateTransition,
+                "An agent can be configured only while installation setup is Configuring."));
+        }
+
+        var existing = await agents.FindByNameAsync(installation.Id, normalized.Value.Name, cancellationToken);
+        if (existing is not null)
+        {
+            return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "An agent identity with this name already exists."));
+        }
+
+        var provider = await providerProfiles.FindByIdAsync(
+            normalized.Value.ModelPolicy.PrimaryProviderProfileId,
+            cancellationToken);
+        if (provider is null || provider.InstallationId != installation.Id)
+        {
+            return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "The selected provider profile does not exist in this installation."));
+        }
+
+        var effectiveDefinition = agentDefinitionEvaluator.Evaluate(normalized.Value, provider);
+        return effectiveDefinition.IsSuccess
+            ? DomainResult.Success(new AgentPreparation(installation, effectiveDefinition.Value))
+            : DomainResult.Fail<AgentPreparation>(effectiveDefinition.Failure!);
+    }
+
     private static DomainFailure? Validate(BeginSetupRequest request)
     {
         if (request.InstallationId is { Value: var installationId } && installationId == Guid.Empty)
@@ -246,4 +401,8 @@ internal sealed class SetupApplicationService(
 
         return null;
     }
+
+    private sealed record AgentPreparation(
+        InstallationSnapshot Installation,
+        EffectiveAgentDefinition EffectiveDefinition);
 }

@@ -15,6 +15,16 @@ internal sealed class SqliteProviderProfileRepository(AgentForgeDbContext dbCont
         await dbContext.ProviderProfiles.AddAsync(Map(profile), cancellationToken);
     }
 
+    public async ValueTask<ProviderProfile?> FindByIdAsync(
+        ProviderProfileId profileId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.ProviderProfiles
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == profileId.Value, cancellationToken);
+        return entity is null ? null : Map(entity);
+    }
+
     public async ValueTask<ProviderProfile?> FindByNameAsync(
         InstallationId installationId,
         string name,

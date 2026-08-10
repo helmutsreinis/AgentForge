@@ -4,8 +4,9 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 5: add agent identity, effective-policy preview, budgets, routing,
-memory scope, child limits, and learning permissions.
+Milestone 1 slice 6: complete minimum-viability validation, local administrator
+bootstrap, doctor/report/export, rollback snapshots, edit/diff, recovery, and the
+guarded transition to `Ready`.
 
 ## Completed
 
@@ -26,10 +27,13 @@ memory scope, child limits, and learning permissions.
 - Restart persistence, duplicate transition rejection, control-character validation, interactive/headless equivalence, atomic state/audit integrity, and dual-platform behavior pass in the 34-test suite.
 - M1 slice 4 added disposable secret leases, a Windows current-user DPAPI store, a bounded Linux Secret Service adapter, typed unavailability, a deterministic fake, versioned provider profiles, capability evidence, and deterministic provider validation.
 - Plaintext absence from encrypted files, SQLite bytes, audit JSON, and profile objects; baseline migration; cold restore; endpoint credential rejection; typed uniqueness races; and provider state/audit atomicity pass in the 40-test suite.
+- M1 slice 5 added immutable named-agent definitions, separate model-routing policy, memory and network posture, exact grants, bounded run/child budgets, learning policy, a conservative effective-capability evaluator, and durable agent profiles.
+- Preview is write-free; create re-evaluates the same policy, commits identity plus redacted audit atomically, and is available through deterministic application-service and headless CLI paths. Unsafe locality fallback, child-budget escalation, mutable-skill mismatches, invalid grants, and unobserved provider capability fail typed.
+- Migration 0003 preserves migration-0002 provider profiles. Windows and Ubuntu builds, format, setup-only host smoke, CLI preview/create, and all 47 tests pass.
 
 ## Latest gate
 
-`artifacts/gates/M1-04-20260810.md`: Pass.
+`artifacts/gates/M1-05-20260810.md`: Pass.
 
 ## Known constraints and risks
 
@@ -37,11 +41,11 @@ memory scope, child limits, and learning permissions.
 - No authenticated administration exists yet. Therefore normal runtime operations remain disabled by design.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
-- Setup can enter `Configuring` and persist one validated provider, but cannot create an administrator or agent or enter `Ready`; those gates remain deliberately closed.
+- Setup can enter `Configuring`, persist a validated provider and named agent, and preview the exact conservative policy. It cannot create an administrator or enter `Ready`; those gates remain deliberately closed.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Start M1 slice 5: define immutable agent identity and budget/policy records, persist
-versioned agent profiles, render effective capability previews, and prove child,
-learning, routing, and memory settings cannot exceed setup bounds.
+Start M1 slice 6 with the OS-backed local administrator credential and minimum-
+viability validator. Then add doctor, redacted setup export/report and rollback
+snapshot, edit/diff, recovery behavior, and the only authorized `Ready` transition.

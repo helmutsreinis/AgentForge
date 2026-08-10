@@ -15,6 +15,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ProviderProfileEntity> ProviderProfiles => Set<ProviderProfileEntity>();
 
+    internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -83,6 +85,38 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
             entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
             entity.Property(item => item.EvidenceSource).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<AgentIdentityEntity>(entity =>
+        {
+            entity.ToTable("agent_identities");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.PrimaryProviderProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.Name }).IsUnique();
+            entity.Property(item => item.Name).UseCollation("NOCASE").HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Expertise).HasMaxLength(512);
+            entity.Property(item => item.Mission).HasMaxLength(4096);
+            entity.Property(item => item.PreferredLanguage).HasMaxLength(35).IsRequired();
+            entity.Property(item => item.TimeZone).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.ResponseStyle).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.DefaultWorkspace).HasMaxLength(1024);
+            entity.Property(item => item.DataLocality).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.MemoryScope).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.NetworkPosture).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.ToolGrantsJson).IsRequired();
+            entity.Property(item => item.SkillGrantsJson).IsRequired();
+            entity.Property(item => item.LearningMode).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.MutableSkillScope).HasMaxLength(64).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();

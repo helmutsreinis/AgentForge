@@ -1,3 +1,4 @@
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
@@ -46,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditReader>(provider => provider.GetRequiredService<SqliteAuditJournal>());
         services.AddScoped<IArtifactStore, FileSystemArtifactStore>();
         services.AddScoped<IProviderProfileRepository, SqliteProviderProfileRepository>();
+        services.AddScoped<IAgentIdentityRepository, SqliteAgentIdentityRepository>();
         return services;
     }
 

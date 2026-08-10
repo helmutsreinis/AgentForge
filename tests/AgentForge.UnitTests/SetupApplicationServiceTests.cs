@@ -1,9 +1,11 @@
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Persistence;
@@ -90,6 +92,7 @@ public sealed class SetupApplicationServiceTests
         services.AddAgentForgeSetup(configuration);
         services.AddSingleton<IInstallationRepository>(repository ?? new StubInstallationRepository());
         services.AddSingleton<IProviderProfileRepository, StubProviderProfileRepository>();
+        services.AddSingleton<IAgentIdentityRepository, StubAgentIdentityRepository>();
         services.AddSingleton<IProviderProfileValidator, StubProviderValidator>();
         services.AddSingleton<IAuditRecorder, StubAuditRecorder>();
         services.AddSingleton(unitOfWork);
@@ -156,10 +159,29 @@ public sealed class SetupApplicationServiceTests
         public ValueTask AddAsync(ProviderProfile profile, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
 
+        public ValueTask<ProviderProfile?> FindByIdAsync(
+            ProviderProfileId profileId,
+            CancellationToken cancellationToken) => ValueTask.FromResult<ProviderProfile?>(null);
+
         public ValueTask<ProviderProfile?> FindByNameAsync(
             InstallationId installationId,
             string name,
             CancellationToken cancellationToken) => ValueTask.FromResult<ProviderProfile?>(null);
+    }
+
+    private sealed class StubAgentIdentityRepository : IAgentIdentityRepository
+    {
+        public ValueTask AddAsync(AgentIdentity agent, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<AgentIdentity?> FindByNameAsync(
+            InstallationId installationId,
+            string name,
+            CancellationToken cancellationToken) => ValueTask.FromResult<AgentIdentity?>(null);
+
+        public ValueTask<AgentIdentity?> FindByIdAsync(
+            AgentIdentityId agentId,
+            CancellationToken cancellationToken) => ValueTask.FromResult<AgentIdentity?>(null);
     }
 
     private sealed class StubProviderValidator : IProviderProfileValidator
