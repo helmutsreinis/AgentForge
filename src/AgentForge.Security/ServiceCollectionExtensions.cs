@@ -27,6 +27,8 @@ public static class ServiceCollectionExtensions
                 "SecretDirectoryName must be a relative directory name")
             .ValidateOnStart();
         services.AddSingleton<ISensitiveDataRedactor, StructuredSensitiveDataRedactor>();
+        services.AddScoped<ILocalAdministratorCredentialService, LocalAdministratorCredentialService>();
+        services.AddScoped<ILocalAdministratorAuthenticator, LocalAdministratorAuthenticator>();
         services.AddSingleton<ISecretStore>(provider =>
         {
             if (OperatingSystem.IsWindows())

@@ -4,9 +4,8 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 6: complete minimum-viability validation, local administrator
-bootstrap, doctor/report/export, rollback snapshots, edit/diff, recovery, and the
-guarded transition to `Ready`.
+Milestone 1 slice 6b: add doctor/report/export, rollback snapshots, edit/diff, and
+authorized recovery while keeping normal runtime operations authenticated.
 
 ## Completed
 
@@ -30,22 +29,25 @@ guarded transition to `Ready`.
 - M1 slice 5 added immutable named-agent definitions, separate model-routing policy, memory and network posture, exact grants, bounded run/child budgets, learning policy, a conservative effective-capability evaluator, and durable agent profiles.
 - Preview is write-free; create re-evaluates the same policy, commits identity plus redacted audit atomically, and is available through deterministic application-service and headless CLI paths. Unsafe locality fallback, child-budget escalation, mutable-skill mismatches, invalid grants, and unobserved provider capability fail typed.
 - Migration 0003 preserves migration-0002 provider profiles. Windows and Ubuntu builds, format, setup-only host smoke, CLI preview/create, and all 47 tests pass.
+- M1 slice 6a added a random 256-bit local-administrator credential, OS-backed client reference, PBKDF2-SHA256 verifier-only server state, fixed-time authentication, minimum-viability checks, and the sole guarded `Configuring → Validating → Ready` completion path.
+- Completion verifies audit integrity, a materializable text-provider secret, a named agent, and current storage; identity/state/audit commit atomically and the external credential is deleted on commit failure. Ready runtime ping requires the administrator bearer credential.
+- Migration 0004 preserves existing agent configuration. Windows and Ubuntu builds, format, setup-only smoke, deterministic completion/authentication, and all 51 tests pass; Windows additionally passes live DPAPI CLI completion.
 
 ## Latest gate
 
-`artifacts/gates/M1-05-20260810.md`: Pass.
+`artifacts/gates/M1-06A-20260810.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
-- No authenticated administration exists yet. Therefore normal runtime operations remain disabled by design.
+- Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
-- Setup can enter `Configuring`, persist a validated provider and named agent, and preview the exact conservative policy. It cannot create an administrator or enter `Ready`; those gates remain deliberately closed.
+- Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Start M1 slice 6 with the OS-backed local administrator credential and minimum-
-viability validator. Then add doctor, redacted setup export/report and rollback
-snapshot, edit/diff, recovery behavior, and the only authorized `Ready` transition.
+Implement `doctor`, redacted setup export/report and rollback snapshots, then add
+version-bound edit/diff and authorized recovery transitions. Close M1 only after
+backup/restore and interactive/headless profile equivalence pass the final gate.

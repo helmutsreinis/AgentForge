@@ -124,3 +124,20 @@ because their catalogs are not available yet. Preview is read-only, while create
 re-evaluates and atomically appends a redacted audit event. M2 must still implement
 request-bound authorization, inheritance/intersection, approval expiration, and the
 global missing-policy-denies evaluator used at invocation time.
+
+## M1 administrator/completion update
+
+AgentForge generates administrator credentials from 256 random bits and encodes them
+without creating a managed plaintext string. The client credential is stored through
+the OS adapter; SQLite stores only store/key reference, random salt, work factor, and
+PBKDF2-SHA256 verifier. Verification uses fixed-time comparison. Tests materialize
+the client reference for one disposable lease and prove exact credential bytes are
+absent from SQLite.
+
+Completion fails closed unless storage migrations have initialized, the global audit
+chain verifies, a text provider's secret can materialize, and a named agent exists.
+External credential creation precedes the relational commit, so any unsuccessful
+commit triggers exact-reference deletion. A Ready runtime endpoint returns 401
+without a valid bounded bearer credential. Rate limits, lockout/session policy,
+request idempotency, CSRF/browser authentication, and remote TLS remain open and must
+pass before exposing mutation or remote surfaces.

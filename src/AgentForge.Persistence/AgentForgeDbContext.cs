@@ -17,6 +17,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
 
+    internal DbSet<LocalAdministratorEntity> LocalAdministrators => Set<LocalAdministratorEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -119,6 +121,26 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.MutableSkillScope).HasMaxLength(64).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<LocalAdministratorEntity>(entity =>
+        {
+            entity.ToTable("local_administrators");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => item.InstallationId).IsUnique();
+            entity.HasIndex(item => item.ActorId).IsUnique();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.VerifierAlgorithm).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.VerifierSalt).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Verifier).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
         });
     }

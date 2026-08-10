@@ -2,6 +2,7 @@ using System.Text;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Security;
 using AgentForge.Security;
 using AgentForge.Setup;
 using Microsoft.Extensions.Configuration;
@@ -84,6 +85,36 @@ public sealed class SecretStoreSecurityTests
         {
             DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
         }
+    }
+
+    [Fact]
+    public async Task Administrator_credential_keeps_only_a_fixed_time_verifier_and_os_reference()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var registrations = new ServiceCollection();
+        registrations.AddAgentForgeSetup(configuration);
+        registrations.AddSingleton<IIdentifierGenerator, SequentialIdentifierGenerator>();
+        registrations.AddAgentForgeSecurity(configuration);
+        registrations.AddSingleton<ISecretStore, DeterministicSecretStore>();
+        await using var services = registrations.BuildServiceProvider(validateScopes: true);
+        await using var scope = services.CreateAsyncScope();
+        var credentials = scope.ServiceProvider.GetRequiredService<ILocalAdministratorCredentialService>();
+
+        var created = await credentials.CreateAsync("administrator", CancellationToken.None);
+        Assert.True(created.IsSuccess);
+        Assert.Equal("PBKDF2-SHA256", created.Value.CredentialVerifier.Algorithm);
+        Assert.True(created.Value.CredentialVerifier.WorkFactor >= 600_000);
+
+        var materialized = await scope.ServiceProvider.GetRequiredService<ISecretStore>()
+            .MaterializeAsync(created.Value.ClientCredentialReference, CancellationToken.None);
+        Assert.True(materialized.IsSuccess);
+        await using var lease = materialized.Value;
+        Assert.True(credentials.Verify(lease.Value.Span, created.Value.CredentialVerifier));
+        Assert.False(credentials.Verify("wrong-credential".AsSpan(), created.Value.CredentialVerifier));
+        Assert.DoesNotContain(
+            new string(lease.Value.Span),
+            created.Value.CredentialVerifier.Verifier,
+            StringComparison.Ordinal);
     }
 
     private static ServiceProvider BuildServices(string dataDirectory)

@@ -82,6 +82,15 @@ budgets, no children unless all child bounds are supplied, and `Propose` learnin
 with proposal-workspace-only mutation. These records are policy inputs; M2 adds the
 general per-invocation authorization evaluator and approval binding.
 
+Setup completion is the only application path to `Ready`. It verifies the current
+audit chain, a same-installation named agent, an observed text provider, and live
+materialization of each usable provider reference. It then creates a 256-bit random
+administrator credential, stores the client value in the selected OS secret store,
+and persists only its reference plus PBKDF2-SHA256 verifier. The two pure state
+transitions and administrator/audit rows commit atomically; failed commits delete the
+new external credential. Ready runtime requests require fixed-time administrator
+authentication.
+
 ## Stable seams
 
 - Provider, model, tool, skill, scheduler, channel, device, artifact, secret, audit,

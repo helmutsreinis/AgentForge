@@ -15,6 +15,10 @@ public interface IProviderProfileRepository
         InstallationId installationId,
         string name,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ProviderProfile>> ListAsync(
+        InstallationId installationId,
+        CancellationToken cancellationToken);
 }
 
 public interface IProviderProfileValidator

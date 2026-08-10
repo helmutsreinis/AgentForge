@@ -18,6 +18,8 @@
 | AF-SEC-003 (secret-store portion) | disposable leases, Windows DPAPI current-user store, Linux Secret Service adapter, deterministic fake | Windows encrypted-at-rest round trip, Linux typed-unavailable test, lease disposal, DB/audit byte scans | `M1-04-20260810.md` |
 | AF-ID-001 | immutable agent identity plus separate routing, memory, capability, budget, child, and learning policies; versioned repository; CLI preview/create | pure policy unit tests, write-free preview and durable round-trip integration, headless CLI E2E on Windows/Linux | `M1-05-20260810.md` |
 | AF-SEC-001/005 (bootstrap bounds) | conservative `Allow`/`Deny`/`RequireApproval` preview; exact-grant validation; locality, recursion, child-budget, credential, network, device, and promotion restrictions | fail-closed policy decisions, invalid-policy unit fixtures, migration and atomic create integration | `M1-05-20260810.md` |
+| AF-SET-003 | minimum-viability completion validates migration startup, audit integrity, materializable text-provider secret, named agent, and local administrator before the pure state-machine path reaches Ready | deterministic completion/restart, missing authority checks, Windows DPAPI CLI completion, Windows/Linux suites | `M1-06A-20260810.md` |
+| AF-HOST-003 (authentication portion) | random OS-referenced administrator credential, verifier-only durable state, fixed-time authenticator, bearer-protected Ready runtime ping | credential security test, valid/invalid authentication integration, plaintext DB scan | `M1-06A-20260810.md` |
 
 Requirements marked `In progress` have partial gate evidence but remain open until
 every acceptance criterion in the ledger is implemented and verified.

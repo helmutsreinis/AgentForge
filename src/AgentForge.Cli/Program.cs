@@ -36,6 +36,11 @@ if (args is ["setup", "agent", "create", .. var createArguments])
     return await ConfigureAgentAsync(createArguments, create: true);
 }
 
+if (args is ["setup", "complete", .. var completeArguments])
+{
+    return await CompleteSetupAsync(completeArguments);
+}
+
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
 if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var baseAddress))
 {
@@ -304,6 +309,94 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
     }
 }
 
+static async Task<int> CompleteSetupAsync(string[] arguments)
+{
+    if (!TryParseCompleteOptions(arguments, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    string dataDirectory;
+    try
+    {
+        dataDirectory = Path.GetFullPath(options!.DataDirectory);
+    }
+    catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    var configuration = new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AgentForge:Installation:DataDirectory"] = dataDirectory,
+        })
+        .Build();
+    var services = new ServiceCollection();
+    services.AddLogging();
+    services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgePersistence(configuration);
+    services.AddAgentForgeSecurity(configuration);
+    services.AddAgentForgeAudit();
+
+    await using var provider = services.BuildServiceProvider(validateScopes: true);
+    await using var scope = provider.CreateAsyncScope();
+    using var cancellation = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        cancellation.Cancel();
+    };
+    Console.CancelKeyPress += cancelHandler;
+    try
+    {
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellation.Token);
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+            .CompleteAsync(new AgentForge.Domain.Security.CompleteSetupRequest(
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId)), cancellation.Token);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            state = result.Value.Installation.State.ToString(),
+            version = result.Value.Installation.Version,
+            administratorId = result.Value.Administrator.Id.ToString(),
+            actorId = result.Value.Administrator.ActorId.Value,
+            credentialReference = new
+            {
+                store = result.Value.Administrator.ClientCredentialReference.Store,
+                key = result.Value.Administrator.ClientCredentialReference.Key,
+            },
+            checks = result.Value.Checks,
+        });
+        return 0;
+    }
+    catch (OperationCanceledException)
+    {
+        await Console.Error.WriteLineAsync("Setup completion was canceled.");
+        return 130;
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+    {
+        return await WriteFailureAsync(new DomainFailure(
+            FailureCode.RecoverableExternalFailure,
+            "Setup completion storage could not be initialized or updated.",
+            IsRetryable: true));
+    }
+    finally
+    {
+        Console.CancelKeyPress -= cancelHandler;
+    }
+}
+
 static async Task<int> WriteFailureAsync(DomainFailure failure)
 {
     await WriteJsonAsync(new
@@ -555,6 +648,48 @@ static bool TryParseAgentOptions(
     return true;
 }
 
+static bool TryParseCompleteOptions(
+    string[] arguments,
+    out SetupCompleteOptions? options,
+    out string? error)
+{
+    options = null;
+    error = null;
+    var values = new Dictionary<string, string>(StringComparer.Ordinal);
+    var allowed = new HashSet<string>(["--actor", "--correlation", "--data-directory"], StringComparer.Ordinal);
+    for (var index = 0; index < arguments.Length; index += 2)
+    {
+        if (index + 1 >= arguments.Length)
+        {
+            error = $"Option '{arguments[index]}' requires a value.";
+            return false;
+        }
+
+        var name = arguments[index];
+        if (!allowed.Contains(name))
+        {
+            error = $"Unknown setup completion option '{name}'.";
+            return false;
+        }
+
+        if (!values.TryAdd(name, arguments[index + 1]))
+        {
+            error = $"Option '{name}' may be specified only once.";
+            return false;
+        }
+    }
+
+    if (!Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    options = new SetupCompleteOptions(dataDirectory, actorId, correlationId);
+    return true;
+}
+
 static bool TryInt(
     IReadOnlyDictionary<string, string> values,
     string name,
@@ -659,6 +794,7 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup begin --interactive");
     Console.WriteLine("  agentforge setup agent preview --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
     Console.WriteLine("  agentforge setup agent create --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
+    Console.WriteLine("  agentforge setup complete --data-directory <path> --actor <id> --correlation <id>");
 }
 
 internal sealed record SetupBeginOptions(
@@ -693,5 +829,10 @@ internal sealed record SetupAgentOptions(
     long MaxChildTotalTokens,
     LearningMode LearningMode,
     MutableSkillScope MutableSkillScope,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record SetupCompleteOptions(
+    string DataDirectory,
     string ActorId,
     string CorrelationId);

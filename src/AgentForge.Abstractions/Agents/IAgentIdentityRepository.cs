@@ -15,6 +15,10 @@ public interface IAgentIdentityRepository
     ValueTask<AgentIdentity?> FindByIdAsync(
         AgentIdentityId agentId,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<AgentIdentity>> ListAsync(
+        InstallationId installationId,
+        CancellationToken cancellationToken);
 }
 
 public interface IAgentDefinitionEvaluator

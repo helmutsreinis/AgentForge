@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
@@ -93,8 +94,12 @@ public sealed class SetupApplicationServiceTests
         services.AddSingleton<IInstallationRepository>(repository ?? new StubInstallationRepository());
         services.AddSingleton<IProviderProfileRepository, StubProviderProfileRepository>();
         services.AddSingleton<IAgentIdentityRepository, StubAgentIdentityRepository>();
+        services.AddSingleton<ILocalAdministratorRepository, StubAdministratorRepository>();
+        services.AddSingleton<ILocalAdministratorCredentialService, StubAdministratorCredentialService>();
+        services.AddSingleton<ISecretStore, StubSecretStore>();
         services.AddSingleton<IProviderProfileValidator, StubProviderValidator>();
         services.AddSingleton<IAuditRecorder, StubAuditRecorder>();
+        services.AddSingleton<IAuditIntegrityVerifier, StubAuditIntegrityVerifier>();
         services.AddSingleton(unitOfWork);
         services.AddSingleton<IClock, StubTime>();
         services.AddSingleton<IIdentifierGenerator, StubTime>();
@@ -167,6 +172,10 @@ public sealed class SetupApplicationServiceTests
             InstallationId installationId,
             string name,
             CancellationToken cancellationToken) => ValueTask.FromResult<ProviderProfile?>(null);
+
+        public Task<IReadOnlyList<ProviderProfile>> ListAsync(
+            InstallationId installationId,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<ProviderProfile>>([]);
     }
 
     private sealed class StubAgentIdentityRepository : IAgentIdentityRepository
@@ -182,6 +191,58 @@ public sealed class SetupApplicationServiceTests
         public ValueTask<AgentIdentity?> FindByIdAsync(
             AgentIdentityId agentId,
             CancellationToken cancellationToken) => ValueTask.FromResult<AgentIdentity?>(null);
+
+        public Task<IReadOnlyList<AgentIdentity>> ListAsync(
+            InstallationId installationId,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<AgentIdentity>>([]);
+    }
+
+    private sealed class StubAdministratorRepository : ILocalAdministratorRepository
+    {
+        public ValueTask AddAsync(LocalAdministrator administrator, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<LocalAdministrator?> FindAsync(
+            InstallationId installationId,
+            CancellationToken cancellationToken) => ValueTask.FromResult<LocalAdministrator?>(null);
+    }
+
+    private sealed class StubAdministratorCredentialService : ILocalAdministratorCredentialService
+    {
+        public Task<DomainResult<GeneratedAdministratorCredential>> CreateAsync(
+            string logicalName,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Fail<GeneratedAdministratorCredential>(
+                new DomainFailure(FailureCode.UnsupportedCapability, "stub")));
+
+        public bool Verify(ReadOnlySpan<char> credential, AdministratorCredentialVerifier verifier) => false;
+    }
+
+    private sealed class StubSecretStore : ISecretStore
+    {
+        public string StoreName => "stub";
+
+        public SecretStoreCapability GetCapability() => new(StoreName, false, new DomainFailure(
+            FailureCode.UnsupportedCapability,
+            "stub"));
+
+        public Task<DomainResult<SecretReference>> StoreAsync(
+            string logicalName,
+            ReadOnlyMemory<char> secret,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<DomainResult<SecretLease>> MaterializeAsync(
+            SecretReference secretReference,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<DomainResult<bool>> DeleteAsync(
+            SecretReference secretReference,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class StubAuditIntegrityVerifier : IAuditIntegrityVerifier
+    {
+        public Task<AuditVerificationResult> VerifyAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new AuditVerificationResult(true, 0, null, null, AuditEventHasher.GenesisHash));
     }
 
     private sealed class StubProviderValidator : IProviderProfileValidator

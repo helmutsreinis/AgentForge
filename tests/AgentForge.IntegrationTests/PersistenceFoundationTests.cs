@@ -515,6 +515,156 @@ public sealed class PersistenceFoundationTests : IDisposable
             .FindByNameAsync(installationId, "missing", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Completion_creates_verified_administrator_and_is_the_only_path_to_ready()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("11b92a79-31a2-43fc-a0df-b4b3aa803c97"));
+        ProviderProfile provider;
+        await using (var configurationScope = _services.CreateAsyncScope())
+        {
+            var setup = configurationScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("local-admin"),
+                new CorrelationId("complete-begin")), CancellationToken.None)).IsSuccess);
+            var secret = await configurationScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("complete-provider", "provider-fixture".AsMemory(), CancellationToken.None);
+            Assert.True(secret.IsSuccess);
+            var configuredProvider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    secret.Value),
+                new ActorId("local-admin"),
+                new CorrelationId("complete-provider")), CancellationToken.None);
+            Assert.True(configuredProvider.IsSuccess);
+            provider = configuredProvider.Value.Profile;
+            Assert.True((await setup.CreateAgentAsync(new CreateAgentRequest(
+                CreateAgentCandidate(provider.Id),
+                new ActorId("local-admin"),
+                new CorrelationId("complete-agent")), CancellationToken.None)).IsSuccess);
+        }
+
+        LocalAdministrator administrator;
+        await using (var completionScope = _services.CreateAsyncScope())
+        {
+            var completed = await completionScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .CompleteAsync(new CompleteSetupRequest(
+                    new ActorId("local-admin"),
+                    new CorrelationId("complete-ready")), CancellationToken.None);
+            Assert.True(completed.IsSuccess);
+            Assert.Equal(InstallationState.Ready, completed.Value.Installation.State);
+            Assert.Equal(6, completed.Value.Checks.Count);
+            Assert.All(completed.Value.Checks, check => Assert.True(check.Succeeded));
+            administrator = completed.Value.Administrator;
+        }
+
+        byte[] credentialBytes;
+        await using (var verificationScope = _services.CreateAsyncScope())
+        {
+            var installation = await verificationScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .ReadAsync(CancellationToken.None);
+            Assert.Equal(InstallationState.Ready, installation.State);
+            var restoredAdministrator = await verificationScope.ServiceProvider
+                .GetRequiredService<ILocalAdministratorRepository>()
+                .FindAsync(installationId, CancellationToken.None);
+            Assert.NotNull(restoredAdministrator);
+            Assert.Equal(administrator.Id, restoredAdministrator.Id);
+            var materialized = await verificationScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .MaterializeAsync(administrator.ClientCredentialReference, CancellationToken.None);
+            Assert.True(materialized.IsSuccess);
+            await using var credential = materialized.Value;
+            Assert.True(verificationScope.ServiceProvider.GetRequiredService<ILocalAdministratorCredentialService>()
+                .Verify(credential.Value.Span, administrator.CredentialVerifier));
+            var authenticated = await verificationScope.ServiceProvider.GetRequiredService<ILocalAdministratorAuthenticator>()
+                .AuthenticateAsync(installationId, credential.Value, CancellationToken.None);
+            Assert.True(authenticated.IsSuccess);
+            Assert.Equal("local-admin", authenticated.Value.Value);
+            var denied = await verificationScope.ServiceProvider.GetRequiredService<ILocalAdministratorAuthenticator>()
+                .AuthenticateAsync(installationId, "wrong-credential".AsMemory(), CancellationToken.None);
+            Assert.False(denied.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, denied.Failure?.Code);
+            credentialBytes = Encoding.UTF8.GetBytes(credential.Value.ToArray());
+            Assert.Equal(4, (await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 10, CancellationToken.None)).Count);
+        }
+
+        try
+        {
+            var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+            Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(credentialBytes));
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(credentialBytes);
+        }
+
+        await using var duplicateScope = _services.CreateAsyncScope();
+        var duplicate = await duplicateScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+            .CompleteAsync(new CompleteSetupRequest(
+                new ActorId("local-admin"),
+                new CorrelationId("complete-duplicate")), CancellationToken.None);
+        Assert.False(duplicate.IsSuccess);
+        Assert.Equal(FailureCode.InvalidStateTransition, duplicate.Failure?.Code);
+    }
+
+    [Fact]
+    public async Task Administrator_migration_preserves_existing_agent_configuration()
+    {
+        var installationId = new InstallationId(Guid.Parse("e28f2935-578a-4752-bad8-b4759853267f"));
+        var providerId = new ProviderProfileId(Guid.Parse("bd4ec746-e8bb-43d6-a514-fd2020dd80b7"));
+        var agentId = new AgentIdentityId(Guid.Parse("c657e9c5-66a7-4427-ac99-6ad3fdad16a6"));
+        await using (var agentSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = agentSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260810173146_AgentIdentities", CancellationToken.None);
+            await agentSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("upgrade-fixture"),
+                    new CorrelationId("administrator-upgrade")), CancellationToken.None);
+            await agentSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "upgrade-provider"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await agentSchemaScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("upgrade-fixture"),
+                    new CorrelationId("administrator-upgrade")), CancellationToken.None);
+            Assert.True((await agentSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.NotNull(await upgradedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .FindByIdAsync(agentId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+            .FindAsync(installationId, CancellationToken.None));
+    }
+
     public void Dispose()
     {
         _services.Dispose();

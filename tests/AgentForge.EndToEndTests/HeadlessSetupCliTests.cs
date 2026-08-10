@@ -143,6 +143,45 @@ public sealed class HeadlessSetupCliTests
         }
     }
 
+    [Fact]
+    public async Task Windows_headless_completion_creates_os_protected_administrator_and_ready_state()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var dataDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataDirectory);
+        try
+        {
+            var providerId = await SeedProviderAsync(dataDirectory, deterministicSecretStore: false);
+            Assert.Equal(0, (await RunAgentCliAsync(dataDirectory, providerId, create: true)).ExitCode);
+
+            var completed = await RunCompleteCliAsync(dataDirectory);
+            Assert.Equal(0, completed.ExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(completed.StandardError));
+            using var document = JsonDocument.Parse(completed.StandardOutput);
+            Assert.True(document.RootElement.GetProperty("succeeded").GetBoolean());
+            Assert.Equal("Ready", document.RootElement.GetProperty("state").GetString());
+            Assert.Equal("windows-dpapi-current-user", document.RootElement
+                .GetProperty("credentialReference")
+                .GetProperty("store")
+                .GetString());
+
+            await using var services = BuildServices(dataDirectory, deterministicSecretStore: false);
+            await using var scope = services.CreateAsyncScope();
+            var installation = await scope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
+                .ReadAsync(CancellationToken.None);
+            Assert.Equal(AgentForge.Domain.Installations.InstallationState.Ready, installation.State);
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
+        }
+    }
+
     private static async Task<CliResult> RunCliAsync(string dataDirectory, bool interactive = false)
     {
         var root = FindRepositoryRoot();
@@ -244,9 +283,46 @@ public sealed class HeadlessSetupCliTests
         return new CliResult(process.ExitCode, await standardOutput, await standardError);
     }
 
-    private static async Task<ProviderProfileId> SeedProviderAsync(string dataDirectory)
+    private static async Task<CliResult> RunCompleteCliAsync(string dataDirectory)
     {
-        await using var services = BuildServices(dataDirectory);
+        var root = FindRepositoryRoot();
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+            ?? throw new InvalidOperationException("Could not determine the test build configuration.");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[]
+        {
+            Path.Combine(root, "src", "AgentForge.Cli", "bin", configuration, "net10.0", "agentforge.dll"),
+            "setup", "complete",
+            "--data-directory", dataDirectory,
+            "--actor", "local-operator",
+            "--correlation", "setup-complete-e2e",
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await process.WaitForExitAsync(timeout.Token);
+        return new CliResult(process.ExitCode, await standardOutput, await standardError);
+    }
+
+    private static async Task<ProviderProfileId> SeedProviderAsync(
+        string dataDirectory,
+        bool deterministicSecretStore = true)
+    {
+        await using var services = BuildServices(dataDirectory, deterministicSecretStore);
         await using var scope = services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
             .InitializeAsync(CancellationToken.None);
@@ -271,7 +347,9 @@ public sealed class HeadlessSetupCliTests
         return provider.Value.Profile.Id;
     }
 
-    private static ServiceProvider BuildServices(string dataDirectory)
+    private static ServiceProvider BuildServices(
+        string dataDirectory,
+        bool deterministicSecretStore = true)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -285,7 +363,11 @@ public sealed class HeadlessSetupCliTests
         services.AddAgentForgeSetup(configuration);
         services.AddAgentForgePersistence(configuration);
         services.AddAgentForgeSecurity(configuration);
-        services.AddSingleton<ISecretStore, DeterministicSecretStore>();
+        if (deterministicSecretStore)
+        {
+            services.AddSingleton<ISecretStore, DeterministicSecretStore>();
+        }
+
         services.AddAgentForgeAudit();
         return services.BuildServiceProvider(validateScopes: true);
     }

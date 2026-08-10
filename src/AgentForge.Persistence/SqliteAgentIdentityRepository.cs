@@ -40,6 +40,18 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         return entity is null ? null : Map(entity);
     }
 
+    public async Task<IReadOnlyList<AgentIdentity>> ListAsync(
+        InstallationId installationId,
+        CancellationToken cancellationToken)
+    {
+        var entities = await dbContext.AgentIdentities
+            .AsNoTracking()
+            .Where(item => item.InstallationId == installationId.Value)
+            .OrderBy(item => item.Name)
+            .ToListAsync(cancellationToken);
+        return entities.Select(Map).ToArray();
+    }
+
     private static AgentIdentityEntity Map(AgentIdentity agent) => new()
     {
         Id = agent.Id.Value,

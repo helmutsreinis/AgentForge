@@ -89,6 +89,24 @@ installation provider with observed text capability, and returns JSON. Exit code
 and 130 for cancellation. Agent creation does not transition the installation to
 `Ready`; minimum viability and administrator bootstrap remain separate gates.
 
+Complete minimum-viability validation with:
+
+```text
+agentforge setup complete --data-directory <absolute-path> --actor <actor-id> --correlation <correlation-id>
+```
+
+The command verifies the audit chain, usable text provider and secret reference, and
+named agent before it creates the local administrator and reaches `Ready`. Output
+contains only the OS secret reference, never credential material. Keep the data
+directory and OS secret-store account together; losing the client reference requires
+the later authorized recovery flow. On Linux, a working Secret Service session is a
+live prerequisite. The deterministic application-service fixture remains the
+credential-free acceptance path in CI.
+
+Ready runtime calls require `Authorization: Bearer <credential>`. Retrieve the value
+through the OS secret reference for one invocation and clear it immediately. Never
+copy it into shell history, process arguments, configuration, logs, or reports.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a
@@ -107,6 +125,9 @@ Migration 0003 creates agent identities and foreign-key binds their installation
 primary provider. Before upgrading, stop AgentForge and back up the complete SQLite,
 artifact, and secret-reference set. Its generated down migration drops identities;
 restore the pre-upgrade backup instead of applying down to operator state.
+
+Migration 0004 creates the single local-administrator row. Its down migration drops
+authentication state and is destructive; restore the full pre-0004 backup instead.
 
 ## Gate and recovery rules
 

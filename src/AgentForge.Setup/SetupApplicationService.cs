@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
@@ -10,6 +11,7 @@ using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 
 namespace AgentForge.Setup;
@@ -22,6 +24,10 @@ internal sealed class SetupApplicationService(
     IProviderProfileValidator providerValidator,
     IAgentIdentityRepository agents,
     IAgentDefinitionEvaluator agentDefinitionEvaluator,
+    ILocalAdministratorRepository administrators,
+    ILocalAdministratorCredentialService administratorCredentials,
+    ISecretStore secretStore,
+    IAuditIntegrityVerifier auditIntegrityVerifier,
     IClock clock,
     IIdentifierGenerator identifiers) : ISetupApplicationService
 {
@@ -294,6 +300,175 @@ internal sealed class SetupApplicationService(
         return commit.Succeeded
             ? DomainResult.Success(new CreateAgentResult(agent, preparation.EffectiveDefinition))
             : DomainResult.Fail<CreateAgentResult>(commit.Failure!);
+    }
+
+    public async Task<DomainResult<SetupCompletionReport>> CompleteAsync(
+        CompleteSetupRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var requestFailure = ValidateActorAndCorrelation(request.ActorId, request.CorrelationId);
+        if (requestFailure is not null)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(requestFailure);
+        }
+
+        var installation = await installations.ReadAsync(cancellationToken);
+        if (installation.Id.Value == Guid.Empty || installation.State is not InstallationState.Configuring)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                FailureCode.InvalidStateTransition,
+                "Setup can be completed only while installation state is Configuring."));
+        }
+
+        if (await administrators.FindAsync(installation.Id, cancellationToken) is not null)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                FailureCode.InvalidStateTransition,
+                "This installation already has a local administrator."));
+        }
+
+        var providers = await providerProfiles.ListAsync(installation.Id, cancellationToken);
+        var usableProviders = providers.Where(item => item.Capabilities.TextGeneration).ToArray();
+        if (usableProviders.Length == 0)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                FailureCode.UnsupportedCapability,
+                "Setup requires at least one validated text-generation provider."));
+        }
+
+        var configuredAgents = await agents.ListAsync(installation.Id, cancellationToken);
+        if (configuredAgents.Count == 0)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Setup requires at least one named agent identity."));
+        }
+
+        var auditVerification = await auditIntegrityVerifier.VerifyAsync(cancellationToken);
+        if (!auditVerification.IsValid)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "The audit chain is invalid; setup must enter recovery instead of Ready."));
+        }
+
+        var secretCapability = secretStore.GetCapability();
+        if (!secretCapability.IsAvailable)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(secretCapability.UnavailableReason!);
+        }
+
+        foreach (var provider in usableProviders)
+        {
+            var materialized = await secretStore.MaterializeAsync(provider.SecretReference, cancellationToken);
+            if (!materialized.IsSuccess)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                    FailureCode.RecoverableExternalFailure,
+                    $"Provider profile '{provider.Name}' has a non-materializable secret reference.",
+                    IsRetryable: true));
+            }
+
+            await materialized.Value.DisposeAsync();
+        }
+
+        var generated = await administratorCredentials.CreateAsync(
+            $"administrator-{installation.Id}",
+            cancellationToken);
+        if (!generated.IsSuccess)
+        {
+            return DomainResult.Fail<SetupCompletionReport>(generated.Failure!);
+        }
+
+        var credentialReference = generated.Value.ClientCredentialReference;
+        var committed = false;
+        try
+        {
+            var validating = InstallationStateMachine.Transition(
+                installation,
+                InstallationTrigger.BeginValidation,
+                clock.UtcNow,
+                request.ActorId,
+                request.CorrelationId);
+            if (!validating.IsSuccess)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(validating.Failure!);
+            }
+
+            var ready = InstallationStateMachine.Transition(
+                validating.Value,
+                InstallationTrigger.ValidationSucceeded,
+                clock.UtcNow,
+                request.ActorId,
+                request.CorrelationId);
+            if (!ready.IsSuccess)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(ready.Failure!);
+            }
+
+            var now = clock.UtcNow;
+            var administrator = new LocalAdministrator(
+                new AdministratorIdentityId(identifiers.NewGuid()),
+                installation.Id,
+                request.ActorId,
+                credentialReference,
+                generated.Value.CredentialVerifier,
+                0,
+                now,
+                now,
+                request.CorrelationId);
+            await administrators.AddAsync(administrator, cancellationToken);
+            await installations.UpdateAsync(ready.Value, installation.Version, cancellationToken);
+
+            var checks = new[]
+            {
+                new SetupValidationCheck("storage.migrations", true, "Durable schema is current."),
+                new SetupValidationCheck("audit.integrity", true, $"Verified {auditVerification.VerifiedEventCount} audit events."),
+                new SetupValidationCheck("provider.text", true, $"Validated {usableProviders.Length} text provider profile(s)."),
+                new SetupValidationCheck("provider.secret", true, "All usable provider secret references materialize."),
+                new SetupValidationCheck("agent.identity", true, $"Validated {configuredAgents.Count} named agent identity profile(s)."),
+                new SetupValidationCheck("administrator.local", true, "Created an OS-protected local administrator credential."),
+            };
+            await auditRecorder.RecordAsync(new AuditRecordRequest(
+                installation.Id,
+                request.ActorId,
+                request.CorrelationId,
+                installation.CorrelationId,
+                "setup.completed",
+                AuditOutcome.Succeeded,
+                new
+                {
+                    PreviousState = installation.State.ToString(),
+                    ProviderCount = usableProviders.Length,
+                    AgentCount = configuredAgents.Count,
+                    SecretStore = credentialReference.Store,
+                },
+                new
+                {
+                    State = ready.Value.State.ToString(),
+                    ready.Value.Version,
+                    AdministratorId = administrator.Id,
+                    CheckIds = checks.Select(item => item.CheckId).ToArray(),
+                },
+                null), cancellationToken);
+
+            var commit = await unitOfWork.CommitAsync(cancellationToken);
+            if (!commit.Succeeded)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(commit.Failure!);
+            }
+
+            committed = true;
+            return DomainResult.Success(new SetupCompletionReport(ready.Value, administrator, checks));
+        }
+        finally
+        {
+            if (!committed)
+            {
+                _ = await secretStore.DeleteAsync(credentialReference, CancellationToken.None);
+            }
+        }
     }
 
     private async Task<DomainResult<AgentPreparation>> PrepareAgentAsync(

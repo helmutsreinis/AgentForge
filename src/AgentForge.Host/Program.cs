@@ -1,4 +1,5 @@
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Tracing;
 using AgentForge.Audit;
 using AgentForge.Domain.Installations;
@@ -72,7 +73,9 @@ app.MapGet("/api/v1/status", async (
 });
 
 app.MapGet("/api/v1/runtime/ping", async (
+    HttpRequest request,
     IInstallationStateReader stateReader,
+    ILocalAdministratorAuthenticator authenticator,
     ICorrelationContext correlation,
     CancellationToken cancellationToken) =>
 {
@@ -91,12 +94,67 @@ app.MapGet("/api/v1/runtime/ping", async (
             });
     }
 
-    return Results.Ok(new
+    if (!TryGetBearerCredential(request, out var credential))
     {
-        status = "ok",
-        correlationId = correlation.CorrelationId,
-    });
+        return Results.Problem(
+            type: "urn:agentforge:problem:authentication-required",
+            title: "Authentication required",
+            detail: "A valid local administrator bearer credential is required.",
+            statusCode: StatusCodes.Status401Unauthorized,
+            extensions: new Dictionary<string, object?>
+            {
+                ["correlationId"] = correlation.CorrelationId,
+            });
+    }
+
+    try
+    {
+        var authentication = await authenticator.AuthenticateAsync(state.Id, credential, cancellationToken);
+        if (!authentication.IsSuccess)
+        {
+            return Results.Problem(
+                type: "urn:agentforge:problem:authentication-failed",
+                title: "Authentication failed",
+                detail: "The supplied local administrator credential is invalid.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["correlationId"] = correlation.CorrelationId,
+                });
+        }
+
+        return Results.Ok(new
+        {
+            status = "ok",
+            actorId = authentication.Value.Value,
+            correlationId = correlation.CorrelationId,
+        });
+    }
+    finally
+    {
+        Array.Clear(credential);
+    }
 });
+
+static bool TryGetBearerCredential(HttpRequest request, out char[] credential)
+{
+    credential = [];
+    var header = request.Headers.Authorization.ToString();
+    const string prefix = "Bearer ";
+    if (!header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+    {
+        return false;
+    }
+
+    var value = header.AsSpan(prefix.Length);
+    if (value.Length is < 1 or > 256 || value.Contains(',') || value.Contains('\r') || value.Contains('\n'))
+    {
+        return false;
+    }
+
+    credential = value.ToArray();
+    return true;
+}
 
 await app.RunAsync();
 
