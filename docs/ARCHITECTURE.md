@@ -60,6 +60,14 @@ input adapters only; the same validation, transition, redaction, repository, aud
 and unit-of-work path handles both. Provider and agent validation remain closed, so
 this command cannot reach `Ready`.
 
+Provider setup persists endpoint/model metadata and observed deterministic capability
+evidence, but credential material is represented only by `SecretReference`. Windows
+uses current-user DPAPI-protected files; Linux invokes the known `secret-tool` binary
+with argument arrays, bounded streams, an environment allowlist, timeout, and
+process-tree cleanup. Validators materialize a `SecretLease` for one call and clear its
+character buffer on disposal. An unavailable OS facility is a typed failure, never a
+plaintext fallback.
+
 ## Stable seams
 
 - Provider, model, tool, skill, scheduler, channel, device, artifact, secret, audit,

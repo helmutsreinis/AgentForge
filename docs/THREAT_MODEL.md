@@ -92,3 +92,18 @@ APIs rather than a shell, and report storage failures without echoing exception 
 
 This is not authorization: local administrator credentials and authenticated control
 plane mutations are still absent, and the host cannot enter normal mode.
+
+## M1 secrets/provider update
+
+Durable provider rows contain secret store/key references only. Windows credential
+bytes are UTF-8 encoded into a temporary buffer, protected with current-user DPAPI,
+written atomically, and cleared; materialization decrypts into a disposable character
+lease and clears intermediate bytes. Linux Secret Service uses an absolute known
+executable, argument arrays, allowlisted DBus environment, redirected stdin, bounded
+output, a ten-second timeout, and process-tree termination. Missing tooling returns
+`UnsupportedCapability` without degradation.
+
+Provider endpoints reject user info, query strings, and fragments so credentials
+cannot be smuggled into configuration. Profiles are installation-scoped, uniquely
+named, versioned, and foreign-key bound. Tests scan the database, audit payloads, and
+the protected file for the exact plaintext fixture.

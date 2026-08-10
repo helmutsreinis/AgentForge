@@ -1,5 +1,6 @@
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Domain.Persistence;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace AgentForge.Persistence;
@@ -17,6 +18,11 @@ internal sealed class EfUnitOfWork(AgentForgeDbContext dbContext) : IUnitOfWork
         {
             dbContext.ChangeTracker.Clear();
             return CommitResult.ConcurrencyConflict("Durable state changed after it was read. Reload and retry the operation.");
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqliteException { SqliteErrorCode: 19 })
+        {
+            dbContext.ChangeTracker.Clear();
+            return CommitResult.ConcurrencyConflict("A durable uniqueness or relationship constraint changed. Reload and retry the operation.");
         }
     }
 }

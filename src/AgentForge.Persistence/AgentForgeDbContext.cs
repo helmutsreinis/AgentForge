@@ -13,6 +13,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
+    internal DbSet<ProviderProfileEntity> ProviderProfiles => Set<ProviderProfileEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -63,6 +65,27 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.MessageType).HasMaxLength(512).IsRequired();
             entity.Property(item => item.PayloadJson).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ProviderProfileEntity>(entity =>
+        {
+            entity.ToTable("provider_profiles");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.Name }).IsUnique();
+            entity.Property(item => item.Name).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.ProviderType).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Endpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.Model).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.EvidenceSource).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
         });
     }
 }

@@ -1,12 +1,15 @@
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Persistence;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Setup;
 using Microsoft.Extensions.Configuration;
@@ -55,6 +58,29 @@ public sealed class SetupApplicationServiceTests
         Assert.Equal(0, repository.ReadCount);
     }
 
+    [Fact]
+    public async Task Rejects_provider_endpoint_credentials_before_reading_state()
+    {
+        var repository = new StubInstallationRepository();
+        await using var services = BuildServices(new StubUnitOfWork(CommitResult.Success(2)), repository);
+        await using var scope = services.CreateAsyncScope();
+
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+            .ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("https://user:" + "password@example.test/v1"),
+                    "model",
+                    new SecretReference("store", "key")),
+                new ActorId("operator"),
+                new CorrelationId("provider-invalid")), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+        Assert.Equal(0, repository.ReadCount);
+    }
+
     private static ServiceProvider BuildServices(
         IUnitOfWork unitOfWork,
         StubInstallationRepository? repository = null)
@@ -63,6 +89,8 @@ public sealed class SetupApplicationServiceTests
         var services = new ServiceCollection();
         services.AddAgentForgeSetup(configuration);
         services.AddSingleton<IInstallationRepository>(repository ?? new StubInstallationRepository());
+        services.AddSingleton<IProviderProfileRepository, StubProviderProfileRepository>();
+        services.AddSingleton<IProviderProfileValidator, StubProviderValidator>();
         services.AddSingleton<IAuditRecorder, StubAuditRecorder>();
         services.AddSingleton(unitOfWork);
         services.AddSingleton<IClock, StubTime>();
@@ -121,6 +149,29 @@ public sealed class SetupApplicationServiceTests
                 new string('1', 64));
             return Task.FromResult(new AuditRecordResult(auditEvent, 0, 0));
         }
+    }
+
+    private sealed class StubProviderProfileRepository : IProviderProfileRepository
+    {
+        public ValueTask AddAsync(ProviderProfile profile, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask<ProviderProfile?> FindByNameAsync(
+            InstallationId installationId,
+            string name,
+            CancellationToken cancellationToken) => ValueTask.FromResult<ProviderProfile?>(null);
+    }
+
+    private sealed class StubProviderValidator : IProviderProfileValidator
+    {
+        public Task<DomainResult<ProviderCapabilitySummary>> ValidateAsync(
+            ProviderProfileCandidate candidate,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(new ProviderCapabilitySummary(
+                true,
+                true,
+                true,
+                false,
+                "stub")));
     }
 
     private sealed class StubUnitOfWork(CommitResult result) : IUnitOfWork

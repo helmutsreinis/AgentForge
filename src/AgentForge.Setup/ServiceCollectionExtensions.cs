@@ -1,4 +1,5 @@
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDataDirectoryProvider, DefaultDataDirectoryProvider>();
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
         services.AddScoped<ISetupApplicationService, SetupApplicationService>();
+        services.AddScoped<IProviderProfileValidator, DeterministicProviderProfileValidator>();
         return services;
     }
 }

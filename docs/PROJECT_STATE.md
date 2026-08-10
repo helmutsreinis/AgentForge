@@ -4,8 +4,8 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 4: add secret references, OS-backed secret-store adapters, provider
-profiles, and deterministic provider validation without enabling live credentials.
+Milestone 1 slice 5: add agent identity, effective-policy preview, budgets, routing,
+memory scope, child limits, and learning permissions.
 
 ## Completed
 
@@ -24,22 +24,24 @@ profiles, and deterministic provider validation without enabling live credential
 - Nested secret removal, payload bounds, canonical output, delimiter ambiguity, persisted-value absence, valid-chain, and exact-sequence tamper behavior pass in the 29-test Windows/Ubuntu suite.
 - M1 slice 3 added a shared setup application service, stable identifier generation, atomic installation/audit persistence, typed retryable conflict handling, deterministic headless input, and an equivalent interactive CLI prompt flow.
 - Restart persistence, duplicate transition rejection, control-character validation, interactive/headless equivalence, atomic state/audit integrity, and dual-platform behavior pass in the 34-test suite.
+- M1 slice 4 added disposable secret leases, a Windows current-user DPAPI store, a bounded Linux Secret Service adapter, typed unavailability, a deterministic fake, versioned provider profiles, capability evidence, and deterministic provider validation.
+- Plaintext absence from encrypted files, SQLite bytes, audit JSON, and profile objects; baseline migration; cold restore; endpoint credential rejection; typed uniqueness races; and provider state/audit atomicity pass in the 40-test suite.
 
 ## Latest gate
 
-`artifacts/gates/M1-03-20260810.md`: Pass.
+`artifacts/gates/M1-04-20260810.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
-- No secret store or authenticated administration exists yet. Therefore normal runtime operations remain disabled by design.
-- Redaction is enforced for the audit application service. Secret references, OS-backed materialization, and model/export sink coverage remain open, so provider integrations are still disabled.
-- Setup can enter `Configuring` but cannot validate a provider, create an administrator or agent, or enter `Ready`; those gates remain deliberately closed.
+- No authenticated administration exists yet. Therefore normal runtime operations remain disabled by design.
+- Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
+- Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
+- Setup can enter `Configuring` and persist one validated provider, but cannot create an administrator or agent or enter `Ready`; those gates remain deliberately closed.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Start M1 slice 4: define secret-reference and provider-profile records, implement
-Windows and Linux secret-store adapters plus a deterministic fake, validate provider
-capability evidence, and prove secret values never enter SQLite, logs, audit, or CLI
-JSON.
+Start M1 slice 5: define immutable agent identity and budget/policy records, persist
+versioned agent profiles, render effective capability previews, and prove child,
+learning, routing, and memory settings cannot exceed setup bounds.

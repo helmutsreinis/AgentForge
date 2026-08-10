@@ -3,15 +3,21 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
+using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -43,6 +49,7 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddAgentForgeSetup(configuration);
         services.AddAgentForgePersistence(configuration);
         services.AddAgentForgeSecurity(configuration);
+        services.AddSingleton<ISecretStore, DeterministicSecretStore>();
         services.AddAgentForgeAudit();
         return services.BuildServiceProvider(validateScopes: true);
     }
@@ -262,6 +269,139 @@ public sealed class PersistenceFoundationTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Provider_profile_persists_only_secret_reference_after_deterministic_validation()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("d032689a-d625-4329-ac55-cdaf201fa834"));
+        await using (var beginScope = _services.CreateAsyncScope())
+        {
+            var begin = await beginScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .BeginAsync(new BeginSetupRequest(
+                    installationId,
+                    new ActorId("operator"),
+                    new CorrelationId("provider-begin")), CancellationToken.None);
+            Assert.True(begin.IsSuccess);
+        }
+
+        const string plaintext = "provider-" + "credential-value-123456";
+        SecretReference secretReference;
+        await using (var secretScope = _services.CreateAsyncScope())
+        {
+            var stored = await secretScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("primary-provider", plaintext.AsMemory(), CancellationToken.None);
+            Assert.True(stored.IsSuccess);
+            secretReference = stored.Value;
+        }
+
+        await using (var configureScope = _services.CreateAsyncScope())
+        {
+            var configured = await configureScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .ConfigureProviderAsync(new ConfigureProviderRequest(
+                    new ProviderProfileCandidate(
+                        "primary",
+                        "deterministic",
+                        new Uri("http://127.0.0.1:9000/v1"),
+                        "deterministic-text-v1",
+                        secretReference),
+                    new ActorId("operator"),
+                    new CorrelationId("provider-configure")), CancellationToken.None);
+            Assert.True(configured.IsSuccess);
+            Assert.True(configured.Value.Profile.Capabilities.TextGeneration);
+            Assert.Equal("deterministic-validation-v1", configured.Value.Profile.Capabilities.EvidenceSource);
+        }
+
+        await using (var verificationScope = _services.CreateAsyncScope())
+        {
+            var profile = await verificationScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .FindByNameAsync(installationId, "primary", CancellationToken.None);
+            Assert.NotNull(profile);
+            Assert.Equal(secretReference, profile.SecretReference);
+            var auditEvents = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 10, CancellationToken.None);
+            Assert.Equal(2, auditEvents.Count);
+            Assert.DoesNotContain(plaintext, string.Join(string.Empty, auditEvents.Select(item => item.Input.Json)), StringComparison.Ordinal);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        var secretBytes = Encoding.UTF8.GetBytes(plaintext);
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(secretBytes));
+
+        File.Copy(
+            Path.Combine(_directory, "agentforge.db"),
+            Path.Combine(_directory, "provider-restored.db"));
+        await using var restoredServices = BuildServices(_directory, "provider-restored.db");
+        await using var restoredScope = restoredServices.CreateAsyncScope();
+        await restoredScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(CancellationToken.None);
+        var restoredProfile = await restoredScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .FindByNameAsync(installationId, "primary", CancellationToken.None);
+        Assert.NotNull(restoredProfile);
+        Assert.Equal(secretReference, restoredProfile.SecretReference);
+    }
+
+    [Fact]
+    public async Task Provider_profile_migration_upgrades_baseline_without_losing_installation()
+    {
+        await using (var baselineScope = _services.CreateAsyncScope())
+        {
+            var context = baselineScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            var migrator = context.Database.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260810163716_InitialDurableFoundation", CancellationToken.None);
+            var installation = InstallationSnapshot.CreateUninitialized(
+                new InstallationId(Guid.Parse("ef9216be-b7e3-45a9-bb39-e57f526045c9")),
+                Now,
+                new ActorId("upgrade-fixture"),
+                new CorrelationId("upgrade-baseline"));
+            await baselineScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(installation, CancellationToken.None);
+            Assert.True((await baselineScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        var upgraded = await upgradedScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(CancellationToken.None);
+        var provider = await upgradedScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .FindByNameAsync(upgraded.Id, "missing", CancellationToken.None);
+        Assert.Equal("upgrade-fixture", upgraded.ActorId.Value);
+        Assert.Null(provider);
+    }
+
+    [Fact]
+    public async Task Concurrent_duplicate_provider_name_returns_typed_conflict()
+    {
+        await InitializeAsync();
+        var installation = InstallationSnapshot.CreateUninitialized(
+            new InstallationId(Guid.Parse("b11a3721-a580-4311-b35d-24336c352507")),
+            Now,
+            new ActorId("operator"),
+            new CorrelationId("provider-race-seed"));
+        await using (var seedScope = _services.CreateAsyncScope())
+        {
+            await seedScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(installation, CancellationToken.None);
+            Assert.True((await seedScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await using var firstScope = _services.CreateAsyncScope();
+        await using var secondScope = _services.CreateAsyncScope();
+        await firstScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .AddAsync(CreateProviderProfile(installation.Id, ProviderProfileId.New(), "duplicate"), CancellationToken.None);
+        await secondScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .AddAsync(CreateProviderProfile(installation.Id, ProviderProfileId.New(), "duplicate"), CancellationToken.None);
+
+        Assert.True((await firstScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+            .CommitAsync(CancellationToken.None)).Succeeded);
+        var conflict = await secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+            .CommitAsync(CancellationToken.None);
+        Assert.False(conflict.Succeeded);
+        Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
+        Assert.True(conflict.Failure?.IsRetryable);
+    }
+
     public void Dispose()
     {
         _services.Dispose();
@@ -301,4 +441,22 @@ public sealed class PersistenceFoundationTests : IDisposable
         Assert.True(result.IsSuccess);
         return result.Value;
     }
+
+    private static ProviderProfile CreateProviderProfile(
+        InstallationId installationId,
+        ProviderProfileId profileId,
+        string name) => new(
+        profileId,
+        installationId,
+        name,
+        "deterministic",
+        new Uri("http://127.0.0.1:9000/v1"),
+        "deterministic-text-v1",
+        new SecretReference(DeterministicSecretStore.Name, Guid.NewGuid().ToString("D")),
+        new ProviderCapabilitySummary(true, true, true, false, "fixture"),
+        0,
+        Now,
+        Now,
+        new ActorId("operator"),
+        new CorrelationId("provider-race"));
 }

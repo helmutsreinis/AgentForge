@@ -10,5 +10,6 @@
 | D-006 | Keep Microsoft Agent Framework optional and outside durable domain ownership. | Accepted after spike |
 | D-007 | Treat unavailable accounts, credentials, containers, and hardware as named live gates; deterministic fakes remain mandatory. | Accepted |
 | D-008 | Directly pin patched native transitive dependencies when an upstream framework release still resolves a vulnerable build; never suppress the advisory. | Accepted |
+| D-009 | Use current-user DPAPI on Windows and Secret Service through `secret-tool` on Linux; unavailable facilities fail typed and never fall back to reversible/plaintext storage. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

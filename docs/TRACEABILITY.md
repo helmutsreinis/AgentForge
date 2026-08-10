@@ -14,6 +14,8 @@
 | AF-AUD-001 (redaction/integrity) | `AgentForge.Audit` recorder, structured redaction boundary, length-prefixed event hashes, full-chain verifier | redaction persistence integration and exact-sequence tamper tests | `M1-02-20260810.md` |
 | AF-SEC-003 (redaction portion) | bounded recursive JSON redactor for sensitive names and credential-shaped values | security tests for nested values, canonical output, size bounds, and raw-value absence | `M1-02-20260810.md` |
 | AF-SET-002 (setup begin) | shared `ISetupApplicationService`, interactive/headless CLI input, atomic installation plus audit commit | unit conflict/validation tests, integration transaction test, CLI restart and equivalence E2E tests | `M1-03-20260810.md` |
+| AF-SET-003..004 (provider portion) | deterministic provider validator, versioned profile repository, capability evidence, secret reference only | provider validation/persistence, baseline upgrade, cold restore, and plaintext-absence integration tests | `M1-04-20260810.md` |
+| AF-SEC-003 (secret-store portion) | disposable leases, Windows DPAPI current-user store, Linux Secret Service adapter, deterministic fake | Windows encrypted-at-rest round trip, Linux typed-unavailable test, lease disposal, DB/audit byte scans | `M1-04-20260810.md` |
 
 Requirements marked `In progress` have partial gate evidence but remain open until
 every acceptance criterion in the ledger is implemented and verified.

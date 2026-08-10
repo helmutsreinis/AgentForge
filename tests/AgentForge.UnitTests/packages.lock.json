@@ -119,7 +119,8 @@
         "type": "Project",
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",
-          "AgentForge.Domain": "[1.0.0, )"
+          "AgentForge.Domain": "[1.0.0, )",
+          "System.Security.Cryptography.ProtectedData": "[10.0.10, )"
         }
       },
       "agentforge.setup": {
@@ -128,6 +129,12 @@
           "AgentForge.Abstractions": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )"
         }
+      },
+      "System.Security.Cryptography.ProtectedData": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "BKt0SQgq2lq3ESE68jkeLwv95ypANrPDtkTOIFGcnhg2aRUeUUBDrQlkVDZctrg1WenVcvn5P5XZnuYI7q6rFQ=="
       }
     }
   }

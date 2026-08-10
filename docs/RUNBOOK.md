@@ -51,6 +51,20 @@ Success returns one JSON object and exit code 0. Validation/state failures retur
 JSON and exit code 1; a retryable concurrency conflict returns exit code 3; Ctrl+C
 returns 130. The command currently stops at `Configuring` by design.
 
+## Secret-store diagnostics
+
+On Windows, AgentForge stores provider credentials as current-user DPAPI-protected
+files under the configured data directory's `secrets` folder. Copying these files to
+another user does not make them decryptable. On Linux, install `secret-tool` and run
+AgentForge inside a working Secret Service/DBus session. `doctor` will expose this
+capability in a later slice; until then, absence is reported as
+`UnsupportedCapability`. Never place provider secrets in CLI arguments, configuration,
+SQLite, migration fixtures, logs, audit, exports, or gate reports.
+
+Backups preserve provider database rows and OS secret references together. Restoring
+only SQLite can leave valid-looking but non-materializable references; validate every
+reference before proceeding beyond setup.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a

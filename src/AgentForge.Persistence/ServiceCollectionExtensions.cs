@@ -2,6 +2,7 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -44,6 +45,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditJournal>());
         services.AddScoped<IAuditReader>(provider => provider.GetRequiredService<SqliteAuditJournal>());
         services.AddScoped<IArtifactStore, FileSystemArtifactStore>();
+        services.AddScoped<IProviderProfileRepository, SqliteProviderProfileRepository>();
         return services;
     }
 
