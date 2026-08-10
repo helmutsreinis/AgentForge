@@ -40,6 +40,17 @@ Start `dotnet run --project src/AgentForge.Host`. Confirm `/health/live` is 200,
 `/health/ready` is 503 on a clean installation, `/api/v1/setup/status` is available,
 and `/api/v1/runtime/ping` is 503. The CLI returns exit code 2 for setup-required.
 
+Begin a deterministic offline setup transaction with:
+
+```text
+agentforge setup begin --data-directory <absolute-path> --actor <actor-id> --correlation <correlation-id> --installation-id <guid>
+```
+
+Use `agentforge setup begin --interactive` for prompts backed by the same service.
+Success returns one JSON object and exit code 0. Validation/state failures return
+JSON and exit code 1; a retryable concurrency conflict returns exit code 3; Ctrl+C
+returns 130. The command currently stops at `Configuring` by design.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a

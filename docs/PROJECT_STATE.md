@@ -4,8 +4,8 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 3: build shared transactional setup application services and
-deterministic non-interactive setup input without enabling provider network calls.
+Milestone 1 slice 4: add secret references, OS-backed secret-store adapters, provider
+profiles, and deterministic provider validation without enabling live credentials.
 
 ## Completed
 
@@ -22,20 +22,24 @@ deterministic non-interactive setup input without enabling provider network call
 - A newly published high-severity advisory against SQLitePCLRaw 2.1.11 was caught by the Linux restore; the stable 2.1.12 bundle is directly pinned and the full vulnerability scan is clean.
 - M1 slice 2 added independent Security and Audit modules, bounded canonical JSON redaction, conservative credential-name/value detection, a redaction-only audit recorder, length-prefixed event hashing, and complete chain verification.
 - Nested secret removal, payload bounds, canonical output, delimiter ambiguity, persisted-value absence, valid-chain, and exact-sequence tamper behavior pass in the 29-test Windows/Ubuntu suite.
+- M1 slice 3 added a shared setup application service, stable identifier generation, atomic installation/audit persistence, typed retryable conflict handling, deterministic headless input, and an equivalent interactive CLI prompt flow.
+- Restart persistence, duplicate transition rejection, control-character validation, interactive/headless equivalence, atomic state/audit integrity, and dual-platform behavior pass in the 34-test suite.
 
 ## Latest gate
 
-`artifacts/gates/M1-02-20260810.md`: Pass.
+`artifacts/gates/M1-03-20260810.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - No secret store or authenticated administration exists yet. Therefore normal runtime operations remain disabled by design.
 - Redaction is enforced for the audit application service. Secret references, OS-backed materialization, and model/export sink coverage remain open, so provider integrations are still disabled.
+- Setup can enter `Configuring` but cannot validate a provider, create an administrator or agent, or enter `Ready`; those gates remain deliberately closed.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Start M1 slice 3: define setup commands/results and candidate profiles, coordinate
-installation plus audit in one unit of work, expose equivalent deterministic headless
-CLI behavior, and test rollback and stale-update handling.
+Start M1 slice 4: define secret-reference and provider-profile records, implement
+Windows and Linux secret-store adapters plus a deterministic fake, validate provider
+capability evidence, and prove secret values never enter SQLite, logs, audit, or CLI
+JSON.

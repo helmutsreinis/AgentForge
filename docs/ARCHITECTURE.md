@@ -54,6 +54,12 @@ In M0, absence of state means `Uninitialized`; unreadable state means
 endpoints return a typed 503 until `Ready`. M1 moves state transitions into a
 transactional setup service and emits audit/outbox records in the same transaction.
 
+The first M1 command now performs `Uninitialized → Configuring` through
+`ISetupApplicationService`. Interactive prompts and explicit headless options are
+input adapters only; the same validation, transition, redaction, repository, audit,
+and unit-of-work path handles both. Provider and agent validation remain closed, so
+this command cannot reach `Ready`.
+
 ## Stable seams
 
 - Provider, model, tool, skill, scheduler, channel, device, artifact, secret, audit,

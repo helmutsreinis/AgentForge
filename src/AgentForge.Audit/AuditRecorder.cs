@@ -8,7 +8,8 @@ namespace AgentForge.Audit;
 internal sealed class AuditRecorder(
     IAuditSink auditSink,
     ISensitiveDataRedactor redactor,
-    IClock clock) : IAuditRecorder
+    IClock clock,
+    IIdentifierGenerator identifiers) : IAuditRecorder
 {
     public async Task<AuditRecordResult> RecordAsync(
         AuditRecordRequest request,
@@ -20,7 +21,7 @@ internal sealed class AuditRecorder(
         var input = redactor.Redact(request.Input);
         var output = redactor.Redact(request.Output);
         var auditEvent = await auditSink.AppendAsync(new AuditEventDraft(
-            Guid.NewGuid(),
+            identifiers.NewGuid(),
             clock.UtcNow,
             request.InstallationId,
             request.ActorId,

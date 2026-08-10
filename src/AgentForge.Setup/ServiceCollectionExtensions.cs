@@ -1,4 +1,5 @@
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,6 +20,7 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IDataDirectoryProvider, DefaultDataDirectoryProvider>();
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
+        services.AddScoped<ISetupApplicationService, SetupApplicationService>();
         return services;
     }
 }

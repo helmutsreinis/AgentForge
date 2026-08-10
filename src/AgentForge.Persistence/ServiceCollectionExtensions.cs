@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<IIdentifierGenerator>(provider => (SystemClock)provider.GetRequiredService<IClock>());
         services.AddDbContext<AgentForgeDbContext>((serviceProvider, dbOptions) =>
         {
             var dataDirectory = serviceProvider.GetRequiredService<IDataDirectoryProvider>().GetDataDirectory();

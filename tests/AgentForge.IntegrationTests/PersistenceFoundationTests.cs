@@ -3,10 +3,12 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
+using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Setup;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
@@ -216,6 +218,48 @@ public sealed class PersistenceFoundationTests : IDisposable
             .VerifyAsync(CancellationToken.None);
         Assert.True(verification.IsValid);
         Assert.Equal(1, verification.VerifiedEventCount);
+    }
+
+    [Fact]
+    public async Task Setup_application_service_commits_transition_and_audit_atomically()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("f8f9bb06-45ea-4d61-bb3f-c7fd4254c1e0"));
+        var request = new BeginSetupRequest(
+            installationId,
+            new ActorId("local-operator"),
+            new CorrelationId("headless-setup-001"));
+
+        await using (var scope = _services.CreateAsyncScope())
+        {
+            var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .BeginAsync(request, CancellationToken.None);
+            Assert.True(result.IsSuccess);
+            Assert.Equal(InstallationState.Configuring, result.Value.Installation.State);
+            Assert.Equal(1, result.Value.Installation.Version);
+            Assert.Equal(1, result.Value.AuditEvent.Sequence);
+        }
+
+        await using (var verificationScope = _services.CreateAsyncScope())
+        {
+            var installation = await verificationScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .ReadAsync(CancellationToken.None);
+            var audit = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 10, CancellationToken.None);
+            var integrity = await verificationScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None);
+            Assert.Equal(InstallationState.Configuring, installation.State);
+            Assert.Equal("setup.configuration-begun", Assert.Single(audit).OperationType);
+            Assert.True(integrity.IsValid);
+        }
+
+        await using (var duplicateScope = _services.CreateAsyncScope())
+        {
+            var duplicate = await duplicateScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .BeginAsync(request, CancellationToken.None);
+            Assert.False(duplicate.IsSuccess);
+            Assert.Equal(FailureCode.InvalidStateTransition, duplicate.Failure?.Code);
+        }
     }
 
     public void Dispose()

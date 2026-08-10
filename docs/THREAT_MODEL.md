@@ -80,3 +80,15 @@ first non-contiguous, relinked, or content-tampered event.
 This control currently covers the audit sink. Provider secrets remain disabled until
 secret-reference storage and OS-backed invocation materialization pass their gate;
 model-context and export redaction must reuse this boundary before those sinks open.
+
+## M1 setup-service update
+
+Setup mutations now pass through one application service. It rejects empty IDs,
+oversized identifiers, control characters, mismatched durable installation IDs, and
+invalid state transitions before committing. Installation state and its redacted
+audit event share one EF unit of work; stale commits return a typed retryable conflict.
+CLI options use exact names, reject duplicates and unknown arguments, use direct .NET
+APIs rather than a shell, and report storage failures without echoing exception data.
+
+This is not authorization: local administrator credentials and authenticated control
+plane mutations are still absent, and the host cannot enter normal mode.

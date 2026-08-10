@@ -5,4 +5,17 @@
     <AssemblyName>agentforge</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentForge.Abstractions\AgentForge.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentForge.Audit\AgentForge.Audit.csproj" />
+    <ProjectReference Include="..\AgentForge.Domain\AgentForge.Domain.csproj" />
+    <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
+    <ProjectReference Include="..\AgentForge.Security\AgentForge.Security.csproj" />
+    <ProjectReference Include="..\AgentForge.Setup\AgentForge.Setup.csproj" />
+  </ItemGroup>
+
 </Project>
