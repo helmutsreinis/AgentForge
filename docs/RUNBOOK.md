@@ -162,8 +162,21 @@ Preview performs no write. Apply re-evaluates the complete candidate and require
 same actor, correlation, target, versions, and normalized parameters. Each successful
 apply increments both the entity version and global installation version, so refresh
 before another edit. Then run `setup complete` to revalidate and return to `Ready`
-using the existing administrator identity. Snapshot restore is not enabled yet; do
-not modify SQLite directly.
+using the existing administrator identity. Do not modify SQLite directly.
+
+To restore a rollback snapshot, keep the installation in `Configuring` and use the
+snapshot ID returned by `setup export` or recovery entry:
+
+```text
+agentforge setup restore preview --data-directory <absolute-path> --snapshot-id <guid> --expected-version <n> --actor <actor-id> --correlation <correlation-id>
+agentforge setup restore apply <same-options> --preview-hash <returned-sha256>
+```
+
+Use exactly the same correlation and inputs for apply. Restore verifies the artifact
+hash and audit provenance, requires the same provider/agent topology, materializes
+every referenced provider secret, and re-evaluates capabilities and policy. It cannot
+add or remove identities. After apply, run doctor and `setup complete`; never edit
+the artifact, snapshot metadata, secret references, or SQLite manually.
 
 ## SQLite migration and cold backup
 
@@ -191,6 +204,13 @@ Migration 0005 creates setup-profile snapshot metadata and foreign-key binds eac
 to its installation and content-addressed artifact. Its down migration discards
 recovery evidence; restore the full pre-0005 SQLite/artifact/OS-reference backup set
 instead of applying it to operator state.
+
+Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
+members), artifacts, and OS-protected secret files as one directory tree, records a
+SHA-256 for every file, compares the restored set, initializes migrations, verifies
+the audit chain through doctor, and materializes the restored provider/admin
+references. Use the same OS user; DPAPI data is intentionally not portable to a
+different Windows identity.
 
 ## Gate and recovery rules
 

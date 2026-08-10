@@ -30,4 +30,6 @@ services now support validated provider profiles, bounded named agents, minimum-
 viability completion, local administration, doctor, redacted export, and authorized
 recovery. Provider onboarding accepts credentials only through redirected stdin or a
 hidden prompt, and recovery edits require authenticated version/hash-bound preview
-and apply. See `docs/RUNBOOK.md` for the currently executable commands.
+and apply. Hash- and audit-proven rollback snapshots can be restored without changing
+entity topology. Milestone 1 is the `0.1 Foundation Alpha` checkpoint; see
+`docs/RUNBOOK.md` for the currently executable commands.

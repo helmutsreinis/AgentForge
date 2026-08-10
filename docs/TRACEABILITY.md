@@ -26,6 +26,9 @@
 | AF-SET-002 (provider/maintenance CLI portion) | provider credentials enter only through bounded stdin/hidden prompt buffers; provider/agent preview and create/edit paths reuse setup application contracts | Windows live-DPAPI CLI setup-through-edit E2E; Ubuntu deterministic suite; CLI argument and plaintext-output assertions | `M1-06C-20260810.md` |
 | AF-SET-005 (configuration-edit portion) | authenticated version-bound provider/agent previews and atomic hash-bound apply operations while `Configuring` | wrong-hash denial, stale-version conflict, no-write preview, persisted version increments, restart-safe recompletion | `M1-06C-20260810.md` |
 | AF-SEC-003 (provider-onboarding portion) | invocation-scoped credential buffer, OS secret reference persistence, exact-reference compensation, no argument transport | compensation unit test, SQLite byte scan, live Windows CLI and deterministic Ubuntu verification | `M1-06C-20260810.md` |
+| AF-SET-002 | interactive/headless entry plus provider, agent, completion, maintenance, restore, and shared validation services produce equivalent normalized Ready profiles | complete dual-profile Windows E2E and portable deterministic service suites | `M1-06D-20260810.md` |
+| AF-SET-005 (rollback portion) | authenticated hash-bound rollback preview/apply in recovery configuration mode; topology-preserving provider/agent restore with current validation | valid restore/recompletion, wrong/no-op/tampered artifact denial, version assertions, audit and restart checks | `M1-06D-20260810.md` |
+| AF-SET-004 (backup portion) | complete cold backup set retains SQLite, content-addressed artifacts, and OS-protected references with per-file hashes | Windows cold-copy hash equality, restored migration startup, healthy doctor, provider/agent equality | `M1-06D-20260810.md` |
 
 Requirements marked `In progress` have partial gate evidence but remain open until
 every acceptance criterion in the ledger is implemented and verified.

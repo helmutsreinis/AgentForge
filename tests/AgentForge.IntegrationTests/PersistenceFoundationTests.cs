@@ -981,6 +981,87 @@ public sealed class PersistenceFoundationTests : IDisposable
             Assert.Equal("deterministic-text-v2", applied.Value.Provider.Model);
         }
 
+        await using (var restoreScope = _services.CreateAsyncScope())
+        {
+            var rollback = (await restoreScope.ServiceProvider.GetRequiredService<ISetupProfileSnapshotRepository>()
+                .ListAsync(installationId, CancellationToken.None))
+                .First(item => item.Kind is SetupProfileSnapshotKind.Rollback && item.ProfileVersion == 3);
+            var restorer = restoreScope.ServiceProvider.GetRequiredService<ISetupProfileRestorer>();
+            var preview = await restorer.PreviewAsync(new PreviewSetupProfileRestoreRequest(
+                rollback.Id,
+                7,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            Assert.Equal(2, preview.Value.Changes.Count);
+
+            var wrongHash = await restorer.ApplyAsync(new ApplySetupProfileRestoreRequest(
+                rollback.Id,
+                7,
+                new string('0', 64),
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore"),
+                credential.Value), CancellationToken.None);
+            Assert.False(wrongHash.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, wrongHash.Failure?.Code);
+
+            var restored = await restorer.ApplyAsync(new ApplySetupProfileRestoreRequest(
+                rollback.Id,
+                7,
+                preview.Value.RequestHash,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore"),
+                credential.Value), CancellationToken.None);
+            Assert.True(restored.IsSuccess, restored.Failure?.Message);
+            Assert.Equal(8, restored.Value.Installation.Version);
+            Assert.Equal(1, restored.Value.RestoredProviderCount);
+            Assert.Equal(1, restored.Value.RestoredAgentCount);
+
+            var provider = await restoreScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .FindByNameAsync(installationId, "primary", CancellationToken.None);
+            var agent = await restoreScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByNameAsync(installationId, "Architect", CancellationToken.None);
+            Assert.NotNull(provider);
+            Assert.NotNull(agent);
+            Assert.Equal("deterministic-text-v1", provider.Model);
+            Assert.Equal("Design bounded and verifiable systems.", agent.Mission);
+            Assert.Equal(2, provider.Version);
+            Assert.Equal(2, agent.Version);
+
+            var noOpPreview = await restorer.PreviewAsync(new PreviewSetupProfileRestoreRequest(
+                rollback.Id,
+                8,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore-no-op"),
+                credential.Value), CancellationToken.None);
+            Assert.True(noOpPreview.IsSuccess, noOpPreview.Failure?.Message);
+            Assert.Empty(noOpPreview.Value.Changes);
+            var noOpApply = await restorer.ApplyAsync(new ApplySetupProfileRestoreRequest(
+                rollback.Id,
+                8,
+                noOpPreview.Value.RequestHash,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore-no-op"),
+                credential.Value), CancellationToken.None);
+            Assert.False(noOpApply.IsSuccess);
+            Assert.Equal(FailureCode.ValidationFailure, noOpApply.Failure?.Code);
+
+            var rollbackHash = rollback.Artifact.ContentHash["sha256:".Length..];
+            var rollbackPath = Path.Combine(_directory, "artifacts", "sha256", rollbackHash[..2], rollbackHash);
+            var rollbackBytes = await File.ReadAllBytesAsync(rollbackPath, CancellationToken.None);
+            rollbackBytes[0] ^= 0x01;
+            await File.WriteAllBytesAsync(rollbackPath, rollbackBytes, CancellationToken.None);
+            var tampered = await restorer.PreviewAsync(new PreviewSetupProfileRestoreRequest(
+                rollback.Id,
+                8,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-restore-tampered"),
+                credential.Value), CancellationToken.None);
+            Assert.False(tampered.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, tampered.Failure?.Code);
+        }
+
         await using (var recompleteScope = _services.CreateAsyncScope())
         {
             var recompleted = await recompleteScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
@@ -990,7 +1071,7 @@ public sealed class PersistenceFoundationTests : IDisposable
                     credential.Value), CancellationToken.None);
             Assert.True(recompleted.IsSuccess);
             Assert.Equal(InstallationState.Ready, recompleted.Value.Installation.State);
-            Assert.Equal(9, recompleted.Value.Installation.Version);
+            Assert.Equal(10, recompleted.Value.Installation.Version);
             Assert.Equal(administrator.Id, recompleted.Value.Administrator.Id);
             Assert.Equal(administrator.ClientCredentialReference, recompleted.Value.Administrator.ClientCredentialReference);
         }
@@ -1000,7 +1081,7 @@ public sealed class PersistenceFoundationTests : IDisposable
             InstallationState.Ready,
             (await restartScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
                 .ReadAsync(CancellationToken.None)).State);
-        Assert.Equal(10, (await restartScope.ServiceProvider.GetRequiredService<IAuditReader>()
+        Assert.Equal(11, (await restartScope.ServiceProvider.GetRequiredService<IAuditReader>()
             .ReadAsync(installationId, 0, 20, CancellationToken.None)).Count);
     }
 

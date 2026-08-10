@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Security;
@@ -16,6 +17,8 @@ namespace AgentForge.EndToEndTests;
 
 public sealed class HeadlessSetupCliTests
 {
+    private static readonly JsonSerializerOptions ProfileSerializerOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task Deterministic_headless_begin_persists_and_rejects_duplicate_transition()
     {
@@ -92,6 +95,49 @@ public sealed class HeadlessSetupCliTests
     }
 
     [Fact]
+    public async Task Interactive_and_headless_entry_produce_equivalent_complete_profiles()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var headlessDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        var interactiveDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(headlessDirectory);
+        Directory.CreateDirectory(interactiveDirectory);
+        try
+        {
+            Assert.Equal(0, (await RunCliAsync(headlessDirectory)).ExitCode);
+            Assert.Equal(0, (await RunCliAsync(interactiveDirectory, interactive: true)).ExitCode);
+            var headlessProvider = await RunProviderCliAsync(headlessDirectory, "equivalence-provider");
+            var interactiveProvider = await RunProviderCliAsync(interactiveDirectory, "equivalence-provider");
+            Assert.Equal(0, headlessProvider.ExitCode);
+            Assert.Equal(0, interactiveProvider.ExitCode);
+            using var headlessProviderJson = JsonDocument.Parse(headlessProvider.StandardOutput);
+            using var interactiveProviderJson = JsonDocument.Parse(interactiveProvider.StandardOutput);
+            var headlessProviderId = new ProviderProfileId(Guid.Parse(
+                headlessProviderJson.RootElement.GetProperty("providerId").GetString()!));
+            var interactiveProviderId = new ProviderProfileId(Guid.Parse(
+                interactiveProviderJson.RootElement.GetProperty("providerId").GetString()!));
+            Assert.Equal(0, (await RunAgentCliAsync(headlessDirectory, headlessProviderId, create: true)).ExitCode);
+            Assert.Equal(0, (await RunAgentCliAsync(interactiveDirectory, interactiveProviderId, create: true)).ExitCode);
+            Assert.Equal(0, (await RunCompleteCliAsync(headlessDirectory)).ExitCode);
+            Assert.Equal(0, (await RunCompleteCliAsync(interactiveDirectory)).ExitCode);
+
+            Assert.Equal(
+                await ReadNormalizedProfileAsync(headlessDirectory),
+                await ReadNormalizedProfileAsync(interactiveDirectory));
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(temporaryRoot, headlessDirectory);
+            DeleteTemporaryDirectory(temporaryRoot, interactiveDirectory);
+        }
+    }
+
+    [Fact]
     public async Task Headless_agent_preview_then_create_persists_the_previewed_policy()
     {
         var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
@@ -153,6 +199,7 @@ public sealed class HeadlessSetupCliTests
 
         var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
         var dataDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        var backupDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataDirectory);
         try
         {
@@ -199,8 +246,11 @@ public sealed class HeadlessSetupCliTests
                 "--actor", "local-operator",
                 "--correlation", "export-e2e");
             Assert.Equal(0, exported.ExitCode);
+            Guid rollbackSnapshotId;
             using (var exportJson = JsonDocument.Parse(exported.StandardOutput))
             {
+                rollbackSnapshotId = Guid.Parse(
+                    exportJson.RootElement.GetProperty("rollbackSnapshotId").GetString()!);
                 Assert.StartsWith(
                     "sha256:",
                     exportJson.RootElement.GetProperty("report").GetProperty("contentHash").GetString(),
@@ -303,23 +353,79 @@ public sealed class HeadlessSetupCliTests
                 Assert.Equal(1, providerAppliedJson.RootElement.GetProperty("providerVersion").GetInt64());
             }
 
+            var restoreArguments = new[]
+            {
+                "setup", "restore", "preview",
+                "--snapshot-id", rollbackSnapshotId.ToString("D"),
+                "--expected-version", "7",
+                "--actor", "local-operator",
+                "--correlation", "restore-e2e",
+            };
+            var restorePreview = await RunMaintenanceCliAsync(dataDirectory, restoreArguments);
+            Assert.Equal(0, restorePreview.ExitCode);
+            using var restorePreviewJson = JsonDocument.Parse(restorePreview.StandardOutput);
+            var restorePreviewHash = restorePreviewJson.RootElement.GetProperty("requestHash").GetString()!;
+            Assert.Equal(2, restorePreviewJson.RootElement.GetProperty("changes").GetArrayLength());
+            restoreArguments[2] = "apply";
+            var restored = await RunMaintenanceCliAsync(
+                dataDirectory,
+                [.. restoreArguments, "--preview-hash", restorePreviewHash]);
+            Assert.Equal(0, restored.ExitCode);
+            using (var restoredJson = JsonDocument.Parse(restored.StandardOutput))
+            {
+                Assert.Equal(8, restoredJson.RootElement.GetProperty("installationVersion").GetInt64());
+                Assert.Equal(1, restoredJson.RootElement.GetProperty("restoredProviderCount").GetInt32());
+                Assert.Equal(1, restoredJson.RootElement.GetProperty("restoredAgentCount").GetInt32());
+            }
+
             var recompleted = await RunCompleteCliAsync(dataDirectory);
             Assert.Equal(0, recompleted.ExitCode);
             using (var recompletedJson = JsonDocument.Parse(recompleted.StandardOutput))
             {
                 Assert.Equal("Ready", recompletedJson.RootElement.GetProperty("state").GetString());
-                Assert.Equal(9, recompletedJson.RootElement.GetProperty("version").GetInt64());
+                Assert.Equal(10, recompletedJson.RootElement.GetProperty("version").GetInt64());
             }
 
-            await using var services = BuildServices(dataDirectory, deterministicSecretStore: false);
-            await using var scope = services.CreateAsyncScope();
-            var installation = await scope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
-                .ReadAsync(CancellationToken.None);
-            Assert.Equal(AgentForge.Domain.Installations.InstallationState.Ready, installation.State);
+            await using (var services = BuildServices(dataDirectory, deterministicSecretStore: false))
+            await using (var scope = services.CreateAsyncScope())
+            {
+                var installation = await scope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
+                    .ReadAsync(CancellationToken.None);
+                Assert.Equal(AgentForge.Domain.Installations.InstallationState.Ready, installation.State);
+            }
+
+            var sourceHashes = CopyColdBackup(dataDirectory, backupDirectory);
+            Assert.Equal(sourceHashes, HashDirectory(backupDirectory));
+            await using (var restoredServices = BuildServices(backupDirectory, deterministicSecretStore: false))
+            await using (var restoredScope = restoredServices.CreateAsyncScope())
+            {
+                await restoredScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                    .InitializeAsync(CancellationToken.None);
+                var installation = await restoredScope.ServiceProvider
+                    .GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
+                    .ReadAsync(CancellationToken.None);
+                Assert.Equal(AgentForge.Domain.Installations.InstallationState.Ready, installation.State);
+                Assert.Equal(10, installation.Version);
+                var restoredDoctor = await restoredScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                    .DoctorAsync(new AgentForge.Domain.Setup.DoctorRequest(
+                        new ActorId("local-operator"),
+                        new CorrelationId("cold-restore-e2e")), CancellationToken.None);
+                Assert.True(restoredDoctor.IsSuccess);
+                Assert.True(restoredDoctor.Value.IsHealthy);
+                var restoredProvider = await restoredScope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Providers.IProviderProfileRepository>()
+                    .FindByIdAsync(providerId, CancellationToken.None);
+                var restoredAgent = await restoredScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                    .FindByIdAsync(new AgentForge.Domain.Agents.AgentIdentityId(agentId), CancellationToken.None);
+                Assert.NotNull(restoredProvider);
+                Assert.NotNull(restoredAgent);
+                Assert.Equal("deterministic-text-v1", restoredProvider.Model);
+                Assert.Null(restoredAgent.Mission);
+            }
         }
         finally
         {
             DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
+            DeleteTemporaryDirectory(temporaryRoot, backupDirectory);
         }
     }
 
@@ -607,6 +713,80 @@ public sealed class HeadlessSetupCliTests
             Directory.Delete(verifiedPath, recursive: true);
         }
     }
+
+    private static async Task<string> ReadNormalizedProfileAsync(string dataDirectory)
+    {
+        await using var services = BuildServices(dataDirectory, deterministicSecretStore: false);
+        await using var scope = services.CreateAsyncScope();
+        var installation = await scope.ServiceProvider
+            .GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
+            .ReadAsync(CancellationToken.None);
+        var providers = await scope.ServiceProvider
+            .GetRequiredService<AgentForge.Abstractions.Providers.IProviderProfileRepository>()
+            .ListAsync(installation.Id, CancellationToken.None);
+        var agents = await scope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .ListAsync(installation.Id, CancellationToken.None);
+        var administrator = await scope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+            .FindAsync(installation.Id, CancellationToken.None);
+        var audit = await scope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Auditing.IAuditReader>()
+            .ReadAsync(installation.Id, 0, 100, CancellationToken.None);
+        return JsonSerializer.Serialize(new
+        {
+            State = installation.State.ToString(),
+            installation.Version,
+            Providers = providers.Select(item => new
+            {
+                item.Name,
+                item.ProviderType,
+                Endpoint = item.Endpoint.AbsoluteUri,
+                item.Model,
+                item.Capabilities,
+                item.Version,
+            }),
+            Agents = agents.Select(item => new
+            {
+                item.Name,
+                item.Expertise,
+                item.Mission,
+                item.PreferredLanguage,
+                item.TimeZone,
+                item.ResponseStyle,
+                item.DefaultWorkspace,
+                item.ModelPolicy.DataLocality,
+                item.ModelPolicy.AllowFallback,
+                item.MemoryPolicy,
+                item.CapabilityPolicy,
+                item.Budget,
+                item.ChildLimits,
+                item.LearningPolicy,
+                item.Version,
+            }),
+            AdministratorActor = administrator?.ActorId.Value,
+            AuditOperations = audit.Select(item => item.OperationType),
+        }, ProfileSerializerOptions);
+    }
+
+    private static Dictionary<string, string> CopyColdBackup(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var sourcePath in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(source, sourcePath);
+            var destinationPath = Path.Combine(destination, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: false);
+        }
+
+        return HashDirectory(source);
+    }
+
+    private static Dictionary<string, string> HashDirectory(string directory) =>
+        Directory.GetFiles(directory, "*", SearchOption.AllDirectories)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToDictionary(
+                path => Path.GetRelativePath(directory, path),
+                path => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))),
+                StringComparer.Ordinal);
 
     private static string FindRepositoryRoot()
     {

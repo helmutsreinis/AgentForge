@@ -15,5 +15,6 @@
 | D-011 | Generate 256-bit local administrator credentials, keep client material only in the OS secret store, persist a PBKDF2-SHA256 verifier, compare in fixed time, and require it for Ready runtime access. | Accepted |
 | D-012 | Require exact installation versions and the matching local administrator for maintenance mutations; atomically capture a redacted pre-recovery profile before leaving Ready. | Accepted |
 | D-013 | Require profile edit preview hashes to bind installation, actor, correlation, target, entity versions, normalized effective parameters, and provider evidence; apply always re-evaluates before an atomic commit. | Accepted |
+| D-014 | Restore only hash- and audit-proven rollback artifacts in `Configuring`; require identical entity topology, current secret/capability/policy validation, and a second hash-bound preview before atomic apply. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

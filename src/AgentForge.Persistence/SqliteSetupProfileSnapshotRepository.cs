@@ -16,6 +16,16 @@ internal sealed class SqliteSetupProfileSnapshotRepository(AgentForgeDbContext d
         await dbContext.SetupProfileSnapshots.AddAsync(Map(snapshot), cancellationToken);
     }
 
+    public async ValueTask<SetupProfileSnapshot?> FindByIdAsync(
+        SetupProfileSnapshotId snapshotId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.SetupProfileSnapshots
+            .AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == snapshotId.Value, cancellationToken);
+        return entity is null ? null : Map(entity);
+    }
+
     public async Task<IReadOnlyList<SetupProfileSnapshot>> ListAsync(
         InstallationId installationId,
         CancellationToken cancellationToken)

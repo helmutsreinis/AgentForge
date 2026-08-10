@@ -13,7 +13,7 @@ passing gate report.
 | AF-ARCH-001 | Domain has no infrastructure dependencies and feature implementations communicate through Abstractions. | 0 | Verified |
 | AF-ARCH-002 | The bootstrap kernel contains only configuration, recovery, policy, audit, loading, snapshots, and promotion primitives. | 0-5 | In progress |
 | AF-SET-001 | A clean launch detects an uninitialized installation and exposes setup while normal runtime operations fail closed. | 0 | Verified |
-| AF-SET-002 | Interactive and non-interactive setup use the same application services and validation rules. | 1 | In progress |
+| AF-SET-002 | Interactive and non-interactive setup use the same application services and validation rules. | 1 | Verified |
 | AF-SET-003 | Setup validates storage, one text provider/model, policy, audit, and one named agent before Ready. | 1 | Verified |
 | AF-SET-004 | Setup persists a versioned profile containing secret references only and produces a redacted report and rollback snapshot. | 1 | Verified |
 | AF-SET-005 | Recovery mode repairs provider/plugin/skill configuration without launching autonomous work. | 1 | In progress |

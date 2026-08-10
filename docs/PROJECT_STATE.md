@@ -4,9 +4,9 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 6d: add authenticated snapshot restore, automate a complete cold
-backup/restore drill, and close the milestone with full interactive/headless profile-
-equivalence evidence.
+Milestone 2 slice 1: define immutable environment profiles and add passive Windows,
+Linux, WSL, distribution, filesystem, privilege, package/service manager, executable,
+and accelerator inventory without executing discovered tools.
 
 ## Completed
 
@@ -39,10 +39,13 @@ equivalence evidence.
 - M1 slice 6c added secure provider credential onboarding through redirected stdin or a hidden interactive prompt; credentials are bounded character buffers, never CLI arguments, and are cleared after the invocation. Failed durable profile commits compensate the exact newly stored secret reference.
 - Provider and agent maintenance now use authenticated, exact-version preview/apply contracts. SHA-256 request hashes bind installation, actor, correlation, target, versions, normalized effective parameters, and provider capability evidence; apply re-evaluates the request and rejects no-op, mismatched, and stale changes.
 - Profile updates and the pure `Configuring → Configuring` installation version transition commit atomically with redacted audit evidence. Windows runs the complete live-DPAPI CLI journey through provider setup, agent creation, recovery, both edit types, and recompletion; Ubuntu verifies deterministic behavior. Both platforms pass locked builds, format, all 57 tests, smoke, vulnerability, and secret scans.
+- M1 slice 6d added authenticated rollback preview/apply with bounded artifact reads, exact SHA-256/length/media verification, schema and installation/administrator binding, valid audit provenance, current secret/capability and agent-policy revalidation, exact topology checks, and a hash-bound atomic restore audit.
+- Tampered, wrong-hash, stale, no-op, wrong-state, mismatched-topology, and unavailable-secret conditions fail closed. A complete Windows CLI scenario edits and restores both profiles, then cold-copies SQLite, artifacts, and DPAPI references; every file hash matches and the restored installation passes doctor. Complete interactive/headless entry produces equivalent normalized Ready profiles.
+- Milestone 1 exit evidence passes on Windows and Ubuntu with 58 tests, locked Release builds, format, host smoke, migration drift, dependency/secret scans, and no plaintext credential persistence. Release checkpoint `0.1 Foundation Alpha` is ready to merge from the draft PR.
 
 ## Latest gate
 
-`artifacts/gates/M1-06C-20260810.md`: Pass.
+`artifacts/gates/M1-06D-20260810.md`: Pass.
 
 ## Known constraints and risks
 
@@ -51,10 +54,10 @@ equivalence evidence.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
-- Recovery entry, resume, and provider/agent edits are authenticated and snapshot-backed, but automated snapshot restore is not enabled yet. Recovery remains configuration-only and cannot launch autonomous work.
+- Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Implement authenticated snapshot restore, exercise a complete cold backup/restore,
-and prove full interactive/headless profile equivalence before closing Milestone 1.
+Start Milestone 2 with pure immutable environment records and passive native inventory;
+discovery must execute no candidate binary and must preserve unknown provenance.

@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISetupApplicationService, SetupApplicationService>();
         services.AddScoped<ISetupMaintenanceService, SetupMaintenanceService>();
         services.AddScoped<ISetupProfileEditor, SetupProfileEditor>();
+        services.AddScoped<ISetupProfileRestorer, SetupProfileRestorer>();
         services.AddScoped<IProviderProfileValidator, DeterministicProviderProfileValidator>();
         services.AddSingleton<IProviderProfileDefinitionEvaluator, ConservativeProviderProfileDefinitionEvaluator>();
         services.AddSingleton<IAgentDefinitionEvaluator, ConservativeAgentDefinitionEvaluator>();

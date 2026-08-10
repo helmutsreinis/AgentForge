@@ -169,4 +169,10 @@ validation, requires exact installation/entity versions, and compares a lowercas
 SHA-256 request hash bound to installation, actor, correlation, target, versions,
 effective parameters, and provider evidence. The profile update, global installation
 version increment, and redacted audit event share one transaction. Snapshot restore
-remains disabled until its separate gate passes.
+is a separate authenticated preview/apply path. It reads at most 2 MiB, verifies
+recorded length, media type, SHA-256 content, schema, installation/administrator
+binding, and an intact audit event carrying the rollback hash. It rejects entity
+topology changes, re-materializes every provider reference, re-probes capabilities,
+and re-evaluates every agent policy before calculating the restore hash. Apply repeats
+all checks and commits changed entities, one installation version, and one redacted
+audit event atomically. Restore cannot create authority or start runtime work.

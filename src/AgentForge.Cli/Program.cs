@@ -89,6 +89,16 @@ if (args is ["setup", "recovery", "resume", .. var recoveryResumeArguments])
     return await TransitionRecoveryAsync(recoveryResumeArguments, enter: false);
 }
 
+if (args is ["setup", "restore", "preview", .. var restorePreviewArguments])
+{
+    return await RestoreSetupProfileAsync(restorePreviewArguments, apply: false);
+}
+
+if (args is ["setup", "restore", "apply", .. var restoreApplyArguments])
+{
+    return await RestoreSetupProfileAsync(restoreApplyArguments, apply: true);
+}
+
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
 if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var baseAddress))
 {
@@ -837,6 +847,8 @@ static async Task<int> ExportSetupAsync(string[] arguments)
         {
             succeeded = true,
             profileVersion = options.ExpectedVersion,
+            reportSnapshotId = result.Value.Report.Id.ToString(),
+            rollbackSnapshotId = result.Value.Rollback.Id.ToString(),
             report = result.Value.Report.Artifact,
             rollback = result.Value.Rollback.Artifact,
             result.Value.RedactionCount,
@@ -902,6 +914,93 @@ static async Task<int> TransitionRecoveryAsync(string[] arguments, bool enter)
             version = result.Value.Installation.Version,
             result.Value.Installation.RecoveryReason,
             rollback = result.Value.RollbackSnapshot?.Artifact,
+        });
+        return 0;
+    });
+}
+
+static async Task<int> RestoreSetupProfileAsync(string[] arguments, bool apply)
+{
+    if (!TryParseRestoreOptions(arguments, apply, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Setup profile restore", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var restorer = scope.ServiceProvider.GetRequiredService<ISetupProfileRestorer>();
+        if (!apply)
+        {
+            var preview = await restorer.PreviewAsync(new PreviewSetupProfileRestoreRequest(
+                options.SnapshotId,
+                options.ExpectedInstallationVersion,
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId),
+                credential.Value), cancellationToken);
+            if (!preview.IsSuccess)
+            {
+                return await WriteFailureAsync(preview.Failure!);
+            }
+
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                applied = false,
+                snapshotId = preview.Value.Snapshot.Id.ToString(),
+                snapshotVersion = preview.Value.Snapshot.ProfileVersion,
+                snapshotHash = preview.Value.Snapshot.Artifact.ContentHash,
+                requestHash = preview.Value.RequestHash,
+                changes = preview.Value.Changes,
+            });
+            return 0;
+        }
+
+        var restored = await restorer.ApplyAsync(new ApplySetupProfileRestoreRequest(
+            options.SnapshotId,
+            options.ExpectedInstallationVersion,
+            options.PreviewHash!,
+            new ActorId(options.ActorId),
+            new CorrelationId(options.CorrelationId),
+            credential.Value), cancellationToken);
+        if (!restored.IsSuccess)
+        {
+            return await WriteFailureAsync(restored.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            applied = true,
+            installationVersion = restored.Value.Installation.Version,
+            snapshotId = restored.Value.Snapshot.Id.ToString(),
+            snapshotHash = restored.Value.Snapshot.Artifact.ContentHash,
+            restored.Value.RestoredProviderCount,
+            restored.Value.RestoredAgentCount,
+            requestHash = restored.Value.RequestHash,
+            changes = restored.Value.Changes,
         });
         return 0;
     });
@@ -1703,6 +1802,62 @@ static bool TryParseMaintenanceOptions(
     return true;
 }
 
+static bool TryParseRestoreOptions(
+    string[] arguments,
+    bool apply,
+    out SetupRestoreOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(
+        arguments,
+        ["--actor", "--correlation", "--data-directory", "--expected-version", "--preview-hash", "--snapshot-id"],
+        out var values,
+        out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--snapshot-id", out var snapshotIdText, out error) ||
+        !Require(values, "--expected-version", out var expectedVersionText, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    if (!Guid.TryParseExact(snapshotIdText, "D", out var snapshotId) || snapshotId == Guid.Empty)
+    {
+        error = "--snapshot-id must be a non-empty GUID in D format.";
+        return false;
+    }
+
+    if (!TryNonNegativeVersion(expectedVersionText, "--expected-version", out var expectedVersion, out error))
+    {
+        return false;
+    }
+
+    var previewHash = values.GetValueOrDefault("--preview-hash");
+    if (apply && string.IsNullOrWhiteSpace(previewHash))
+    {
+        error = "Required option '--preview-hash' is missing or empty.";
+        return false;
+    }
+
+    if (!apply && previewHash is not null)
+    {
+        error = "--preview-hash is valid only when applying a restore.";
+        return false;
+    }
+
+    options = new SetupRestoreOptions(
+        dataDirectory,
+        new SetupProfileSnapshotId(snapshotId),
+        expectedVersion,
+        previewHash,
+        actorId,
+        correlationId);
+    error = null;
+    return true;
+}
+
 static bool TryParseExactOptions(
     string[] arguments,
     IReadOnlyCollection<string> allowedOptions,
@@ -1871,6 +2026,8 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup export --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery enter --data-directory <path> --expected-version <n> --reason <text> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery resume --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup restore preview --data-directory <path> --snapshot-id <guid> --expected-version <n> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup restore apply <same-options> --preview-hash <sha256>");
 }
 
 internal sealed record SetupBeginOptions(
@@ -1952,5 +2109,13 @@ internal sealed record SetupMaintenanceOptions(
     string DataDirectory,
     long ExpectedVersion,
     string? Reason,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record SetupRestoreOptions(
+    string DataDirectory,
+    SetupProfileSnapshotId SnapshotId,
+    long ExpectedInstallationVersion,
+    string? PreviewHash,
     string ActorId,
     string CorrelationId);
