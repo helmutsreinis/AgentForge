@@ -56,10 +56,10 @@ returns 130. The command currently stops at `Configuring` by design.
 On Windows, AgentForge stores provider credentials as current-user DPAPI-protected
 files under the configured data directory's `secrets` folder. Copying these files to
 another user does not make them decryptable. On Linux, install `secret-tool` and run
-AgentForge inside a working Secret Service/DBus session. `doctor` will expose this
-capability in a later slice; until then, absence is reported as
-`UnsupportedCapability`. Never place provider secrets in CLI arguments, configuration,
-SQLite, migration fixtures, logs, audit, exports, or gate reports.
+AgentForge inside a working Secret Service/DBus session. `agentforge doctor` reports
+the store as unavailable when this facility is absent; it never falls back to
+plaintext. Never place provider secrets in CLI arguments, configuration, SQLite,
+migration fixtures, logs, audit, exports, or gate reports.
 
 Backups preserve provider database rows and OS secret references together. Restoring
 only SQLite can leave valid-looking but non-materializable references; validate every
@@ -107,6 +107,33 @@ Ready runtime calls require `Authorization: Bearer <credential>`. Retrieve the v
 through the OS secret reference for one invocation and clear it immediately. Never
 copy it into shell history, process arguments, configuration, logs, or reports.
 
+Inspect a configured installation without exposing credentials:
+
+```text
+agentforge doctor --data-directory <absolute-path> --actor <actor-id> --correlation <correlation-id>
+```
+
+The command exits 0 when every required check passes and 2 when diagnosis succeeds
+but one or more checks fail. Create a redacted report and rollback profile using the
+exact version returned by doctor:
+
+```text
+agentforge setup export --data-directory <absolute-path> --expected-version <n> --actor <actor-id> --correlation <correlation-id>
+```
+
+The output identifies content-addressed artifacts; it does not print the JSON or any
+credential. Before configuration maintenance, enter recovery with an explicit reason:
+
+```text
+agentforge setup recovery enter --data-directory <absolute-path> --expected-version <n> --reason <text> --actor <actor-id> --correlation <correlation-id>
+agentforge setup recovery resume --data-directory <absolute-path> --expected-version <n+1> --actor <actor-id> --correlation <correlation-id>
+```
+
+Entry automatically captures another pre-recovery rollback profile. Resume returns
+to `Configuring`; after approved edits, run `setup complete` to revalidate and return
+to `Ready` using the existing administrator identity. Snapshot restore and CLI edit
+commands are not enabled yet; do not modify SQLite directly.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a
@@ -128,6 +155,11 @@ restore the pre-upgrade backup instead of applying down to operator state.
 
 Migration 0004 creates the single local-administrator row. Its down migration drops
 authentication state and is destructive; restore the full pre-0004 backup instead.
+
+Migration 0005 creates setup-profile snapshot metadata and foreign-key binds each row
+to its installation and content-addressed artifact. Its down migration discards
+recovery evidence; restore the full pre-0005 SQLite/artifact/OS-reference backup set
+instead of applying it to operator state.
 
 ## Gate and recovery rules
 

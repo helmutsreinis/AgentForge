@@ -26,7 +26,9 @@ internal sealed class SetupApplicationService(
     IAgentDefinitionEvaluator agentDefinitionEvaluator,
     ILocalAdministratorRepository administrators,
     ILocalAdministratorCredentialService administratorCredentials,
+    ILocalAdministratorAuthenticator administratorAuthenticator,
     ISecretStore secretStore,
+    ISensitiveDataRedactor redactor,
     IAuditIntegrityVerifier auditIntegrityVerifier,
     IClock clock,
     IIdentifierGenerator identifiers) : ISetupApplicationService
@@ -321,11 +323,19 @@ internal sealed class SetupApplicationService(
                 "Setup can be completed only while installation state is Configuring."));
         }
 
-        if (await administrators.FindAsync(installation.Id, cancellationToken) is not null)
+        var existingAdministrator = await administrators.FindAsync(installation.Id, cancellationToken);
+        if (existingAdministrator is not null)
         {
-            return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
-                FailureCode.InvalidStateTransition,
-                "This installation already has a local administrator."));
+            var authentication = await administratorAuthenticator.AuthenticateAsync(
+                installation.Id,
+                request.AdministratorCredential,
+                cancellationToken);
+            if (!authentication.IsSuccess || authentication.Value != request.ActorId)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    "Existing installations require the matching local administrator credential."));
+            }
         }
 
         var providers = await providerProfiles.ListAsync(installation.Id, cancellationToken);
@@ -373,15 +383,22 @@ internal sealed class SetupApplicationService(
             await materialized.Value.DisposeAsync();
         }
 
-        var generated = await administratorCredentials.CreateAsync(
-            $"administrator-{installation.Id}",
-            cancellationToken);
-        if (!generated.IsSuccess)
+        GeneratedAdministratorCredential? generatedCredential = null;
+        if (existingAdministrator is null)
         {
-            return DomainResult.Fail<SetupCompletionReport>(generated.Failure!);
+            var generated = await administratorCredentials.CreateAsync(
+                $"administrator-{installation.Id}",
+                cancellationToken);
+            if (!generated.IsSuccess)
+            {
+                return DomainResult.Fail<SetupCompletionReport>(generated.Failure!);
+            }
+
+            generatedCredential = generated.Value;
         }
 
-        var credentialReference = generated.Value.ClientCredentialReference;
+        var credentialReference = existingAdministrator?.ClientCredentialReference
+            ?? generatedCredential!.ClientCredentialReference;
         var committed = false;
         try
         {
@@ -408,17 +425,20 @@ internal sealed class SetupApplicationService(
             }
 
             var now = clock.UtcNow;
-            var administrator = new LocalAdministrator(
+            var administrator = existingAdministrator ?? new LocalAdministrator(
                 new AdministratorIdentityId(identifiers.NewGuid()),
                 installation.Id,
                 request.ActorId,
                 credentialReference,
-                generated.Value.CredentialVerifier,
+                generatedCredential!.CredentialVerifier,
                 0,
                 now,
                 now,
                 request.CorrelationId);
-            await administrators.AddAsync(administrator, cancellationToken);
+            if (existingAdministrator is null)
+            {
+                await administrators.AddAsync(administrator, cancellationToken);
+            }
             await installations.UpdateAsync(ready.Value, installation.Version, cancellationToken);
 
             var checks = new[]
@@ -428,7 +448,12 @@ internal sealed class SetupApplicationService(
                 new SetupValidationCheck("provider.text", true, $"Validated {usableProviders.Length} text provider profile(s)."),
                 new SetupValidationCheck("provider.secret", true, "All usable provider secret references materialize."),
                 new SetupValidationCheck("agent.identity", true, $"Validated {configuredAgents.Count} named agent identity profile(s)."),
-                new SetupValidationCheck("administrator.local", true, "Created an OS-protected local administrator credential."),
+                new SetupValidationCheck(
+                    "administrator.local",
+                    true,
+                    existingAdministrator is null
+                        ? "Created an OS-protected local administrator credential."
+                        : "Authenticated the existing local administrator credential."),
             };
             await auditRecorder.RecordAsync(new AuditRecordRequest(
                 installation.Id,
@@ -464,7 +489,7 @@ internal sealed class SetupApplicationService(
         }
         finally
         {
-            if (!committed)
+            if (!committed && existingAdministrator is null)
             {
                 _ = await secretStore.DeleteAsync(credentialReference, CancellationToken.None);
             }
@@ -521,7 +546,7 @@ internal sealed class SetupApplicationService(
             : DomainResult.Fail<AgentPreparation>(effectiveDefinition.Failure!);
     }
 
-    private static DomainFailure? Validate(BeginSetupRequest request)
+    private DomainFailure? Validate(BeginSetupRequest request)
     {
         if (request.InstallationId is { Value: var installationId } && installationId == Guid.Empty)
         {
@@ -531,7 +556,7 @@ internal sealed class SetupApplicationService(
         return ValidateActorAndCorrelation(request.ActorId, request.CorrelationId);
     }
 
-    private static DomainFailure? ValidateActorAndCorrelation(ActorId actorId, CorrelationId correlationId)
+    private DomainFailure? ValidateActorAndCorrelation(ActorId actorId, CorrelationId correlationId)
     {
         if (string.IsNullOrWhiteSpace(actorId.Value) ||
             actorId.Value.Length > 256 ||
@@ -547,10 +572,17 @@ internal sealed class SetupApplicationService(
             return new DomainFailure(FailureCode.ValidationFailure, "Correlation ID must contain 1 to 128 characters.");
         }
 
+        if (redactor.Redact(new[] { actorId.Value, correlationId.Value }).ContainsRedactions)
+        {
+            return new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Actor and correlation IDs cannot contain credential-shaped content.");
+        }
+
         return null;
     }
 
-    private static DomainFailure? ValidateCandidate(ProviderProfileCandidate candidate)
+    private DomainFailure? ValidateCandidate(ProviderProfileCandidate candidate)
     {
         if (candidate is null || candidate.Endpoint is null || candidate.SecretReference is null ||
             string.IsNullOrWhiteSpace(candidate.Name) || candidate.Name.Length > 128 || candidate.Name.Any(char.IsControl) ||
@@ -560,6 +592,19 @@ internal sealed class SetupApplicationService(
             string.IsNullOrWhiteSpace(candidate.SecretReference.Key) || candidate.SecretReference.Key.Length > 512 || candidate.SecretReference.Key.Any(char.IsControl))
         {
             return new DomainFailure(FailureCode.ValidationFailure, "Provider profile fields are missing or invalid.");
+        }
+
+        if (redactor.Redact(new
+        {
+            candidate.Name,
+            candidate.ProviderType,
+            candidate.Model,
+            Endpoint = candidate.Endpoint.AbsoluteUri,
+        }).ContainsRedactions)
+        {
+            return new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Provider profile contains credential-shaped content and cannot be persisted.");
         }
 
         if (!candidate.Endpoint.IsAbsoluteUri ||

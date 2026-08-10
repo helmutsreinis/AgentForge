@@ -665,6 +665,258 @@ public sealed class PersistenceFoundationTests : IDisposable
             .FindAsync(installationId, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Setup_snapshot_migration_preserves_existing_administrator_configuration()
+    {
+        var installationId = new InstallationId(Guid.Parse("1b3752f5-371b-46fc-a2cf-5c4402252337"));
+        var administrator = new LocalAdministrator(
+            new AdministratorIdentityId(Guid.Parse("95ff3663-192b-4560-a67e-8b38441f16a4")),
+            installationId,
+            new ActorId("upgrade-administrator"),
+            new SecretReference("test-memory", "upgrade-administrator-reference"),
+            new AdministratorCredentialVerifier("PBKDF2-SHA256", 210_000, "fixture-salt", "fixture-verifier"),
+            0,
+            Now,
+            Now,
+            new CorrelationId("snapshot-upgrade"));
+        await using (var administratorSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = administratorSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260810174842_LocalAdministrator", CancellationToken.None);
+            await administratorSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("upgrade-fixture"),
+                    new CorrelationId("snapshot-upgrade")), CancellationToken.None);
+            await administratorSchemaScope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+                .AddAsync(administrator, CancellationToken.None);
+            Assert.True((await administratorSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.Equal(
+            administrator,
+            await upgradedScope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+                .FindAsync(installationId, CancellationToken.None));
+        Assert.Empty(await upgradedScope.ServiceProvider.GetRequiredService<ISetupProfileSnapshotRepository>()
+            .ListAsync(installationId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Doctor_export_and_authorized_recovery_are_redacted_version_bound_and_restart_safe()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("4ae83320-910f-4685-b9ca-722ec5bd65bd"));
+        await using (var setupScope = _services.CreateAsyncScope())
+        {
+            var setup = setupScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-begin")), CancellationToken.None)).IsSuccess);
+            var providerSecret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("maintenance-provider", "provider-fixture".AsMemory(), CancellationToken.None);
+            Assert.True(providerSecret.IsSuccess);
+            var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    providerSecret.Value),
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-provider")), CancellationToken.None);
+            Assert.True(provider.IsSuccess);
+            Assert.True((await setup.CreateAgentAsync(new CreateAgentRequest(
+                CreateAgentCandidate(provider.Value.Profile.Id),
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-agent")), CancellationToken.None)).IsSuccess);
+            Assert.True((await setup.CompleteAsync(new CompleteSetupRequest(
+                new ActorId("local-admin"),
+                new CorrelationId("maintenance-ready")), CancellationToken.None)).IsSuccess);
+        }
+
+        await using var credentialScope = _services.CreateAsyncScope();
+        var administrator = await credentialScope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+            .FindAsync(installationId, CancellationToken.None);
+        Assert.NotNull(administrator);
+        var materialized = await credentialScope.ServiceProvider.GetRequiredService<ISecretStore>()
+            .MaterializeAsync(administrator.ClientCredentialReference, CancellationToken.None);
+        Assert.True(materialized.IsSuccess);
+        await using var credential = materialized.Value;
+
+        await using (var doctorScope = _services.CreateAsyncScope())
+        {
+            var doctor = await doctorScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .DoctorAsync(new DoctorRequest(
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-doctor")), CancellationToken.None);
+            Assert.True(doctor.IsSuccess);
+            Assert.True(doctor.Value.IsHealthy);
+            Assert.All(doctor.Value.Checks, check => Assert.NotEqual(DoctorCheckStatus.Fail, check.Status));
+        }
+
+        ExportSetupProfileResult exported;
+        await using (var exportScope = _services.CreateAsyncScope())
+        {
+            var export = await exportScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .ExportAsync(new ExportSetupProfileRequest(
+                    3,
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-export"),
+                    credential.Value), CancellationToken.None);
+            Assert.True(export.IsSuccess);
+            exported = export.Value;
+            Assert.Equal(SetupProfileSnapshotKind.SetupReport, exported.Report.Kind);
+            Assert.Equal(SetupProfileSnapshotKind.Rollback, exported.Rollback.Kind);
+        }
+
+        await using (var artifactScope = _services.CreateAsyncScope())
+        {
+            var store = artifactScope.ServiceProvider.GetRequiredService<IArtifactStore>();
+            await using var reportStream = await store.OpenReadAsync(exported.Report.Artifact, CancellationToken.None);
+            using var reportReader = new StreamReader(reportStream, Encoding.UTF8);
+            var reportJson = await reportReader.ReadToEndAsync(CancellationToken.None);
+            await using var rollbackStream = await store.OpenReadAsync(exported.Rollback.Artifact, CancellationToken.None);
+            using var rollbackReader = new StreamReader(rollbackStream, Encoding.UTF8);
+            var rollbackJson = await rollbackReader.ReadToEndAsync(CancellationToken.None);
+            Assert.Contains("agentforge.setup-report", reportJson, StringComparison.Ordinal);
+            Assert.Contains("agentforge.rollback-profile", rollbackJson, StringComparison.Ordinal);
+            Assert.Contains(administrator.ClientCredentialReference.Key, rollbackJson, StringComparison.Ordinal);
+            Assert.DoesNotContain(administrator.CredentialVerifier.Verifier, rollbackJson, StringComparison.Ordinal);
+            Assert.Equal(
+                -1,
+                rollbackJson.AsSpan().IndexOf(credential.Value.Span, StringComparison.Ordinal));
+            Assert.Equal(2, (await artifactScope.ServiceProvider.GetRequiredService<ISetupProfileSnapshotRepository>()
+                .ListAsync(installationId, CancellationToken.None)).Count);
+        }
+
+        await using (var deniedScope = _services.CreateAsyncScope())
+        {
+            var denied = await deniedScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .ExportAsync(new ExportSetupProfileRequest(
+                    3,
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-denied"),
+                    "wrong-credential".AsMemory()), CancellationToken.None);
+            Assert.False(denied.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, denied.Failure?.Code);
+
+            var deniedWithStaleVersion = await deniedScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .ExportAsync(new ExportSetupProfileRequest(
+                    2,
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-denied-stale"),
+                    "wrong-credential".AsMemory()), CancellationToken.None);
+            Assert.False(deniedWithStaleVersion.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, deniedWithStaleVersion.Failure?.Code);
+
+            var stale = await deniedScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .ExportAsync(new ExportSetupProfileRequest(
+                    2,
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-stale"),
+                    credential.Value), CancellationToken.None);
+            Assert.False(stale.IsSuccess);
+            Assert.Equal(FailureCode.ConcurrencyConflict, stale.Failure?.Code);
+        }
+
+        await using (var enterScope = _services.CreateAsyncScope())
+        {
+            var rejectedReason = await enterScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .EnterRecoveryAsync(new EnterRecoveryRequest(
+                    3,
+                    "sk-" + new string('r', 32),
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-secret-reason"),
+                    credential.Value), CancellationToken.None);
+            Assert.False(rejectedReason.IsSuccess);
+            Assert.Equal(FailureCode.ValidationFailure, rejectedReason.Failure?.Code);
+
+            var entered = await enterScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .EnterRecoveryAsync(new EnterRecoveryRequest(
+                    3,
+                    "provider maintenance",
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-enter"),
+                    credential.Value), CancellationToken.None);
+            Assert.True(entered.IsSuccess);
+            Assert.Equal(InstallationState.RecoveryRequired, entered.Value.Installation.State);
+            Assert.Equal(4, entered.Value.Installation.Version);
+            Assert.NotNull(entered.Value.RollbackSnapshot);
+            Assert.Equal(3, (await enterScope.ServiceProvider.GetRequiredService<ISetupProfileSnapshotRepository>()
+                .ListAsync(installationId, CancellationToken.None)).Count);
+        }
+
+        await using (var recoveryDoctorScope = _services.CreateAsyncScope())
+        {
+            var doctor = await recoveryDoctorScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .DoctorAsync(new DoctorRequest(
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-recovery-doctor")), CancellationToken.None);
+            Assert.True(doctor.IsSuccess);
+            Assert.False(doctor.Value.IsHealthy);
+            Assert.Contains(doctor.Value.Checks, check =>
+                check.CheckId == "installation.state" && check.Status == DoctorCheckStatus.Fail);
+        }
+
+        await using (var resumeScope = _services.CreateAsyncScope())
+        {
+            var resumed = await resumeScope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+                .ResumeRecoveryAsync(new ResumeRecoveryRequest(
+                    4,
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-resume"),
+                    credential.Value), CancellationToken.None);
+            Assert.True(resumed.IsSuccess);
+            Assert.Equal(InstallationState.Configuring, resumed.Value.Installation.State);
+            Assert.Equal(5, resumed.Value.Installation.Version);
+        }
+
+        await using (var recompleteScope = _services.CreateAsyncScope())
+        {
+            var recompleted = await recompleteScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .CompleteAsync(new CompleteSetupRequest(
+                    new ActorId("local-admin"),
+                    new CorrelationId("maintenance-recomplete"),
+                    credential.Value), CancellationToken.None);
+            Assert.True(recompleted.IsSuccess);
+            Assert.Equal(InstallationState.Ready, recompleted.Value.Installation.State);
+            Assert.Equal(7, recompleted.Value.Installation.Version);
+            Assert.Equal(administrator.Id, recompleted.Value.Administrator.Id);
+            Assert.Equal(administrator.ClientCredentialReference, recompleted.Value.Administrator.ClientCredentialReference);
+        }
+
+        await using var restartScope = _services.CreateAsyncScope();
+        Assert.Equal(
+            InstallationState.Ready,
+            (await restartScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .ReadAsync(CancellationToken.None)).State);
+        Assert.Equal(8, (await restartScope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(installationId, 0, 20, CancellationToken.None)).Count);
+    }
+
+    [Fact]
+    public async Task Credential_shaped_identifiers_are_rejected_before_durable_setup_state()
+    {
+        await InitializeAsync();
+        await using var scope = _services.CreateAsyncScope();
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+            .BeginAsync(new BeginSetupRequest(
+                InstallationId.New(),
+                new ActorId("sk-" + new string('s', 32)),
+                new CorrelationId("credential-identifier")), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+        Assert.Equal(Guid.Empty, (await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(CancellationToken.None)).Id.Value);
+    }
+
     public void Dispose()
     {
         _services.Dispose();

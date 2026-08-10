@@ -41,4 +41,5 @@ public sealed record SetupCompletionReport(
 
 public sealed record CompleteSetupRequest(
     ActorId ActorId,
-    CorrelationId CorrelationId);
+    CorrelationId CorrelationId,
+    ReadOnlyMemory<char> AdministratorCredential = default);

@@ -141,3 +141,20 @@ commit triggers exact-reference deletion. A Ready runtime endpoint returns 401
 without a valid bounded bearer credential. Rate limits, lockout/session policy,
 request idempotency, CSRF/browser authentication, and remote TLS remain open and must
 pass before exposing mutation or remote surfaces.
+
+## M1 maintenance/export update
+
+Doctor exposes bounded status summaries only and never materialized values. Setup
+export and recovery mutations require an exact installation version plus the local
+administrator credential; the CLI materializes that credential from its OS reference
+for one disposable invocation instead of accepting it as an argument. Report and
+profile payloads cross the structured redaction boundary before content-addressed
+storage. Tests prove that administrator verifiers and materialized credentials are
+absent while reference store/key metadata remains available for recovery.
+
+Entering recovery atomically stores the pre-transition rollback profile, changes the
+installation state, and appends its correlated audit event. Recovery is deliberately
+unhealthy and cannot enter normal runtime. Actor/correlation IDs and operator-supplied
+provider/agent metadata are rejected when they resemble credentials, closing sinks
+that sit outside audit payload redaction. Snapshot restore and configuration editing
+remain disabled until their version/diff gates pass.

@@ -25,6 +25,8 @@ Start the first offline setup transaction with explicit deterministic input:
 dotnet run --project src/AgentForge.Cli -- setup begin --data-directory <path> --actor local-operator --correlation setup-001 --installation-id 00000000-0000-0000-0000-000000000001
 ```
 
-The interactive equivalent is `agentforge setup begin --interactive`. This current
-slice enters `Configuring`; provider, administrator, and agent validation are added by
-subsequent Milestone 1 gates before any installation may become ready.
+The interactive equivalent is `agentforge setup begin --interactive`. Shared setup
+services now support validated provider profiles, bounded named agents, minimum-
+viability completion, local administration, doctor, redacted export, and authorized
+recovery. The provider onboarding CLI and version-bound edit/diff path remain the
+final Milestone 1 work; see `docs/RUNBOOK.md` for the currently executable commands.

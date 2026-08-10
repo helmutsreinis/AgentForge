@@ -96,7 +96,9 @@ public sealed class SetupApplicationServiceTests
         services.AddSingleton<IAgentIdentityRepository, StubAgentIdentityRepository>();
         services.AddSingleton<ILocalAdministratorRepository, StubAdministratorRepository>();
         services.AddSingleton<ILocalAdministratorCredentialService, StubAdministratorCredentialService>();
+        services.AddSingleton<ILocalAdministratorAuthenticator, StubAdministratorAuthenticator>();
         services.AddSingleton<ISecretStore, StubSecretStore>();
+        services.AddSingleton<ISensitiveDataRedactor, StubSensitiveDataRedactor>();
         services.AddSingleton<IProviderProfileValidator, StubProviderValidator>();
         services.AddSingleton<IAuditRecorder, StubAuditRecorder>();
         services.AddSingleton<IAuditIntegrityVerifier, StubAuditIntegrityVerifier>();
@@ -217,6 +219,16 @@ public sealed class SetupApplicationServiceTests
         public bool Verify(ReadOnlySpan<char> credential, AdministratorCredentialVerifier verifier) => false;
     }
 
+    private sealed class StubAdministratorAuthenticator : ILocalAdministratorAuthenticator
+    {
+        public Task<DomainResult<ActorId>> AuthenticateAsync(
+            InstallationId installationId,
+            ReadOnlyMemory<char> credential,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Fail<ActorId>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "stub")));
+    }
+
     private sealed class StubSecretStore : ISecretStore
     {
         public string StoreName => "stub";
@@ -237,6 +249,11 @@ public sealed class SetupApplicationServiceTests
         public Task<DomainResult<bool>> DeleteAsync(
             SecretReference secretReference,
             CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class StubSensitiveDataRedactor : ISensitiveDataRedactor
+    {
+        public RedactionResult Redact(object? value) => new(RedactedData.Empty, 0);
     }
 
     private sealed class StubAuditIntegrityVerifier : IAuditIntegrityVerifier

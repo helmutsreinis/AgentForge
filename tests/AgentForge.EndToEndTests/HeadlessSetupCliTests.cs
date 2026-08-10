@@ -170,6 +170,78 @@ public sealed class HeadlessSetupCliTests
                 .GetProperty("store")
                 .GetString());
 
+            var doctor = await RunMaintenanceCliAsync(
+                dataDirectory,
+                "doctor",
+                "--actor", "local-operator",
+                "--correlation", "doctor-ready-e2e");
+            Assert.Equal(0, doctor.ExitCode);
+            using (var doctorJson = JsonDocument.Parse(doctor.StandardOutput))
+            {
+                Assert.True(doctorJson.RootElement.GetProperty("succeeded").GetBoolean());
+                Assert.Equal("Ready", doctorJson.RootElement.GetProperty("state").GetString());
+            }
+
+            var exported = await RunMaintenanceCliAsync(
+                dataDirectory,
+                "setup", "export",
+                "--expected-version", "3",
+                "--actor", "local-operator",
+                "--correlation", "export-e2e");
+            Assert.Equal(0, exported.ExitCode);
+            using (var exportJson = JsonDocument.Parse(exported.StandardOutput))
+            {
+                Assert.StartsWith(
+                    "sha256:",
+                    exportJson.RootElement.GetProperty("report").GetProperty("contentHash").GetString(),
+                    StringComparison.Ordinal);
+                Assert.StartsWith(
+                    "sha256:",
+                    exportJson.RootElement.GetProperty("rollback").GetProperty("contentHash").GetString(),
+                    StringComparison.Ordinal);
+            }
+
+            var entered = await RunMaintenanceCliAsync(
+                dataDirectory,
+                "setup", "recovery", "enter",
+                "--expected-version", "3",
+                "--reason", "end-to-end maintenance",
+                "--actor", "local-operator",
+                "--correlation", "recovery-enter-e2e");
+            Assert.Equal(0, entered.ExitCode);
+            using (var enteredJson = JsonDocument.Parse(entered.StandardOutput))
+            {
+                Assert.Equal("RecoveryRequired", enteredJson.RootElement.GetProperty("state").GetString());
+                Assert.Equal(4, enteredJson.RootElement.GetProperty("version").GetInt64());
+            }
+
+            Assert.Equal(2, (await RunMaintenanceCliAsync(
+                dataDirectory,
+                "doctor",
+                "--actor", "local-operator",
+                "--correlation", "doctor-recovery-e2e")).ExitCode);
+
+            var resumed = await RunMaintenanceCliAsync(
+                dataDirectory,
+                "setup", "recovery", "resume",
+                "--expected-version", "4",
+                "--actor", "local-operator",
+                "--correlation", "recovery-resume-e2e");
+            Assert.Equal(0, resumed.ExitCode);
+            using (var resumedJson = JsonDocument.Parse(resumed.StandardOutput))
+            {
+                Assert.Equal("Configuring", resumedJson.RootElement.GetProperty("state").GetString());
+                Assert.Equal(5, resumedJson.RootElement.GetProperty("version").GetInt64());
+            }
+
+            var recompleted = await RunCompleteCliAsync(dataDirectory);
+            Assert.Equal(0, recompleted.ExitCode);
+            using (var recompletedJson = JsonDocument.Parse(recompleted.StandardOutput))
+            {
+                Assert.Equal("Ready", recompletedJson.RootElement.GetProperty("state").GetString());
+                Assert.Equal(7, recompletedJson.RootElement.GetProperty("version").GetInt64());
+            }
+
             await using var services = BuildServices(dataDirectory, deterministicSecretStore: false);
             await using var scope = services.CreateAsyncScope();
             var installation = await scope.ServiceProvider.GetRequiredService<AgentForge.Abstractions.Installations.IInstallationRepository>()
@@ -309,6 +381,46 @@ public sealed class HeadlessSetupCliTests
             startInfo.ArgumentList.Add(argument);
         }
 
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await process.WaitForExitAsync(timeout.Token);
+        return new CliResult(process.ExitCode, await standardOutput, await standardError);
+    }
+
+    private static async Task<CliResult> RunMaintenanceCliAsync(
+        string dataDirectory,
+        params string[] commandArguments)
+    {
+        var root = FindRepositoryRoot();
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+            ?? throw new InvalidOperationException("Could not determine the test build configuration.");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add(Path.Combine(
+            root,
+            "src",
+            "AgentForge.Cli",
+            "bin",
+            configuration,
+            "net10.0",
+            "agentforge.dll"));
+        foreach (var argument in commandArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        startInfo.ArgumentList.Add("--data-directory");
+        startInfo.ArgumentList.Add(dataDirectory);
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
         var standardOutput = process.StandardOutput.ReadToEndAsync();

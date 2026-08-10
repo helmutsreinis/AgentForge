@@ -4,8 +4,9 @@ Updated: 2026-08-10
 
 ## Current objective
 
-Milestone 1 slice 6b: add doctor/report/export, rollback snapshots, edit/diff, and
-authorized recovery while keeping normal runtime operations authenticated.
+Milestone 1 slice 6c: add version-bound provider/agent edit previews and apply paths,
+finish the complete CLI setup journey, and close the milestone with backup/restore
+and interactive/headless profile-equivalence evidence.
 
 ## Completed
 
@@ -32,10 +33,13 @@ authorized recovery while keeping normal runtime operations authenticated.
 - M1 slice 6a added a random 256-bit local-administrator credential, OS-backed client reference, PBKDF2-SHA256 verifier-only server state, fixed-time authentication, minimum-viability checks, and the sole guarded `Configuring → Validating → Ready` completion path.
 - Completion verifies audit integrity, a materializable text-provider secret, a named agent, and current storage; identity/state/audit commit atomically and the external credential is deleted on commit failure. Ready runtime ping requires the administrator bearer credential.
 - Migration 0004 preserves existing agent configuration. Windows and Ubuntu builds, format, setup-only smoke, deterministic completion/authentication, and all 51 tests pass; Windows additionally passes live DPAPI CLI completion.
+- M1 slice 6b added a bounded `doctor`, authenticated redacted setup report/export, content-addressed rollback profiles, version-bound recovery entry/resume, and reuse of the existing administrator identity during recovery recompletion.
+- Recovery entry now writes a pre-transition rollback snapshot in the same relational transaction as the state change and redacted audit event. Exported profiles contain OS secret references but never administrator verifiers or materialized values.
+- Migration 0005 preserves existing administrator state. Credential-shaped agent/provider metadata and actor/correlation identifiers fail before persistence. Windows and Ubuntu locked Release builds, format, host smoke, migration drift, dependency/secret scans, and all 55 tests pass; Windows additionally exercises the complete live DPAPI maintenance CLI path.
 
 ## Latest gate
 
-`artifacts/gates/M1-06A-20260810.md`: Pass.
+`artifacts/gates/M1-06B-20260810.md`: Pass.
 
 ## Known constraints and risks
 
@@ -44,10 +48,11 @@ authorized recovery while keeping normal runtime operations authenticated.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
+- Recovery entry and resume are authenticated and snapshot-backed, but profile edit/diff and automated snapshot restore are not enabled yet. Recovery remains configuration-only and cannot launch autonomous work.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 
 ## Exact next action
 
-Implement `doctor`, redacted setup export/report and rollback snapshots, then add
-version-bound edit/diff and authorized recovery transitions. Close M1 only after
-backup/restore and interactive/headless profile equivalence pass the final gate.
+Implement version-bound provider/agent edit preview and apply operations, expose the
+remaining provider setup flow through the CLI, then close M1 only after cold
+backup/restore and complete interactive/headless profile equivalence pass.

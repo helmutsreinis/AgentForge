@@ -1,11 +1,12 @@
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.Security;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 
 namespace AgentForge.Setup;
 
-internal sealed class ConservativeAgentDefinitionEvaluator : IAgentDefinitionEvaluator
+internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedactor redactor) : IAgentDefinitionEvaluator
 {
     private const int MaximumGrantCount = 64;
 
@@ -16,6 +17,11 @@ internal sealed class ConservativeAgentDefinitionEvaluator : IAgentDefinitionEva
             candidate.LearningPolicy is null)
         {
             return Invalid<AgentIdentityCandidate>("Agent definition fields are required.");
+        }
+
+        if (redactor.Redact(candidate).ContainsRedactions)
+        {
+            return Invalid<AgentIdentityCandidate>("Agent definition contains credential-shaped content and cannot be persisted.");
         }
 
         var scalarFailure = ValidateScalars(candidate);

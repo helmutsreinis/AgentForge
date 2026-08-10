@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
@@ -39,6 +41,26 @@ if (args is ["setup", "agent", "create", .. var createArguments])
 if (args is ["setup", "complete", .. var completeArguments])
 {
     return await CompleteSetupAsync(completeArguments);
+}
+
+if (args is ["doctor", .. var doctorArguments])
+{
+    return await DoctorAsync(doctorArguments);
+}
+
+if (args is ["setup", "export", .. var exportArguments])
+{
+    return await ExportSetupAsync(exportArguments);
+}
+
+if (args is ["setup", "recovery", "enter", .. var recoveryEnterArguments])
+{
+    return await TransitionRecoveryAsync(recoveryEnterArguments, enter: true);
+}
+
+if (args is ["setup", "recovery", "resume", .. var recoveryResumeArguments])
+{
+    return await TransitionRecoveryAsync(recoveryResumeArguments, enter: false);
 }
 
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
@@ -354,10 +376,40 @@ static async Task<int> CompleteSetupAsync(string[] arguments)
     {
         await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
             .InitializeAsync(cancellation.Token);
-        var result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
-            .CompleteAsync(new AgentForge.Domain.Security.CompleteSetupRequest(
-                new ActorId(options.ActorId),
-                new CorrelationId(options.CorrelationId)), cancellation.Token);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellation.Token);
+        var administrator = await scope.ServiceProvider.GetRequiredService<ILocalAdministratorRepository>()
+            .FindAsync(installation.Id, cancellation.Token);
+        AgentForge.Domain.Security.SecretLease? existingCredential = null;
+        if (administrator is not null)
+        {
+            var materialized = await scope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .MaterializeAsync(administrator.ClientCredentialReference, cancellation.Token);
+            if (!materialized.IsSuccess)
+            {
+                return await WriteFailureAsync(materialized.Failure!);
+            }
+
+            existingCredential = materialized.Value;
+        }
+
+        DomainResult<AgentForge.Domain.Security.SetupCompletionReport> result;
+        try
+        {
+            result = await scope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .CompleteAsync(new AgentForge.Domain.Security.CompleteSetupRequest(
+                    new ActorId(options.ActorId),
+                    new CorrelationId(options.CorrelationId),
+                    existingCredential?.Value ?? default), cancellation.Token);
+        }
+        finally
+        {
+            if (existingCredential is not null)
+            {
+                await existingCredential.DisposeAsync();
+            }
+        }
+
         if (!result.IsSuccess)
         {
             return await WriteFailureAsync(result.Failure!);
@@ -394,6 +446,247 @@ static async Task<int> CompleteSetupAsync(string[] arguments)
     finally
     {
         Console.CancelKeyPress -= cancelHandler;
+    }
+}
+
+static async Task<int> DoctorAsync(string[] arguments)
+{
+    if (!TryParseDoctorOptions(arguments, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Doctor", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+            .DoctorAsync(new DoctorRequest(
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId)), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = result.Value.IsHealthy,
+            generatedAt = result.Value.GeneratedAt,
+            installationId = result.Value.Installation.Id.ToString(),
+            state = result.Value.Installation.State.ToString(),
+            version = result.Value.Installation.Version,
+            checks = result.Value.Checks,
+        });
+        return result.Value.IsHealthy ? 0 : 2;
+    });
+}
+
+static async Task<int> ExportSetupAsync(string[] arguments)
+{
+    if (!TryParseMaintenanceOptions(arguments, requireReason: false, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Setup export", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var result = await scope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>()
+            .ExportAsync(new ExportSetupProfileRequest(
+                options.ExpectedVersion,
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId),
+                credential.Value), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            profileVersion = options.ExpectedVersion,
+            report = result.Value.Report.Artifact,
+            rollback = result.Value.Rollback.Artifact,
+            result.Value.RedactionCount,
+        });
+        return 0;
+    });
+}
+
+static async Task<int> TransitionRecoveryAsync(string[] arguments, bool enter)
+{
+    if (!TryParseMaintenanceOptions(arguments, requireReason: enter, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Recovery transition", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var maintenance = scope.ServiceProvider.GetRequiredService<ISetupMaintenanceService>();
+        DomainResult<RecoveryTransitionResult> result = enter
+            ? await maintenance.EnterRecoveryAsync(new EnterRecoveryRequest(
+                options.ExpectedVersion,
+                options.Reason!,
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId),
+                credential.Value), cancellationToken)
+            : await maintenance.ResumeRecoveryAsync(new ResumeRecoveryRequest(
+                options.ExpectedVersion,
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId),
+                credential.Value), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            state = result.Value.Installation.State.ToString(),
+            version = result.Value.Installation.Version,
+            result.Value.Installation.RecoveryReason,
+            rollback = result.Value.RollbackSnapshot?.Artifact,
+        });
+        return 0;
+    });
+}
+
+static ServiceProvider BuildSetupProvider(string dataDirectory)
+{
+    var configuration = new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AgentForge:Installation:DataDirectory"] = dataDirectory,
+        })
+        .Build();
+    var services = new ServiceCollection();
+    services.AddLogging();
+    services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgePersistence(configuration);
+    services.AddAgentForgeSecurity(configuration);
+    services.AddAgentForgeAudit();
+    return services.BuildServiceProvider(validateScopes: true);
+}
+
+static async Task<DomainResult<AgentForge.Domain.Security.SecretLease>> MaterializeAdministratorAsync(
+    IServiceProvider services,
+    InstallationId installationId,
+    CancellationToken cancellationToken)
+{
+    var administrator = await services.GetRequiredService<ILocalAdministratorRepository>()
+        .FindAsync(installationId, cancellationToken);
+    if (administrator is null)
+    {
+        return DomainResult.Fail<AgentForge.Domain.Security.SecretLease>(new DomainFailure(
+            FailureCode.PolicyDenied,
+            "No local administrator credential is available."));
+    }
+
+    return await services.GetRequiredService<ISecretStore>()
+        .MaterializeAsync(administrator.ClientCredentialReference, cancellationToken);
+}
+
+static async Task<int> RunCancellableMaintenanceAsync(
+    string operation,
+    Func<CancellationToken, Task<int>> action)
+{
+    using var cancellation = new CancellationTokenSource();
+    ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        cancellation.Cancel();
+    };
+    Console.CancelKeyPress += cancelHandler;
+    try
+    {
+        return await action(cancellation.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        await Console.Error.WriteLineAsync($"{operation} was canceled.");
+        return 130;
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+    {
+        return await WriteFailureAsync(new DomainFailure(
+            FailureCode.RecoverableExternalFailure,
+            $"{operation} storage could not be initialized or updated.",
+            IsRetryable: true));
+    }
+    finally
+    {
+        Console.CancelKeyPress -= cancelHandler;
+    }
+}
+
+static bool TryNormalizeDataDirectory(string value, out string normalized)
+{
+    try
+    {
+        normalized = Path.GetFullPath(value);
+        return true;
+    }
+    catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+    {
+        normalized = string.Empty;
+        return false;
     }
 }
 
@@ -690,6 +983,115 @@ static bool TryParseCompleteOptions(
     return true;
 }
 
+static bool TryParseDoctorOptions(
+    string[] arguments,
+    out SetupDoctorOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(
+        arguments,
+        ["--actor", "--correlation", "--data-directory"],
+        out var values,
+        out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    options = new SetupDoctorOptions(dataDirectory, actorId, correlationId);
+    return true;
+}
+
+static bool TryParseMaintenanceOptions(
+    string[] arguments,
+    bool requireReason,
+    out SetupMaintenanceOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(
+        arguments,
+        ["--actor", "--correlation", "--data-directory", "--expected-version", "--reason"],
+        out var values,
+        out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error) ||
+        !Require(values, "--expected-version", out var expectedVersionText, out error))
+    {
+        return false;
+    }
+
+    if (!long.TryParse(
+        expectedVersionText,
+        System.Globalization.NumberStyles.None,
+        System.Globalization.CultureInfo.InvariantCulture,
+        out var expectedVersion))
+    {
+        error = "--expected-version must be a non-negative integer.";
+        return false;
+    }
+
+    var reason = values.GetValueOrDefault("--reason");
+    if (requireReason && string.IsNullOrWhiteSpace(reason))
+    {
+        error = "Required option '--reason' is missing or empty.";
+        return false;
+    }
+
+    if (!requireReason && reason is not null)
+    {
+        error = "--reason is valid only when entering recovery.";
+        return false;
+    }
+
+    options = new SetupMaintenanceOptions(
+        dataDirectory,
+        expectedVersion,
+        reason,
+        actorId,
+        correlationId);
+    error = null;
+    return true;
+}
+
+static bool TryParseExactOptions(
+    string[] arguments,
+    IReadOnlyCollection<string> allowedOptions,
+    out Dictionary<string, string> values,
+    out string? error)
+{
+    values = new Dictionary<string, string>(StringComparer.Ordinal);
+    error = null;
+    var allowed = new HashSet<string>(allowedOptions, StringComparer.Ordinal);
+    for (var index = 0; index < arguments.Length; index += 2)
+    {
+        if (index + 1 >= arguments.Length)
+        {
+            error = $"Option '{arguments[index]}' requires a value.";
+            return false;
+        }
+
+        var name = arguments[index];
+        if (!allowed.Contains(name))
+        {
+            error = $"Unknown option '{name}'.";
+            return false;
+        }
+
+        if (!values.TryAdd(name, arguments[index + 1]))
+        {
+            error = $"Option '{name}' may be specified only once.";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool TryInt(
     IReadOnlyDictionary<string, string> values,
     string name,
@@ -795,6 +1197,10 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup agent preview --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
     Console.WriteLine("  agentforge setup agent create --data-directory <path> --name <name> --provider-id <guid> --actor <id> --correlation <id> [policy options]");
     Console.WriteLine("  agentforge setup complete --data-directory <path> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge doctor --data-directory <path> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup export --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup recovery enter --data-directory <path> --expected-version <n> --reason <text> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge setup recovery resume --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
 }
 
 internal sealed record SetupBeginOptions(
@@ -834,5 +1240,17 @@ internal sealed record SetupAgentOptions(
 
 internal sealed record SetupCompleteOptions(
     string DataDirectory,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record SetupDoctorOptions(
+    string DataDirectory,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record SetupMaintenanceOptions(
+    string DataDirectory,
+    long ExpectedVersion,
+    string? Reason,
     string ActorId,
     string CorrelationId);

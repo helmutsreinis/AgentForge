@@ -3,6 +3,7 @@ using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
+using AgentForge.Security;
 using AgentForge.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -91,6 +92,22 @@ public sealed class AgentDefinitionEvaluatorTests
         Assert.Equal(FailureCode.PolicyDenied, result.Failure?.Code);
     }
 
+    [Fact]
+    public void Rejects_credential_shaped_identity_text_before_persistence()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            Mission = "sk-" + new string('x', 32),
+        };
+
+        var result = evaluator.NormalizeAndValidate(candidate);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+    }
+
     internal static AgentIdentityCandidate CreateCandidate() => new(
         "Architect",
         "C# systems architecture",
@@ -124,7 +141,9 @@ public sealed class AgentDefinitionEvaluatorTests
     private static ServiceProvider BuildServices()
     {
         var services = new ServiceCollection();
-        services.AddAgentForgeSetup(new ConfigurationBuilder().Build());
+        var configuration = new ConfigurationBuilder().Build();
+        services.AddAgentForgeSetup(configuration);
+        services.AddAgentForgeSecurity(configuration);
         return services.BuildServiceProvider();
     }
 

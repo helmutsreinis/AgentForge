@@ -45,8 +45,20 @@ internal sealed class SqliteInstallationRepository(AgentForgeDbContext dbContext
         ArgumentNullException.ThrowIfNull(snapshot);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var entity = Map(snapshot);
-        dbContext.Installations.Attach(entity);
+        var entity = dbContext.ChangeTracker
+            .Entries<InstallationEntity>()
+            .FirstOrDefault(item => item.Entity.Id == snapshot.Id.Value)
+            ?.Entity;
+        if (entity is null)
+        {
+            entity = Map(snapshot);
+            dbContext.Installations.Attach(entity);
+        }
+        else
+        {
+            dbContext.Entry(entity).CurrentValues.SetValues(Map(snapshot));
+        }
+
         var entry = dbContext.Entry(entity);
         entry.State = EntityState.Modified;
         entry.Property(item => item.Version).OriginalValue = expectedVersion;

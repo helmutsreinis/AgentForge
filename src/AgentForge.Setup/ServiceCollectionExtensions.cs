@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDataDirectoryProvider, DefaultDataDirectoryProvider>();
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
         services.AddScoped<ISetupApplicationService, SetupApplicationService>();
+        services.AddScoped<ISetupMaintenanceService, SetupMaintenanceService>();
         services.AddScoped<IProviderProfileValidator, DeterministicProviderProfileValidator>();
         services.AddSingleton<IAgentDefinitionEvaluator, ConservativeAgentDefinitionEvaluator>();
         return services;

@@ -19,6 +19,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<LocalAdministratorEntity> LocalAdministrators => Set<LocalAdministratorEntity>();
 
+    internal DbSet<SetupProfileSnapshotEntity> SetupProfileSnapshots => Set<SetupProfileSnapshotEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -141,6 +143,26 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.VerifierSalt).HasMaxLength(128).IsRequired();
             entity.Property(item => item.Verifier).HasMaxLength(128).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<SetupProfileSnapshotEntity>(entity =>
+        {
+            entity.ToTable("setup_profile_snapshots");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ArtifactContentHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.ProfileVersion, item.Kind });
+            entity.Property(item => item.Kind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.ArtifactContentHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ArtifactMediaType).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
         });
     }
