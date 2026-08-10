@@ -1,15 +1,18 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Environments;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Setup;
+using AgentForge.Environment;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
@@ -97,6 +100,11 @@ if (args is ["setup", "restore", "preview", .. var restorePreviewArguments])
 if (args is ["setup", "restore", "apply", .. var restoreApplyArguments])
 {
     return await RestoreSetupProfileAsync(restoreApplyArguments, apply: true);
+}
+
+if (args is ["environment", "inspect", .. var environmentArguments])
+{
+    return await InspectEnvironmentAsync(environmentArguments);
 }
 
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
@@ -1006,6 +1014,96 @@ static async Task<int> RestoreSetupProfileAsync(string[] arguments, bool apply)
     });
 }
 
+static async Task<int> InspectEnvironmentAsync(string[] arguments)
+{
+    if (!TryParseEnvironmentInspectOptions(arguments, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Environment inspection", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var result = await scope.ServiceProvider.GetRequiredService<IEnvironmentInventoryService>()
+            .CaptureAsync(new CaptureEnvironmentRequest(
+                new ActorId(options.ActorId),
+                new CorrelationId(options.CorrelationId)), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        var profile = result.Value.Profile;
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            profile.SchemaVersion,
+            profile.ObservedAt,
+            profile.Fingerprint,
+            artifact = result.Value.Artifact,
+            operatingSystem = new
+            {
+                family = profile.OperatingSystem.Family.ToString(),
+                profile.OperatingSystem.Description,
+                profile.OperatingSystem.KernelVersion,
+                operatingSystemArchitecture = profile.OperatingSystem.OperatingSystemArchitecture.ToString(),
+                processArchitecture = profile.OperatingSystem.ProcessArchitecture.ToString(),
+                profile.OperatingSystem.Distribution,
+            },
+            profile.FrameworkDescription,
+            profile.ProcessorCount,
+            profile.Wsl,
+            isolation = new
+            {
+                kind = profile.Isolation.Kind.ToString(),
+                profile.Isolation.EvidenceSource,
+                profile.Isolation.ProductHint,
+            },
+            profile.FileSystem,
+            privilege = new
+            {
+                level = profile.Privilege.Level.ToString(),
+                profile.Privilege.EvidenceSource,
+            },
+            managers = profile.Managers.Select(item => new
+            {
+                item.Id,
+                kind = item.Kind.ToString(),
+                item.Path,
+                item.EvidenceSource,
+            }),
+            accelerators = profile.Accelerators,
+            executableCount = profile.Executables.Count,
+            profile.ExecutableInventoryTruncated,
+            executables = options.IncludeExecutables
+                ? profile.Executables.Select(item => new
+                {
+                    item.Name,
+                    item.FullPath,
+                    item.Length,
+                    item.LastWriteTimeUtc,
+                    item.IsSymbolicLink,
+                    item.LinkTarget,
+                    item.Provenance,
+                    trust = item.Trust.ToString(),
+                })
+                : null,
+            result.Value.RedactionCount,
+        });
+        return 0;
+    });
+}
+
 static ServiceProvider BuildSetupProvider(string dataDirectory)
 {
     var configuration = new ConfigurationBuilder()
@@ -1020,6 +1118,7 @@ static ServiceProvider BuildSetupProvider(string dataDirectory)
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
+    services.AddAgentForgeEnvironment(configuration);
     return services.BuildServiceProvider(validateScopes: true);
 }
 
@@ -1749,6 +1848,41 @@ static bool TryParseDoctorOptions(
     return true;
 }
 
+static bool TryParseEnvironmentInspectOptions(
+    string[] arguments,
+    out EnvironmentInspectOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(
+        arguments,
+        ["--actor", "--correlation", "--data-directory", "--include-executables"],
+        out var values,
+        out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error))
+    {
+        return false;
+    }
+
+    var includeExecutables = false;
+    if (values.TryGetValue("--include-executables", out var includeText) &&
+        !bool.TryParse(includeText, out includeExecutables))
+    {
+        error = "--include-executables must be true or false.";
+        return false;
+    }
+
+    options = new EnvironmentInspectOptions(
+        dataDirectory,
+        includeExecutables,
+        actorId,
+        correlationId);
+    error = null;
+    return true;
+}
+
 static bool TryParseMaintenanceOptions(
     string[] arguments,
     bool requireReason,
@@ -2028,6 +2162,7 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup recovery resume --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup restore preview --data-directory <path> --snapshot-id <guid> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup restore apply <same-options> --preview-hash <sha256>");
+    Console.WriteLine("  agentforge environment inspect --data-directory <path> --actor <id> --correlation <id> [--include-executables true|false]");
 }
 
 internal sealed record SetupBeginOptions(
@@ -2117,5 +2252,11 @@ internal sealed record SetupRestoreOptions(
     SetupProfileSnapshotId SnapshotId,
     long ExpectedInstallationVersion,
     string? PreviewHash,
+    string ActorId,
+    string CorrelationId);
+
+internal sealed record EnvironmentInspectOptions(
+    string DataDirectory,
+    bool IncludeExecutables,
     string ActorId,
     string CorrelationId);

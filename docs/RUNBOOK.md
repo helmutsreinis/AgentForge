@@ -119,6 +119,28 @@ Ready runtime calls require `Authorization: Bearer <credential>`. Retrieve the v
 through the OS secret reference for one invocation and clear it immediately. Never
 copy it into shell history, process arguments, configuration, logs, or reports.
 
+## Passive environment inventory
+
+Capture Windows/Linux, distribution, WSL/isolation, filesystem, privilege, manager,
+accelerator, and PATH executable metadata with:
+
+```text
+agentforge environment inspect --data-directory <absolute-path> --actor <actor-id> --correlation <correlation-id>
+```
+
+This command is valid before setup so diagnostics can describe an uninitialized
+host. It writes a redacted content-addressed profile and one correlated audit event.
+Executable details are omitted from stdout unless `--include-executables true` is
+explicitly supplied. The capture reads bounded filesystem, proc/sysfs, runtime, and
+Windows registry/token metadata only. It does not run candidates, query versions,
+load plugins, open network connections, or grant invocation authority.
+
+Inventory bounds are configured under `AgentForge:EnvironmentInventory` with
+`MaximumPathDirectories`, `MaximumFilesPerDirectory`, and `MaximumExecutables`.
+Truncation is explicit. An oversized redaction/artifact payload fails typed instead
+of persisting unreviewed evidence. Treat stored paths as local operational metadata;
+do not publish the artifact without a separate export authorization and review.
+
 Inspect a configured installation without exposing credentials:
 
 ```text

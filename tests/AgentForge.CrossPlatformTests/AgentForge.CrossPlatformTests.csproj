@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentForge.Environment\AgentForge.Environment.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Setup\AgentForge.Setup.csproj" />
   </ItemGroup>
 

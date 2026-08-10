@@ -435,7 +435,7 @@ public sealed class HeadlessSetupCliTests
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
             ?? throw new InvalidOperationException("Could not determine the test build configuration.");
         var cliAssembly = Path.Combine(root, "src", "AgentForge.Cli", "bin", configuration, "net10.0", "agentforge.dll");
-        var dotnetHost = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
+        var dotnetHost = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet";
         var startInfo = new ProcessStartInfo
         {
             FileName = dotnetHost,
@@ -496,7 +496,7 @@ public sealed class HeadlessSetupCliTests
             ?? throw new InvalidOperationException("Could not determine the test build configuration.");
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            FileName = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
             WorkingDirectory = root,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -537,7 +537,7 @@ public sealed class HeadlessSetupCliTests
             ?? throw new InvalidOperationException("Could not determine the test build configuration.");
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            FileName = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
             WorkingDirectory = root,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -580,7 +580,7 @@ public sealed class HeadlessSetupCliTests
             ?? throw new InvalidOperationException("Could not determine the test build configuration.");
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            FileName = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
             WorkingDirectory = root,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -617,7 +617,7 @@ public sealed class HeadlessSetupCliTests
             ?? throw new InvalidOperationException("Could not determine the test build configuration.");
         var startInfo = new ProcessStartInfo
         {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            FileName = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
             WorkingDirectory = root,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

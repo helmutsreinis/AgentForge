@@ -42,10 +42,12 @@ and accelerator inventory without executing discovered tools.
 - M1 slice 6d added authenticated rollback preview/apply with bounded artifact reads, exact SHA-256/length/media verification, schema and installation/administrator binding, valid audit provenance, current secret/capability and agent-policy revalidation, exact topology checks, and a hash-bound atomic restore audit.
 - Tampered, wrong-hash, stale, no-op, wrong-state, mismatched-topology, and unavailable-secret conditions fail closed. A complete Windows CLI scenario edits and restores both profiles, then cold-copies SQLite, artifacts, and DPAPI references; every file hash matches and the restored installation passes doctor. Complete interactive/headless entry produces equivalent normalized Ready profiles.
 - Milestone 1 exit evidence passes on Windows and Ubuntu with 58 tests, locked Release builds, format, host smoke, migration drift, dependency/secret scans, and no plaintext credential persistence. Release checkpoint `0.1 Foundation Alpha` is ready to merge from the draft PR.
+- M2 slice 1 added immutable, hashed environment profiles and bounded passive inventory for Windows/Linux identity, exact distro metadata (including Kali), WSL, VM/container markers, filesystems, privilege, package/service managers, accelerators, and executable metadata from PATH.
+- Candidate discovery uses no process-start primitive and never invokes version/help. Normalized Windows, Ubuntu, and Kali fixtures; live cross-platform capture; redacted content-addressed evidence; audit-chain integrity; and default-hidden executable details pass across the 72-test Windows/Ubuntu product suite.
 
 ## Latest gate
 
-`artifacts/gates/M1-06D-20260810.md`: Pass.
+`artifacts/gates/M2-01-20260810.md`: Pass.
 
 ## Known constraints and risks
 
@@ -56,8 +58,9 @@ and accelerator inventory without executing discovered tools.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
+- Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories; invocation stays disabled until policy, approval, and restricted-executor gates pass.
 
 ## Exact next action
 
-Start Milestone 2 with pure immutable environment records and passive native inventory;
-discovery must execute no candidate binary and must preserve unknown provenance.
+Continue Milestone 2 with the capability policy evaluator, exact approval contracts,
+and restricted process execution before any discovered tool can be probed or invoked.

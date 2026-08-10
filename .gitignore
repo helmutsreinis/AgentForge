@@ -6,6 +6,7 @@
 .idea/
 .tools/
 .nuget/
+.dotnet-cli-home*/
 *.user
 *.suo
 *.nupkg

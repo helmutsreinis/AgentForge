@@ -31,5 +31,15 @@ viability completion, local administration, doctor, redacted export, and authori
 recovery. Provider onboarding accepts credentials only through redirected stdin or a
 hidden prompt, and recovery edits require authenticated version/hash-bound preview
 and apply. Hash- and audit-proven rollback snapshots can be restored without changing
-entity topology. Milestone 1 is the `0.1 Foundation Alpha` checkpoint; see
+entity topology.
+
+Capture a passive, hashed environment profile without executing any discovered tool:
+
+```text
+agentforge environment inspect --data-directory <path> --actor local-operator --correlation environment-001
+```
+
+The command stores redacted content-addressed evidence and prints only an executable
+count by default. Add `--include-executables true` only when local path disclosure is
+intended. Milestone 1 is the `0.1 Foundation Alpha` checkpoint; see
 `docs/RUNBOOK.md` for the currently executable commands.
