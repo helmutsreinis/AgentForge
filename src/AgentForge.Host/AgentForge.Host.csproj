@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentForge.Abstractions\AgentForge.Abstractions.csproj" />
+    <ProjectReference Include="..\AgentForge.Domain\AgentForge.Domain.csproj" />
+    <ProjectReference Include="..\AgentForge.Setup\AgentForge.Setup.csproj" />
+  </ItemGroup>
+
+</Project>

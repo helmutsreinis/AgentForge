@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/spikes/">
+    <Project Path="spikes/AgentFrameworkSpike/AgentFrameworkSpike.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/AgentForge.Abstractions/AgentForge.Abstractions.csproj" />
+    <Project Path="src/AgentForge.Cli/AgentForge.Cli.csproj" />
+    <Project Path="src/AgentForge.Domain/AgentForge.Domain.csproj" />
+    <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />
+    <Project Path="src/AgentForge.Setup/AgentForge.Setup.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentForge.ArchitectureTests/AgentForge.ArchitectureTests.csproj" />
+    <Project Path="tests/AgentForge.CrossPlatformTests/AgentForge.CrossPlatformTests.csproj" />
+    <Project Path="tests/AgentForge.EndToEndTests/AgentForge.EndToEndTests.csproj" />
+    <Project Path="tests/AgentForge.IntegrationTests/AgentForge.IntegrationTests.csproj" />
+    <Project Path="tests/AgentForge.SecurityTests/AgentForge.SecurityTests.csproj" />
+    <Project Path="tests/AgentForge.UnitTests/AgentForge.UnitTests.csproj" />
+  </Folder>
+</Solution>

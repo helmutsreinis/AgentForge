@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
+      - run: dotnet restore --locked-mode
+      - run: dotnet build --no-restore --configuration Release
+      - run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+      - run: dotnet format --verify-no-changes --no-restore

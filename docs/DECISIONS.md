@@ -1,0 +1,13 @@
+# Decisions Ledger
+
+| ID | Decision | Status |
+|---|---|---|
+| D-001 | Deliver the complete Production R1 plan through Milestones 0-10. | Accepted |
+| D-002 | Optimize R1 for a local single operator while retaining tenant/scope identifiers in contracts. | Accepted |
+| D-003 | Deliver CLI/TUI setup before the loopback web wizard; both share application services. | Accepted |
+| D-004 | Use `AgentForge.*` namespaces and `agentforge` as the CLI executable name. | Accepted |
+| D-005 | Use a modular monolith and add projects only when a working vertical slice needs them. | Accepted |
+| D-006 | Keep Microsoft Agent Framework optional and outside durable domain ownership. | Accepted after spike |
+| D-007 | Treat unavailable accounts, credentials, containers, and hardware as named live gates; deterministic fakes remain mandatory. | Accepted |
+
+Detailed technical rationale is recorded in `docs/adr/`.
