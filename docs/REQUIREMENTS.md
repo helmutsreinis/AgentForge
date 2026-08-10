@@ -32,7 +32,7 @@ passing gate report.
 | AF-ID-001 | Agent identity is distinct from provider selection and includes scope, model policy, budgets, memory, grants, child limits, and learning mode. | 1 | Planned |
 | AF-SEC-001 | Capability policy returns Allow, Deny, or RequireApproval outside model control; missing policy denies. | 2 | Planned |
 | AF-SEC-002 | Sensitive approval binds exact actor, agent, target, parameters, workspace, tool version, expiration, and request hash. | 2 | Planned |
-| AF-SEC-003 | Secrets use references, invocation-scoped materialization, and pre-persistence/model/export redaction. | 1 | Planned |
+| AF-SEC-003 | Secrets use references, invocation-scoped materialization, and pre-persistence/model/export redaction. | 1 | In progress |
 | AF-SEC-004 | Untrusted processes use argument arrays, containment, limits, cancellation, process-tree termination, and declared network/filesystem policy. | 2 | Planned |
 | AF-SEC-005 | No agent or child can increase its own permissions, budgets, recursion, network, credentials, or mutable-skill scope. | 2,4 | Planned |
 

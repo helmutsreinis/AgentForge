@@ -30,8 +30,8 @@ internal sealed class SqliteAuditJournal(AgentForgeDbContext dbContext) : IAudit
             : persistedLast;
 
         var sequence = checked((last?.Sequence ?? 0) + 1);
-        var previousHash = last?.EventHash ?? AuditHashChain.GenesisHash;
-        var eventHash = AuditHashChain.Compute(auditEvent, sequence, previousHash);
+        var previousHash = last?.EventHash ?? AuditEventHasher.GenesisHash;
+        var eventHash = AuditEventHasher.Compute(auditEvent, sequence, previousHash);
         var entity = Map(auditEvent, sequence, previousHash, eventHash);
         await dbContext.AuditEvents.AddAsync(entity, cancellationToken);
         return Map(entity);

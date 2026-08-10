@@ -3,10 +3,12 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
+using AgentForge.Audit;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
 using AgentForge.Persistence;
+using AgentForge.Security;
 using AgentForge.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +40,8 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddLogging();
         services.AddAgentForgeSetup(configuration);
         services.AddAgentForgePersistence(configuration);
+        services.AddAgentForgeSecurity(configuration);
+        services.AddAgentForgeAudit();
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -177,6 +181,41 @@ public sealed class PersistenceFoundationTests : IDisposable
         var auditEvent = Assert.Single(restoredAudit);
         Assert.Equal(new string('0', 64), auditEvent.PreviousHash);
         Assert.False(string.IsNullOrWhiteSpace(auditEvent.EventHash));
+    }
+
+    [Fact]
+    public async Task Audit_recorder_redacts_before_persistence_and_chain_verifies()
+    {
+        await InitializeAsync();
+        const string password = "never-persist-this-password";
+        const string providerKey = "sk-" + "1234567890abcdefghijklmnop";
+        await using var scope = _services.CreateAsyncScope();
+        var recorder = scope.ServiceProvider.GetRequiredService<IAuditRecorder>();
+
+        var recorded = await recorder.RecordAsync(new AuditRecordRequest(
+            null,
+            new ActorId("operator"),
+            new CorrelationId("redaction-integration"),
+            null,
+            "security.redaction-verified",
+            AuditOutcome.Succeeded,
+            new { Password = password, Provider = providerKey },
+            new { Status = "accepted" },
+            null), CancellationToken.None);
+        Assert.Equal(2, recorded.InputRedactionCount);
+        Assert.True((await scope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+            .CommitAsync(CancellationToken.None)).Succeeded);
+
+        var persisted = Assert.Single(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(null, 0, 10, CancellationToken.None));
+        Assert.DoesNotContain(password, persisted.Input.Json, StringComparison.Ordinal);
+        Assert.DoesNotContain(providerKey, persisted.Input.Json, StringComparison.Ordinal);
+        Assert.Equal(2, persisted.Input.Json.Split("[REDACTED]", StringSplitOptions.None).Length - 1);
+
+        var verification = await scope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+            .VerifyAsync(CancellationToken.None);
+        Assert.True(verification.IsValid);
+        Assert.Equal(1, verification.VerifiedEventCount);
     }
 
     public void Dispose()

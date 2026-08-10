@@ -1,9 +1,11 @@
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Tracing;
+using AgentForge.Audit;
 using AgentForge.Domain.Installations;
 using AgentForge.Host.Health;
 using AgentForge.Host.Http;
 using AgentForge.Persistence;
+using AgentForge.Security;
 using AgentForge.Setup;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
@@ -20,6 +22,8 @@ builder.WebHost.UseUrls(string.IsNullOrWhiteSpace(configuredUrls)
 builder.Services.AddProblemDetails();
 builder.Services.AddAgentForgeSetup(builder.Configuration);
 builder.Services.AddAgentForgePersistence(builder.Configuration);
+builder.Services.AddAgentForgeSecurity(builder.Configuration);
+builder.Services.AddAgentForgeAudit();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddHealthChecks()

@@ -4,10 +4,12 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/AgentForge.Abstractions/AgentForge.Abstractions.csproj" />
+    <Project Path="src/AgentForge.Audit/AgentForge.Audit.csproj" />
     <Project Path="src/AgentForge.Cli/AgentForge.Cli.csproj" />
     <Project Path="src/AgentForge.Domain/AgentForge.Domain.csproj" />
     <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />
     <Project Path="src/AgentForge.Persistence/AgentForge.Persistence.csproj" />
+    <Project Path="src/AgentForge.Security/AgentForge.Security.csproj" />
     <Project Path="src/AgentForge.Setup/AgentForge.Setup.csproj" />
   </Folder>
   <Folder Name="/tests/">

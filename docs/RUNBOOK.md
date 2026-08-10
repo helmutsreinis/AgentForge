@@ -25,6 +25,15 @@ wsl.exe -d Ubuntu-24.04 -- bash -lc "cd '<repository mounted path>' && dotnet --
 Run `scripts/verify-linux-smoke.sh` after the Linux Release build. Set `DOTNET_BIN`
 when using a repository-local SDK.
 
+Run `pwsh -File scripts/verify-windows-smoke.ps1` after the Windows Release build.
+Both smoke scripts use validated temporary data directories and disable SQLite
+connection pooling only for deterministic cleanup.
+
+Windows and WSL builds share this checkout and therefore share generated `obj`
+assets. After switching operating systems, run that platform's locked restore before
+build, format, package inspection, or design-time tooling; package-cache paths are
+platform-specific even when lock files are identical.
+
 ## Local smoke
 
 Start `dotnet run --project src/AgentForge.Host`. Confirm `/health/live` is 200,

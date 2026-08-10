@@ -24,3 +24,6 @@ jobs:
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
       - run: dotnet format --verify-no-changes --no-restore
+      - run: dotnet list AgentForge.slnx package --vulnerable --include-transitive
+      - shell: pwsh
+        run: ./scripts/verify-no-secrets.ps1

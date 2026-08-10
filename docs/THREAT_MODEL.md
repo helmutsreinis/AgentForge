@@ -65,5 +65,18 @@ cold backup and cleanup, and the host migrates before accepting requests.
 
 The Linux gate detected the high-severity SQLitePCLRaw 2.1.11 advisory. AgentForge
 now directly pins stable bundle 2.1.12 and fails restore on vulnerability warnings.
-The structured redactor is not yet connected, so only the explicit `RedactedData`
-type may cross the audit-journal boundary until M1 slice 2 passes.
+At the M1-01 gate, the structured redactor was not yet connected, so only the
+explicit `RedactedData` type could cross the audit-journal boundary.
+
+## M1 audit/redaction update
+
+The Audit application service is now the raw-payload entry point. It uses the
+Security module to recursively redact sensitive property names and common credential
+shapes, sorts JSON object properties for deterministic evidence, rejects oversized or
+over-deep payloads, and passes only `RedactedData` to persistence. Hash inputs use
+length prefixes, preventing field-boundary ambiguity, and verification reports the
+first non-contiguous, relinked, or content-tampered event.
+
+This control currently covers the audit sink. Provider secrets remain disabled until
+secret-reference storage and OS-backed invocation materialization pass their gate;
+model-context and export redaction must reuse this boundary before those sinks open.

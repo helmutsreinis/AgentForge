@@ -21,6 +21,9 @@ flowchart LR
   Orchestration --> Persistence["Repository contracts"]
   Setup --> Persistence
   Policy --> Persistence
+  API --> Audit["Audit application service"]
+  Audit --> Redaction["Structured redaction"]
+  Audit --> Persistence
   Persistence --> SQLite["SQLite / PostgreSQL"]
   Persistence --> Artifacts["Content-addressed artifacts"]
 ```
@@ -67,6 +70,11 @@ optimistic concurrency; leases guard work ownership; unique idempotency constrai
 and inbox/outbox tables prevent duplicate external effects. Large immutable data is
 content-addressed outside relational rows. PostgreSQL later implements identical
 repository contracts.
+
+Audit callers submit typed metadata plus raw structured payloads to the Audit module.
+The Security module canonicalizes and redacts those payloads before the Persistence
+journal can receive them. Hash fields are length-prefixed before SHA-256 processing,
+and a separate verifier streams the global chain to identify the first broken event.
 
 ## Framework spike decision
 

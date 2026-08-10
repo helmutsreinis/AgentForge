@@ -11,6 +11,8 @@
 | AF-HOST-002 | default `127.0.0.1:5047` binding | configuration review and dual-platform smoke; remote hardening remains M10 | `M0-20260810.md` |
 | AF-DATA-001 (foundation) | EF Core SQLite migration, WAL initialization, installation repository, numeric concurrency, unit of work, outbox schema | `PersistenceFoundationTests`, repeat startup and Windows/Linux host smoke | `M1-01-20260810.md` |
 | AF-AUD-001 (journal foundation) | sequenced append-only audit rows and SHA-256 hash chain | persistence survival, backup/restore, and chain assertions | `M1-01-20260810.md` |
+| AF-AUD-001 (redaction/integrity) | `AgentForge.Audit` recorder, structured redaction boundary, length-prefixed event hashes, full-chain verifier | redaction persistence integration and exact-sequence tamper tests | `M1-02-20260810.md` |
+| AF-SEC-003 (redaction portion) | bounded recursive JSON redactor for sensitive names and credential-shaped values | security tests for nested values, canonical output, size bounds, and raw-value absence | `M1-02-20260810.md` |
 
 Requirements marked `In progress` have partial gate evidence but remain open until
 every acceptance criterion in the ledger is implemented and verified.

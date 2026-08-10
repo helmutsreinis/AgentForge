@@ -502,6 +502,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.audit": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.domain": {
         "type": "Project"
       },
@@ -509,8 +516,10 @@
         "type": "Project",
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Audit": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Persistence": "[1.0.0, )",
+          "AgentForge.Security": "[1.0.0, )",
           "AgentForge.Setup": "[1.0.0, )"
         }
       },
@@ -521,6 +530,13 @@
           "AgentForge.Domain": "[1.0.0, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.10, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[2.1.12, )"
+        }
+      },
+      "agentforge.security": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
         }
       },
       "agentforge.setup": {
