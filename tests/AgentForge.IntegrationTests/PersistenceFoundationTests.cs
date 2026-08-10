@@ -2,6 +2,7 @@ using System.Text;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
+using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
@@ -10,11 +11,13 @@ using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
+using AgentForge.Domain.Environments;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
+using AgentForge.Environment;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
@@ -36,7 +39,10 @@ public sealed class PersistenceFoundationTests : IDisposable
         _services = BuildServices(_directory, "agentforge.db");
     }
 
-    private static ServiceProvider BuildServices(string directory, string databaseFileName)
+    private static ServiceProvider BuildServices(
+        string directory,
+        string databaseFileName,
+        Action<IServiceCollection>? configure = null)
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -53,6 +59,8 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddAgentForgeSecurity(configuration);
         services.AddSingleton<ISecretStore, DeterministicSecretStore>();
         services.AddAgentForgeAudit();
+        services.AddAgentForgeEnvironment(configuration);
+        configure?.Invoke(services);
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -1102,6 +1110,45 @@ public sealed class PersistenceFoundationTests : IDisposable
             .ReadAsync(CancellationToken.None)).Id.Value);
     }
 
+    [Fact]
+    public async Task Environment_inventory_is_redacted_content_addressed_and_audited_atomically()
+    {
+        const string credentialShapedEvidence = "sk-" + "1234567890abcdefghijklmnop";
+        await using var services = BuildServices(
+            _directory,
+            "environment-redaction.db",
+            collection => collection.AddScoped<IEnvironmentProfiler>(_ =>
+                new StubEnvironmentProfiler(CreateEnvironmentProfile(credentialShapedEvidence))));
+        await using var scope = services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(CancellationToken.None);
+
+        var result = await scope.ServiceProvider.GetRequiredService<IEnvironmentInventoryService>()
+            .CaptureAsync(
+                new CaptureEnvironmentRequest(
+                    new ActorId("environment-operator"),
+                    new CorrelationId("environment-redaction")),
+                CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        Assert.Equal(1, result.Value.RedactionCount);
+        Assert.StartsWith("sha256:", result.Value.Artifact.ContentHash, StringComparison.Ordinal);
+        await using var artifact = await scope.ServiceProvider.GetRequiredService<IArtifactStore>()
+            .OpenReadAsync(result.Value.Artifact, CancellationToken.None);
+        using var reader = new StreamReader(artifact);
+        var json = await reader.ReadToEndAsync(CancellationToken.None);
+        Assert.DoesNotContain(credentialShapedEvidence, json, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", json, StringComparison.Ordinal);
+
+        var audit = Assert.Single(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(null, 0, 10, CancellationToken.None));
+        Assert.Equal("environment.profile-captured", audit.OperationType);
+        Assert.Contains(result.Value.Artifact.ContentHash, audit.Output.Json, StringComparison.Ordinal);
+        var integrity = await scope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+            .VerifyAsync(CancellationToken.None);
+        Assert.True(integrity.IsValid);
+    }
+
     public void Dispose()
     {
         _services.Dispose();
@@ -1174,4 +1221,47 @@ public sealed class PersistenceFoundationTests : IDisposable
         new AgentBudget(64, 32, 16_000, 4_000, 3600),
         new ChildAgentLimits(2, 4, 2, 10_000),
         new AgentLearningPolicy(LearningMode.Propose, MutableSkillScope.ProposalWorkspaceOnly));
+
+    private static EnvironmentProfile CreateEnvironmentProfile(string executableName) => new(
+        1,
+        Now,
+        new ActorId("environment-operator"),
+        new CorrelationId("environment-redaction"),
+        new OperatingSystemProfile(
+            HostOperatingSystem.Linux,
+            "Ubuntu fixture",
+            "6.8.0",
+            HostArchitecture.X64,
+            HostArchitecture.X64,
+            new DistributionProfile("ubuntu", "debian", "24.04", "noble", "Ubuntu 24.04", false)),
+        ".NET 10",
+        8,
+        new WslProfile(false, null, null, "fixture"),
+        new IsolationProfile(HostIsolationKind.PhysicalOrUnclassified, "fixture", null),
+        new FileSystemProfile("/", "/tmp", '/', true, "ext4", "fixture"),
+        new PrivilegeProfile(HostPrivilegeLevel.Standard, "fixture"),
+        [],
+        [],
+        [new ExecutableDescriptor(
+            executableName,
+            "/opt/agentforge/provider",
+            128,
+            Now,
+            false,
+            null,
+            "fixture",
+            ExecutableTrust.Unknown)],
+        false,
+        "sha256:" + new string('a', 64));
+
+    private sealed class StubEnvironmentProfiler(EnvironmentProfile profile) : IEnvironmentProfiler
+    {
+        public Task<DomainResult<EnvironmentProfile>> CaptureAsync(
+            CaptureEnvironmentRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(DomainResult.Success(profile));
+        }
+    }
 }

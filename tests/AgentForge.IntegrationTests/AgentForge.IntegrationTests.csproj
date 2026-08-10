@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentForge.Abstractions\AgentForge.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Audit\AgentForge.Audit.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Environment\AgentForge.Environment.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Host\AgentForge.Host.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Persistence\AgentForge.Persistence.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Security\AgentForge.Security.csproj" />

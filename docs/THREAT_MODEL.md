@@ -176,3 +176,27 @@ topology changes, re-materializes every provider reference, re-probes capabiliti
 and re-evaluates every agent policy before calculating the restore hash. Apply repeats
 all checks and commits changed entities, one installation version, and one redacted
 audit event atomically. Restore cannot create authority or start runtime work.
+
+## M2 passive-environment update
+
+Environment discovery is an information boundary, not tool authorization. A hostile
+PATH directory may contain crafted names, links, huge directories, raced entries, or
+network locations. Capture therefore bounds directories, entries, executable count,
+strings, and artifact size; skips Windows UNC entries; records link/provenance/trust
+metadata; catches inaccessible/raced entries; and reports truncation. Paths outside
+known OS directories remain `Unknown` or user-directory trust and gain no authority.
+
+The inventory implementation contains no process-start primitive. It reads only
+runtime/native metadata, `/etc/os-release`, bounded proc/sysfs files, Windows registry
+and token metadata, service marker directories, and top-level PATH entries. Kali is
+recognized only from the exact normalized distribution ID, never by executing a
+binary. Version/help probing and invocation remain closed until the restricted
+executor, policy, approval, containment, output, timeout, cancellation, and process-
+tree gates pass.
+
+Profiles cross structured redaction before content-addressed persistence and append a
+correlated hash-chain audit event in the same relational commit. CLI output withholds
+executable details unless explicitly requested. Remaining risks are local path/privacy
+exposure, mutable host evidence between captures, missing network/shell/package-
+database detail, symlink races, and lack of invocation authorization; later M2 slices
+must not reinterpret inventory presence as permission or capability proof.

@@ -64,6 +64,20 @@ public sealed class DependencyDirectionTests
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void EnvironmentInventoryContainsNoProcessExecutionPrimitive()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root,
+            "src",
+            "AgentForge.Environment",
+            "SystemEnvironmentProfiler.cs"));
+
+        Assert.DoesNotContain("System.Diagnostics.Process", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProcessStartInfo", source, StringComparison.Ordinal);
+    }
+
     private static XDocument LoadProject(params string[] relativeSegments) =>
         XDocument.Load(Path.Combine([FindRepositoryRoot(), .. relativeSegments]));
 

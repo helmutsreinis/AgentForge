@@ -40,8 +40,8 @@ passing gate report.
 
 | ID | Requirement and acceptance criterion | Milestone | Status |
 |---|---|---:|---|
-| AF-ENV-001 | A hashed environment profile describes OS, runtime, shells, packages, services, privilege, container/VM/WSL, filesystem, network, and accelerators. | 2 | Planned |
-| AF-TOOL-001 | Discovery inventories Windows, Linux, and Kali tools without executing or authorizing them. | 2 | Planned |
+| AF-ENV-001 | A hashed environment profile describes OS, runtime, shells, packages, services, privilege, container/VM/WSL, filesystem, network, and accelerators. | 2 | In progress |
+| AF-TOOL-001 | Discovery inventories Windows, Linux, and Kali tools without executing or authorizing them. | 2 | In progress |
 | AF-TOOL-002 | Every callable tool has typed schemas, provenance, risk, permissions, timeout, output bound, side effects, and progressive discovery. | 2 | Planned |
 | AF-MODEL-001 | Provider-neutral contracts support streaming, structured output, tools, usage, cancellation, fallback, and hosted/local providers. | 3 | Planned |
 | AF-MODEL-002 | Routing uses the intersection of declared, observed, configured, and policy-approved capabilities and respects data locality. | 3 | Planned |
