@@ -54,3 +54,16 @@ enabled, so their attack surfaces remain closed.
 
 Open risks are tracked in `PROJECT_STATE.md`; unrestricted execution cannot be enabled
 until M2 controls and security tests pass.
+
+## M1 durable-foundation update
+
+SQLite is initialized through checked-in migrations in WAL mode. Installation writes
+use numeric optimistic concurrency, artifacts use canonical SHA-256 paths, and audit
+events carry a global sequence plus previous/current hash. File and directory names
+are configuration-validated, test databases disable connection pooling for reliable
+cold backup and cleanup, and the host migrates before accepting requests.
+
+The Linux gate detected the high-severity SQLitePCLRaw 2.1.11 advisory. AgentForge
+now directly pins stable bundle 2.1.12 and fails restore on vulnerability warnings.
+The structured redactor is not yet connected, so only the explicit `RedactedData`
+type may cross the audit-journal boundary until M1 slice 2 passes.

@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AgentForge.Abstractions\AgentForge.Abstractions.csproj" />
     <ProjectReference Include="..\AgentForge.Domain\AgentForge.Domain.csproj" />
+    <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
     <ProjectReference Include="..\AgentForge.Setup\AgentForge.Setup.csproj" />
   </ItemGroup>
 

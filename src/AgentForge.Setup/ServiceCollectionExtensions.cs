@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(InstallationOptions.SectionName))
             .Validate(options => !string.IsNullOrWhiteSpace(options.StateFileName), "StateFileName is required")
             .ValidateOnStart();
+        services.AddSingleton<IDataDirectoryProvider, DefaultDataDirectoryProvider>();
         services.AddSingleton<IInstallationStateReader, FileInstallationStateReader>();
         return services;
     }

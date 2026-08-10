@@ -9,9 +9,11 @@
 | AF-SET-001 | installation state machine, file state reader, setup/status and guarded runtime endpoints | unit, security, integration, clean-launch E2E tests | `M0-20260810.md` |
 | AF-HOST-001 | liveness/readiness checks and JSON health response | `HostReadinessTests`, Windows/Linux smoke | `M0-20260810.md` |
 | AF-HOST-002 | default `127.0.0.1:5047` binding | configuration review and dual-platform smoke; remote hardening remains M10 | `M0-20260810.md` |
+| AF-DATA-001 (foundation) | EF Core SQLite migration, WAL initialization, installation repository, numeric concurrency, unit of work, outbox schema | `PersistenceFoundationTests`, repeat startup and Windows/Linux host smoke | `M1-01-20260810.md` |
+| AF-AUD-001 (journal foundation) | sequenced append-only audit rows and SHA-256 hash chain | persistence survival, backup/restore, and chain assertions | `M1-01-20260810.md` |
 
-All other requirements in `REQUIREMENTS.md` remain planned and must gain code/test
-links as their vertical slice begins.
+Requirements marked `In progress` have partial gate evidence but remain open until
+every acceptance criterion in the ledger is implemented and verified.
 
 ## R1 acceptance scenarios
 

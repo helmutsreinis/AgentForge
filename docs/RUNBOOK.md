@@ -31,6 +31,20 @@ Start `dotnet run --project src/AgentForge.Host`. Confirm `/health/live` is 200,
 `/health/ready` is 503 on a clean installation, `/api/v1/setup/status` is available,
 and `/api/v1/runtime/ping` is 503. The CLI returns exit code 2 for setup-required.
 
+## SQLite migration and cold backup
+
+The host applies checked-in forward migrations before it starts listening. Before a
+manual cold backup, stop AgentForge and confirm no host process is using the data
+directory. Copy `agentforge.db` and the content-addressed `artifacts` directory as one
+backup set; preserve their relative layout and record SHA-256 hashes. Restore into a
+new data directory, start in setup/recovery mode, and verify installation state and
+the complete audit chain before permitting normal mode. Never replace a live WAL
+database by copying only its main file.
+
+Migration 0001 creates a new store and has no data-preserving down migration. On a
+failed first install, retain diagnostics and restore the pre-migration directory. Do
+not delete or overwrite a populated database to simulate rollback.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Tracing;
 using AgentForge.Domain.Installations;
 using AgentForge.Host.Health;
 using AgentForge.Host.Http;
+using AgentForge.Persistence;
 using AgentForge.Setup;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
@@ -18,12 +19,19 @@ builder.WebHost.UseUrls(string.IsNullOrWhiteSpace(configuredUrls)
 
 builder.Services.AddProblemDetails();
 builder.Services.AddAgentForgeSetup(builder.Configuration);
+builder.Services.AddAgentForgePersistence(builder.Configuration);
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 
 var app = builder.Build();
+
+await using (var initializationScope = app.Services.CreateAsyncScope())
+{
+    var databaseInitializer = initializationScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>();
+    await databaseInitializer.InitializeAsync(CancellationToken.None);
+}
 
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();

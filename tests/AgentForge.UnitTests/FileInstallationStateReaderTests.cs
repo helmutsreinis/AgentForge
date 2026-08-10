@@ -46,5 +46,6 @@ public sealed class FileInstallationStateReaderTests : IDisposable
 
     private FileInstallationStateReader CreateReader() => new(
         Options.Create(new InstallationOptions { DataDirectory = _directory }),
+        new DefaultDataDirectoryProvider(Options.Create(new InstallationOptions { DataDirectory = _directory })),
         NullLogger<FileInstallationStateReader>.Instance);
 }

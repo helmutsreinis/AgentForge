@@ -9,5 +9,6 @@
 | D-005 | Use a modular monolith and add projects only when a working vertical slice needs them. | Accepted |
 | D-006 | Keep Microsoft Agent Framework optional and outside durable domain ownership. | Accepted after spike |
 | D-007 | Treat unavailable accounts, credentials, containers, and hardware as named live gates; deterministic fakes remain mandatory. | Accepted |
+| D-008 | Directly pin patched native transitive dependencies when an upstream framework release still resolves a vulnerable build; never suppress the advisory. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

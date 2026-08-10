@@ -4,6 +4,9 @@ set -euo pipefail
 dotnet_bin="${DOTNET_BIN:-dotnet}"
 host_dll="src/AgentForge.Host/bin/Release/net10.0/AgentForge.Host.dll"
 log_file="$(mktemp)"
+data_directory="$(mktemp -d -t agentforge-smoke.XXXXXXXX)"
+export AgentForge__Installation__DataDirectory="${data_directory}"
+export AgentForge__Persistence__EnableConnectionPooling="false"
 
 "${dotnet_bin}" "${host_dll}" >"${log_file}" 2>&1 &
 host_pid=$!
@@ -12,6 +15,9 @@ cleanup() {
   kill "${host_pid}" 2>/dev/null || true
   wait "${host_pid}" 2>/dev/null || true
   rm -f "${log_file}"
+  if [[ "${data_directory}" == /tmp/agentforge-smoke.* ]]; then
+    rm -rf -- "${data_directory}"
+  fi
 }
 trap cleanup EXIT
 

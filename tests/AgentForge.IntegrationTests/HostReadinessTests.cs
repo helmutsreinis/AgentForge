@@ -20,6 +20,7 @@ public sealed class HostReadinessTests : IDisposable
                 {
                     ["AgentForge:Installation:DataDirectory"] = _directory,
                     ["AgentForge:Host:Urls"] = string.Empty,
+                    ["AgentForge:Persistence:EnableConnectionPooling"] = "false",
                 });
             });
         });

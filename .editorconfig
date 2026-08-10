@@ -26,3 +26,9 @@ dotnet_diagnostic.CA1707.severity = none
 # Spikes favor explicit scenario names and framework-required instance handlers.
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1822.severity = none
+
+[src/**/Migrations/*.cs]
+# EF migration files are generated and intentionally retain generator structure.
+generated_code = true
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1861.severity = none

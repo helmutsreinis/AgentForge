@@ -9,6 +9,7 @@ namespace AgentForge.Setup;
 
 public sealed partial class FileInstallationStateReader(
     IOptions<InstallationOptions> options,
+    IDataDirectoryProvider dataDirectoryProvider,
     ILogger<FileInstallationStateReader> logger) : IInstallationStateReader
 {
     private static readonly ActorId BootstrapActor = new("bootstrap-kernel");
@@ -16,7 +17,7 @@ public sealed partial class FileInstallationStateReader(
 
     public async ValueTask<InstallationSnapshot> ReadAsync(CancellationToken cancellationToken)
     {
-        var dataDirectory = InstallationPathResolver.ResolveConfiguredDataDirectory(options.Value);
+        var dataDirectory = dataDirectoryProvider.GetDataDirectory();
         var statePath = Path.Combine(dataDirectory, options.Value.StateFileName);
 
         if (!File.Exists(statePath))
