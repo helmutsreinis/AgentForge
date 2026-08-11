@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Implement the generic OpenAI-compatible adapter behind the provider-neutral boundary and
-exercise it against the operator's credential-free `qwen3.6` endpoint. Keep the unavailable
-live container gate open and all public model/tool invocation disabled.
+Implement the model-context redaction and invocation-scoped credential boundary needed by
+hosted providers, then add exact policy/locality routing. Keep the unavailable live container
+gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -59,17 +59,20 @@ live container gate open and all public model/tool invocation disabled.
 - M3 slice 1 added harness-owned provider-neutral model records for typed messages, artifact-backed image/audio/document references, response formats and JSON schemas, tool definitions/results/call deltas, usage/cost, safe errors, completion reasons, request budgets, correlations, and sequenced streaming events. Domain remains BCL-only and Abstractions owns only the narrow provider/catalog contracts.
 - The new `AgentForge.Models` feature module adds strict request/descriptor normalization, duplicate-key-safe bounded JSON, cross-platform attachment metadata, capability evidence with source/availability/expiry, immutable exact-profile catalog snapshots, and stable SHA-256 input fingerprints that include attachment references rather than dropping media.
 - A deterministic provider snapshots mutable scripts and requests, streams text/tool/structured/usage/failure events in exact order, enforces declared capabilities and request tool/event/token/time bounds, honors cancellation, and never converts a typed error into false completion. Production composition registers an empty provider catalog and exposes no model endpoint.
+- M3 slice 2 added a credential-free OpenAI-compatible adapter with HTTPS-by-default exact endpoints, explicit local/LAN HTTP opt-in, bounded request/SSE/response parsing, strict UTF-8 and duplicate-safe JSON, safe status mapping, exact tools, atomic structured output, usage and finish translation, and cancellation/time/event/token enforcement.
+- Redirects, caller-owned HTTP credentials/cookies/proxies, remote error bodies, unsupported reasoning channels, malformed/truncated streams, tool substitution, media claims without resolution, and budget overruns fail typed without false completion. The host catalog remains empty and no public invocation route exists.
+- Ten deterministic hostile HTTP/SSE tests pass. A checked-in environment-gated live integration test skips in ordinary CI and completed the operator-authorized credential-free `qwen3.6` LAN probe with exact `AGENTFORGE_QWEN_OK` text, usage evidence, and a typed stop result.
 
 ## Latest gate
 
-`artifacts/gates/M3-01-20260811.md`: Pass.
+`artifacts/gates/M3-02-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts and the deterministic provider are implemented, but all external provider adapters, routing, secret materialization, model-context redaction, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, the deterministic provider, and a credential-free compatible adapter are implemented. Hosted credentials, routing, model-context redaction, failover, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
@@ -79,7 +82,7 @@ live container gate open and all public model/tool invocation disabled.
 
 ## Exact next action
 
-Continue Milestone 3 with the generic OpenAI-compatible adapter behind the harness-owned
-contracts, then run the credential-free live gate against the operator's loopback/LAN
-`qwen3.6` endpoint. Do not expose public model invocation before context redaction,
-policy/locality routing, budgets, audit, and durable run snapshots are connected.
+Continue Milestone 3 with a typed model-context preparation boundary that redacts credential
+shapes before egress and materializes an exact provider secret for one hosted invocation.
+Then add policy/locality routing over current capability evidence. Do not expose public model
+invocation before routing, audit, cumulative budgets, and durable run snapshots are connected.

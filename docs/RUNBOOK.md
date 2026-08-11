@@ -282,10 +282,10 @@ the artifact, snapshot metadata, secret references, or SQLite manually.
 
 ## Model runtime diagnostics
 
-The host currently registers an empty exact-profile model-provider catalog and exposes no
-CLI/API model invocation. The `deterministic` runtime adapter exists for automated fixtures
-and in-process composition only. Its scripts are trusted operator/test inputs, not raw
-provider responses; never copy an external error body or credential into a script.
+The host registers an empty exact-profile model-provider catalog and exposes no CLI/API
+model invocation. The `deterministic` runtime adapter exists for automated fixtures and
+in-process composition only. Its scripts are trusted operator/test inputs, not raw provider
+responses; never copy an external error body or credential into a script.
 
 Every request must retain its exact model, correlation, typed messages, tool schemas,
 artifact attachment hashes, and token/tool/event/time limits. Duplicate-key JSON,
@@ -294,11 +294,31 @@ calls, and unsupported media fail typed. A started event's input hash should cha
 any attachment reference or other normalized input changes. Cancellation should terminate
 enumeration, and an error stream must not contain a later completion event.
 
-Do not enable an OpenAI-compatible or hosted adapter merely because setup accepted its
-profile. The adapter must first pass model-context redaction, invocation-scoped secret
-materialization, locality/policy routing, bounded streaming/error translation, usage and
-cost accounting, cancellation, audit, and deterministic regression gates. The operator's
-`qwen3.6` endpoint is reserved for the next credential-free live-integration gate.
+The credential-free OpenAI-compatible adapter has passed deterministic translation and the
+operator-authorized `qwen3.6` LAN live gate. It requires HTTPS by default; plaintext HTTP is
+an explicit per-composition opt-in. It rejects endpoint credentials/query/fragment,
+redirects, caller-owned HTTP clients/headers, cookies/proxies, and media capability claims.
+Do not attach a credential or expose it through the host/CLI. A live diagnostic must use a
+fixed non-secret prompt, exact endpoint/model, bounded tokens/events/time, and
+`DisableThinking`; record only typed results and hashes, never raw model context or remote
+error bodies.
+
+Run the explicit live integration gate by setting process-scoped variables, then remove
+them after the test process exits:
+
+```text
+AGENTFORGE_LIVE_OPENAI_COMPATIBLE_ENDPOINT=<exact-chat-completions-uri>
+AGENTFORGE_LIVE_OPENAI_COMPATIBLE_MODEL=<exact-model-name>
+dotnet test tests/AgentForge.IntegrationTests --filter FullyQualifiedName~OpenAiCompatibleLiveIntegrationTests
+```
+
+The test is skipped when either variable is absent. These variables are endpoint/model
+metadata only; this credential-free gate accepts no API key or authorization header.
+
+Before runtime enablement, add model-context redaction, invocation-scoped secret
+materialization, network/locality policy and DNS/IP controls, routing/failover, audit,
+durable snapshots, and cross-attempt usage/cost accounting. Setup profile acceptance alone
+does not compose an adapter.
 
 ## SQLite migration and cold backup
 

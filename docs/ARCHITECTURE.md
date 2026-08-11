@@ -198,9 +198,24 @@ The deterministic provider owns immutable scripts and emits started, text delta,
 delta/completion, structured output, usage, typed error, and completion events with strict
 sequence numbers. It intersects the request with provider evidence and token/tool/event/
 time limits, honors cancellation, and never emits completion after a scripted failure.
-Production DI contains an empty immutable provider catalog and no invocation route. Later
-adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside their feature adapter
-and must translate into these records.
+
+The credential-free OpenAI-compatible adapter translates normalized requests to an exact
+chat-completions endpoint. HTTPS is required unless its composition explicitly opts into
+plaintext HTTP for a local/LAN endpoint. Endpoint credentials, query/fragment data,
+redirects, caller-owned HTTP headers/credentials, cookies/proxies, and declared media
+capabilities are refused. Production construction owns a fixed no-cookie, no-proxy,
+no-redirect transport; only the unit-test assembly can inject a fake message handler.
+The adapter bounds serialized requests, total response bytes, individual SSE lines/events,
+strict UTF-8, JSON depth/duplicates, tool argument accumulation, event count, output usage,
+and wall time. Structured output is accumulated and validated before one atomic event;
+provider error bodies never become application messages. Tool results preserve their error
+bit in a normalized JSON envelope and returned tool calls must match an exact request tool.
+
+Production DI still contains an empty immutable provider catalog and no invocation route.
+The compatible adapter has no credential mode and is composed only by tests or an explicit
+live gate. Hosted adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside the
+feature boundary and must add model-context redaction, invocation-scoped secret
+materialization, locality/policy routing, audit, and durable run snapshots before exposure.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
