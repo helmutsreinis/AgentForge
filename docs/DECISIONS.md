@@ -40,5 +40,6 @@
 | D-036 | Calculate bounded recurrence in a pinned exact timezone, persist hash-chained schedule snapshots, and make DST, misfire, overlap, jitter, retry, pause, run-now, expiry, and dead-letter policy explicit. | Accepted |
 | D-037 | Store every validated skill version as one canonical content-addressed bundle; expose Markdown only through exact immutable run snapshots; govern the single active-version pointer through deterministic evaluation, separate approval, canary, and atomic promotion/rollback. | Accepted |
 | D-038 | Perform coding in exact-baseline Git worktrees, treat repository discovery and Roslyn/MSBuild navigation as bounded read-only evidence, and keep patching, verification, policy, and durable state behind harness-owned contracts. | Accepted |
+| D-039 | Accept backend output only as canonical baseline/file-hash-bound unified patches; preflight the complete set before contained writes; keep every verifier harness-owned and require denied-network container/filesystem isolation for project execution. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

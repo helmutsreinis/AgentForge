@@ -86,7 +86,8 @@ public sealed record CodingAuthoritySnapshot(
     string WorkspaceHash,
     ActorId ActorId,
     CorrelationId CorrelationId,
-    CorrelationId? CausationId);
+    CorrelationId? CausationId,
+    string? ExternalMutationApprovalHash = null);
 
 public static class CodingRecordValidator
 {
@@ -102,7 +103,18 @@ public static class CodingRecordValidator
         IsSha256(authority.BudgetHash) && IsSha256(authority.SkillSnapshotHash) &&
         IsSha256(authority.WorkspaceHash) && IsBounded(authority.ActorId.Value, 256) &&
         IsBounded(authority.CorrelationId.Value, 128) &&
-        (authority.CausationId is null || IsBounded(authority.CausationId.Value.Value, 128));
+        (authority.CausationId is null || IsBounded(authority.CausationId.Value.Value, 128)) &&
+        (authority.ExternalMutationApprovalHash is null || IsSha256(authority.ExternalMutationApprovalHash));
+
+    public static string ComputeWorkspaceHash(CodingWorkspace workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        var value = string.Join('\n', workspace.SessionId, workspace.RepositoryRoot, workspace.WorktreeRoot,
+            workspace.BaselineCommit, workspace.BaselineTreeHash, workspace.BranchName,
+            workspace.SourceWasClean, workspace.CreatedAt.UtcTicks);
+        return $"sha256:{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(value)))}";
+    }
 
     public static bool IsGitHash(string? value) => value is { Length: 40 or 64 } &&
         value.All(character => char.IsAsciiHexDigit(character) && !char.IsAsciiLetterUpper(character));

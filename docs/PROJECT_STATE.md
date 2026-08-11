@@ -104,6 +104,8 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Run snapshots pin exact transitive skill versions, permissions, artifacts, and hashes. Existing sessions retain their original body after promotion; stale promotions fail, regressing canaries quarantine, and raw Markdown is absent from relational rows.
 - M6 slice 1 added the independent Coding module. Bounded passive discovery inventories solutions/projects/languages/build systems/tests/CI/locks/repository instructions, parses MSBuild project references without DTD/network expansion, and hashes the normalized profile.
 - A real MSBuildWorkspace/Roslyn navigator loads the containing project graph and returns bounded symbol, definition, reference, compiler-diagnostic, and evidence records. Git worktree creation requires an exact local commit/tree and clean source, uses argument arrays, isolates a dedicated branch, and refuses to remove dirty or unrecognized targets.
+- M6 slice 2 added canonical hash-bound unified patches with strict path/link/UTF-8/size/hunk validation, whole-set preflight, rollback on write failure, and before/after evidence. Conflicts or a malformed later file leave every target unchanged.
+- Coding backends receive no filesystem path and can only propose immutable patches. The exact-version catalog and read-only language-server contract confer no authority. Harness-owned verification rechecks workspace/authority/plan hashes, stores output hashes, requires denied-network container/filesystem isolation for project execution, and makes publish approval explicit.
 
 ## Latest gate
 

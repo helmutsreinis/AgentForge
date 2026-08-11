@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using AgentForge.Abstractions.Coding;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Coding;
 using AgentForge.Domain.Coding;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Tools;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentForge.UnitTests;
@@ -82,6 +84,7 @@ public sealed class CodingDiscoveryAndWorkspaceTests : IDisposable
     {
         var services = new ServiceCollection();
         services.AddSingleton<IClock>(new FixedClock(new DateTimeOffset(2026, 8, 12, 8, 0, 0, TimeSpan.Zero)));
+        services.AddSingleton<ISandbox, UnavailableSandbox>();
         services.AddAgentForgeCoding();
         return services.BuildServiceProvider(validateScopes: true);
     }
@@ -136,5 +139,17 @@ public sealed class CodingDiscoveryAndWorkspaceTests : IDisposable
     private sealed class FixedClock(DateTimeOffset now) : IClock
     {
         public DateTimeOffset UtcNow => now;
+    }
+
+    private sealed class UnavailableSandbox : ISandbox
+    {
+        public ProcessSandboxCapabilities Capabilities => new(
+            ProcessSandboxKind.RestrictedHost, false, ProcessIsolationFeature.None, "not-used");
+
+        public Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
+            ProcessExecutionRequest request,
+            IProcessOutputObserver? observer,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Fail<ProcessExecutionResult>(
+                new DomainFailure(FailureCode.UnsupportedCapability, "Not used by this fixture.")));
     }
 }

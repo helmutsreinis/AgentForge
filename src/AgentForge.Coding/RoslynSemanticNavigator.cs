@@ -11,9 +11,16 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace AgentForge.Coding;
 
-internal sealed class RoslynSemanticNavigator : ISemanticNavigator
+internal sealed class RoslynSemanticNavigator : ISemanticNavigator, ILanguageServerAdapter
 {
     private static readonly object RegistrationLock = new();
+
+    public string Language => "C#";
+
+    public Task<DomainResult<SemanticResult>> NavigateAsync(
+        RepositoryProfile repository,
+        SemanticQuery query,
+        CancellationToken cancellationToken) => AnalyzeAsync(repository, query, cancellationToken);
 
     public async Task<DomainResult<SemanticResult>> AnalyzeAsync(
         RepositoryProfile repository,

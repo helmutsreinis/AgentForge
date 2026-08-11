@@ -654,3 +654,23 @@ pointer, append-only proposal snapshot, and redacted audit commit in one transac
 quarantine and rollback restores only the exact prior hash. Remaining risks are compromise of a
 future trusted signing key and malicious content within already granted skill permissions; runtime
 policy and sandbox gates remain authoritative over package declarations.
+
+## M6 coding-harness update
+
+Repository paths, project XML, source text, patches, backend proposals, command plans, and compiler
+output are untrusted. Discovery and semantic navigation are read-only and bounded. Coding begins
+from an exact clean commit/tree in a separate linked worktree, preventing operator changes in the
+source checkout from entering the mutation boundary.
+
+Every patch binds the baseline tree and exact raw SHA-256 of each target. Canonical paths cannot be
+rooted, traverse, or cross links. Strict UTF-8, file/set sizes, headers, hunk coordinates/counts,
+and context are validated for the entire set before the first write; staged same-volume moves and
+backups roll back write failures. Receipts retain only before/after hashes and line counts.
+
+External backend requests contain session/evidence identifiers but no filesystem path and their
+only output is a patch proposal. They cannot declare verification success. Harness-owned command
+plans rebind the workspace and authority, pass literal arguments and environment allowlists to the
+sandbox, and persist output hashes rather than content. Project build/test/analyzer/format/coverage/
+security/dependency/publish execution requires denied-network container plus filesystem isolation;
+publish additionally requires an exact external-mutation approval. Until a container adapter is
+available, these return typed unsupported capability rather than falling back to the host.

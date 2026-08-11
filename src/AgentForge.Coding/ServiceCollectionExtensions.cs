@@ -9,8 +9,13 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IRepositoryDiscovery, RepositoryDiscovery>();
-        services.AddSingleton<ISemanticNavigator, RoslynSemanticNavigator>();
+        services.AddSingleton<RoslynSemanticNavigator>();
+        services.AddSingleton<ISemanticNavigator>(provider => provider.GetRequiredService<RoslynSemanticNavigator>());
+        services.AddSingleton<ILanguageServerAdapter>(provider => provider.GetRequiredService<RoslynSemanticNavigator>());
         services.AddSingleton<ICodingWorkspaceManager, GitCodingWorkspaceManager>();
+        services.AddSingleton<ICodingPatchApplier, HashBoundPatchApplier>();
+        services.AddScoped<ICodingVerifier, SandboxCodingVerifier>();
+        services.AddScoped<ICodingBackendCatalog, CodingBackendCatalog>();
         return services;
     }
 }
