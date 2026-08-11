@@ -358,8 +358,32 @@ total budget. Run update, new planned attempt, and retry audit then commit atomi
 The ledger reserves and reconciles the current attempt only. Run usage, normalized cost/currency,
 stream count/chained hash, and wall time accumulate across terminal attempts. Policy can therefore
 end a retryable run after one attempt even when the numeric limit is higher; inability to select a
-fallback never authorizes policy weakening. Typed loop snapshots and post-attempt verification are
-still separate.
+fallback never authorizes policy weakening.
+
+## Durable typed agent loop
+
+`AgentForge.Runtime` is a feature module that references only Domain and Abstractions. Its pure
+state machine advances Observe, Plan, Act, Verify, Reflect, and Persist in a fixed cycle. A
+completion request remains pending through Reflect and Persist; only Persist may finish a turn or
+start another one. Invalid structured evidence repeats the same phase within an explicit repair
+allowance.
+
+Every transition creates a complete immutable `AgentLoopSnapshot`. The snapshot binds loop,
+installation, agent/version, idempotency and correlation identity; total turn/token/tool/wall and
+repair/no-progress authority; current consumption and phase; normalized initial, step, and progress
+evidence; the previous snapshot hash; and its own canonical hash. No prompt, completion, tool
+output, endpoint, credential, or executable argument is a loop-state field.
+
+SQLite appends rows under `(LoopId, Sequence)`. Initial mutations also collide on installation,
+idempotency key, and sequence, making concurrent creation deterministic. Resume accepts only an
+exact match of loop ID, authority, budget, initial-state hash, actor, and correlation; terminal
+replay is read-only. Snapshot and redacted audit append share one unit of work.
+
+Persist requires a progress hash. Repeated progress reaches typed `NoProgress`; turn/token/tool/
+wall exhaustion reaches typed `BudgetExceeded`; bounded repair exhaustion reaches typed failure;
+cancellation reaches a durable canceled snapshot. The default step executor returns
+`UnsupportedCapability`, so composition cannot initiate autonomous work. Task ownership, leases,
+automatic scanning, and DAG orchestration are Milestone 4 boundaries.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence

@@ -11,6 +11,7 @@
     <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />
     <Project Path="src/AgentForge.Models/AgentForge.Models.csproj" />
     <Project Path="src/AgentForge.Persistence/AgentForge.Persistence.csproj" />
+    <Project Path="src/AgentForge.Runtime/AgentForge.Runtime.csproj" />
     <Project Path="src/AgentForge.Security/AgentForge.Security.csproj" />
     <Project Path="src/AgentForge.Setup/AgentForge.Setup.csproj" />
     <Project Path="src/AgentForge.Tools/AgentForge.Tools.csproj" />

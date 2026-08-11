@@ -553,6 +553,23 @@ fallback, repeat a provider, substitute history, or exceed remaining total run b
 
 Ledger accounting uses current-attempt usage while run accounting adds every attempt's usage, cost,
 event evidence, and wall time. Currency mismatch and arithmetic or evidence overflow fail the
-terminal transaction. Remaining threats are durable loop resumption/no-progress detection,
-structured-output repair bounds, hosted endpoint DNS/IP rebinding, automatic recovery scanning, and
-any future public invocation surface.
+terminal transaction. Remaining threats are hosted endpoint DNS/IP rebinding, automatic recovery
+scanning, and any future public invocation surface.
+
+## M3 durable typed-loop update
+
+Loop state is structured domain data, never provider prose. Every phase transition binds the prior
+snapshot hash and recalculates a canonical hash over authority, budgets, counters, correlations, and
+normalized evidence. Tampering, resequencing, authority substitution, or changed idempotency input
+therefore fails validation or the database key. Snapshot and redacted audit append atomically.
+
+Only Persist accepts progress evidence or advances a turn. A completion signal cannot bypass
+Reflect/Persist. Rejected structured output repeats only its current phase and consumes a bounded
+repair allowance; repeated normalized progress, token/tool/turn/wall exhaustion, executor failure,
+and cancellation all produce explicit terminal snapshots. Checked totals and saturating elapsed
+time prevent overflow from restoring authority.
+
+The default executor is deliberately unavailable and no API/CLI mutation exists. Remaining threats
+are a later governed step executor binding raw model/tool artifacts to their evidence hashes,
+lease-based task ownership and automatic recovery, hosted DNS/IP rebinding, and public runtime
+authentication/rate limiting.

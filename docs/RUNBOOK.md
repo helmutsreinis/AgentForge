@@ -396,8 +396,19 @@ The test is skipped when either variable is absent. These variables are endpoint
 metadata only; this credential-free gate accepts no API key or authorization header.
 
 Before public runtime enablement, add hosted destination DNS/IP controls, automatic expired-lease
-scanning, and the typed durable loop with verification/no-progress evidence.
+and task scanning, and a governed step executor that binds model/tool artifacts to loop evidence.
 Setup profile acceptance alone does not compose an adapter.
+
+The internal typed loop writes one immutable snapshot and audit event per accepted phase. A worker
+restart must call the same request with the same loop ID, installation/agent version, budget,
+initial-state hash, actor, correlation, and idempotency key. It resumes from the latest durable
+phase; any mismatch is a concurrency conflict. A terminal replay is read-only.
+
+If a worker exits between snapshots, preserve the database and retry the exact request. Never edit
+phase, turn, counters, evidence hashes, sequence, or prior/current hashes; never delete a snapshot
+to repeat an action. `NoProgress`, `BudgetExceeded`, `Failed`, and `Canceled` are terminal evidence,
+not operator invitations to rewrite state. A new authorized objective requires a new loop ID and
+idempotency key.
 
 ## SQLite migration and cold backup
 
@@ -458,6 +469,11 @@ Migration 0012 adds total attempt limits/cumulative wall evidence and per-attemp
 backfills existing single attempts from their parent run and assigns maximum one. Its down migration
 destroys retry accounting. Restore the full pre-0012 backup rather than applying down; never delete
 attempt history to force failover.
+
+Migration 0013 creates append-only agent-loop snapshots with exact authority, budgets, phase,
+progress, and hash-chain evidence. It fabricates no loops for existing state. Its down migration
+deletes recovery and completion evidence. Restore the full pre-0013 backup rather than applying
+down; never edit or resequence snapshots to force resume.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

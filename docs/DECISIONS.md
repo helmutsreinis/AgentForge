@@ -31,5 +31,6 @@
 | D-027 | Start model work only after current authority and route revalidation, exact catalog resolution, and an atomic random-hash lease plus shared agent-budget reservation; accept only bounded contiguous provider events, persist their hash/usage rather than content, and reconcile the ledger in the terminal transaction. | Accepted |
 | D-028 | Heartbeats require exact hash-bound lease possession and cannot extend expiry; expired recovery atomically records retryable failure, releases the reservation, writes bounded observed provider health, and appends audit evidence without a raw token. | Accepted |
 | D-029 | Bind one-to-eight attempts into admission and total agent budget; append only exact ordered retry attempts, exclude every tried profile, reapply current routing/locality/fallback policy, and accumulate run usage/cost/stream/wall evidence while reconciling the ledger per attempt. | Accepted |
+| D-030 | Represent the agent loop as six pure typed phases with append-only hash-chained snapshots; resume only exact idempotency/authority matches, require progress evidence at Persist, and stop on bounded repair, no-progress, cancellation, or total-budget outcomes. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.
