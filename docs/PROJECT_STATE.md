@@ -97,10 +97,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Claims, heartbeats, completion, failure, cancellation, and expired recovery require exact versions. Random worker tokens are persisted only as hashes, leases last at most five minutes, stale workers fail, completed nodes never repeat, and snapshot plus redacted audit commits atomically. A process-loss fixture resumes versions 0-6 in fresh scopes.
 - M4 slice 2 added canonical child delegation grants. Children receive only requested context hashes already present in parent evidence, the intersection of requested and parent capabilities, and each budget dimension clamped by request, per-child, and remaining-parent authority.
 - Missing required capability, unknown context, expired authority, exhausted depth/count/concurrency, zero useful budget, duplicate input, or grant tampering fails closed. Immutable grants pin parent/child versions plus policy/skill hashes and persist atomically with redacted audit; all orchestration pattern identities remain explicit in the task definition.
+- M4 slice 3 added durable one-shot, interval, bounded cron, and local-calendar schedules. Exact timezone resolution, explicit spring-gap/fall-ambiguity handling, deterministic jitter, preview, misfire, overlap, retry, recovery, pause/resume, run-now, expiry, and dead-letter transitions are pure and hash chained.
+- A bounded hosted scan reads only latest due versions and appends durable occurrences through optimistic service transitions. Occurrence/run-now identities are idempotent, worker tokens remain hash-only, schedule authority pins the exact agent plus policy/capability/budget/skill hashes, and restart recovery completes versions 0-6 without duplicate dispatch.
 
 ## Latest gate
 
-`artifacts/gates/M4-02-20260812.md`: Pass.
+`artifacts/gates/M4-03-20260812.md`: Pass. Milestone 4 is complete.
 
 ## Known constraints and risks
 
@@ -118,5 +120,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Add restart-safe timezone scheduling with recurrence preview, DST, misfire, overlap, jitter,
-pause/resume, run-now, expiration, dead-letter, idempotency, and pinned authority snapshots.
+Begin Milestone 5 with portable `SKILL.md` plus `skill.harness.json` validation, immutable package
+versions, dependency resolution, run snapshots, and the governed promotion lifecycle.

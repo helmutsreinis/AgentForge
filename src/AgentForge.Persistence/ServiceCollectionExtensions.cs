@@ -7,6 +7,7 @@ using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
+using AgentForge.Abstractions.Scheduling;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
@@ -60,6 +61,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRunSnapshotStore, SqliteRunSnapshotStore>();
         services.AddScoped<ITaskSnapshotStore, SqliteTaskSnapshotStore>();
         services.AddScoped<IDelegationGrantStore, SqliteDelegationGrantStore>();
+        services.AddScoped<IScheduleSnapshotStore, SqliteScheduleSnapshotStore>();
         services.AddScoped<SqliteModelProviderHealthRepository>();
         services.AddScoped<IModelProviderHealthRepository>(provider =>
             provider.GetRequiredService<SqliteModelProviderHealthRepository>());

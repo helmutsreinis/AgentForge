@@ -436,3 +436,13 @@ explicit child intent, emits only requested parent-approved context hashes, inte
 and clamps budgets. Depth, lifetime child count, and active concurrency are independent limits.
 The resulting grant pins parent/child versions and policy/skill evidence, is canonically hashed,
 and is stored immutably before child execution can be composed.
+
+Schedules are recurrence definitions plus append-only snapshots, not in-memory timers. One-shot and
+interval triggers operate on UTC instants; cron and calendar triggers resolve through an exact
+system timezone. Invalid local times advance to the first valid minute and ambiguous times choose
+the earlier UTC instant. A deterministic hash supplies optional jitter.
+
+The hosted dispatcher scans at most 64 latest due aggregate versions per second. It never executes
+a task directly: it appends bounded idempotent occurrence queues through the same versioned service.
+Worker claim/completion, retries, misfire/overlap, pause/resume, run-now, expiry, and dead-letter all
+remain durable domain transitions.

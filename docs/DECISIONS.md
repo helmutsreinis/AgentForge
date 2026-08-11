@@ -37,5 +37,6 @@
 | D-033 | Translate Anthropic Messages as a distinct bounded protocol; require exact HTTPS/cloud destination policy, prepared context, invocation-scoped API-key materialization, listed tools, usage, and terminal message evidence. | Accepted |
 | D-034 | Own durable task DAGs as immutable hash-chained snapshots with exact-version, hash-only worker leases, bounded retry/compensation, atomic audit, and no completed-node replay. | Accepted |
 | D-035 | Derive child grants only by intersecting explicit parent context, capability, budget, policy, skill, depth, count, concurrency, and expiry authority; persist the immutable canonical result. | Accepted |
+| D-036 | Calculate bounded recurrence in a pinned exact timezone, persist hash-chained schedule snapshots, and make DST, misfire, overlap, jitter, retry, pause, run-now, expiry, and dead-letter policy explicit. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.
