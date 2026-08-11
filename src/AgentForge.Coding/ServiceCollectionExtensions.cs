@@ -16,6 +16,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICodingPatchApplier, HashBoundPatchApplier>();
         services.AddScoped<ICodingVerifier, SandboxCodingVerifier>();
         services.AddScoped<ICodingBackendCatalog, CodingBackendCatalog>();
+        services.AddSingleton<ICodingReviewer, GitCodingReviewer>();
+        services.AddScoped<ICodingSessionService, CodingSessionService>();
         return services;
     }
 }

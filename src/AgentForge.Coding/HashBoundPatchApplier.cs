@@ -105,19 +105,10 @@ internal sealed partial class HashBoundPatchApplier(IClock clock) : ICodingPatch
                 change.AddedLines,
                 change.RemovedLines)).ToArray();
             var appliedAt = clock.UtcNow;
-            var builder = new StringBuilder();
-            CodingPatchValidator.Append(builder, patch.PatchHash);
-            foreach (var item in evidence)
-            {
-                CodingPatchValidator.Append(builder, item.RelativePath);
-                CodingPatchValidator.Append(builder, item.BeforeHash);
-                CodingPatchValidator.Append(builder, item.AfterHash);
-                CodingPatchValidator.Append(builder, item.AddedLines);
-                CodingPatchValidator.Append(builder, item.RemovedLines);
-            }
-            CodingPatchValidator.Append(builder, appliedAt.UtcTicks);
-            return DomainResult.Success(new CodingPatchReceipt(
-                patch.PatchHash, evidence, appliedAt, CodingPatchValidator.Hash(builder.ToString())));
+            var receipt = CodingPatchValidator.CreatePatchReceipt(patch.PatchHash, evidence, appliedAt);
+            return receipt.IsSuccess
+                ? receipt
+                : DomainResult.Fail<CodingPatchReceipt>(receipt.Failure!);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

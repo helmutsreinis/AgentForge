@@ -50,6 +50,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<SkillRunSnapshotEntity> SkillRunSnapshots => Set<SkillRunSnapshotEntity>();
 
+    internal DbSet<CodingSessionSnapshotEntity> CodingSessionSnapshots => Set<CodingSessionSnapshotEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -541,6 +543,24 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.SnapshotJson).IsRequired();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<CodingSessionSnapshotEntity>(entity =>
+        {
+            entity.ToTable("coding_session_snapshots");
+            entity.HasKey(item => new { item.SessionId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey, item.Version }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CausationId).HasMaxLength(128);
         });

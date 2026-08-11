@@ -162,6 +162,83 @@ public static class CodingPatchValidator
             Hash(builder.ToString())));
     }
 
+    public static DomainResult<CodingBackendProposal> CreateBackendProposal(
+        string backendId,
+        string backendVersion,
+        CodingPatchSet patch)
+    {
+        if (string.IsNullOrWhiteSpace(backendId) || backendId.Length > 256 ||
+            !Domain.Skills.SkillVersion.TryParse(backendVersion, out _) || !IsValid(patch))
+        {
+            return DomainResult.Fail<CodingBackendProposal>(new DomainFailure(
+                FailureCode.ValidationFailure, "The coding backend proposal is invalid."));
+        }
+
+        var builder = new StringBuilder();
+        Append(builder, backendId); Append(builder, backendVersion); Append(builder, patch.PatchHash);
+        return DomainResult.Success(new CodingBackendProposal(
+            backendId, backendVersion, patch, Hash(builder.ToString())));
+    }
+
+    public static DomainResult<CodingPatchReceipt> CreatePatchReceipt(
+        string patchHash,
+        IReadOnlyList<CodingFileChangeEvidence> files,
+        DateTimeOffset appliedAt)
+    {
+        if (!CodingRecordValidator.IsSha256(patchHash) || files is null || files.Count is < 1 or > 128 ||
+            files.Any(file => !IsPath(file.RelativePath) || !CodingRecordValidator.IsSha256(file.BeforeHash) ||
+                !CodingRecordValidator.IsSha256(file.AfterHash) || file.AddedLines < 0 || file.RemovedLines < 0) ||
+            files.Select(file => file.RelativePath).Distinct(StringComparer.Ordinal).Count() != files.Count ||
+            !files.SequenceEqual(files.OrderBy(file => file.RelativePath, StringComparer.Ordinal)))
+        {
+            return DomainResult.Fail<CodingPatchReceipt>(new DomainFailure(
+                FailureCode.ValidationFailure, "The coding patch receipt evidence is invalid."));
+        }
+
+        var builder = new StringBuilder();
+        Append(builder, patchHash);
+        foreach (var item in files)
+        {
+            Append(builder, item.RelativePath); Append(builder, item.BeforeHash); Append(builder, item.AfterHash);
+            Append(builder, item.AddedLines); Append(builder, item.RemovedLines);
+        }
+        Append(builder, appliedAt.UtcTicks);
+        return DomainResult.Success(new CodingPatchReceipt(
+            patchHash, files.Select(file => file with { }).ToArray(), appliedAt, Hash(builder.ToString())));
+    }
+
+    public static DomainResult<CodingVerificationReceipt> CreateVerificationReceipt(
+        CodingVerificationPlan plan,
+        IReadOnlyList<CodingVerificationResult> results)
+    {
+        if (CreateVerificationPlan(plan.Commands) is not { IsSuccess: true } recreated ||
+            recreated.Value.PlanHash != plan.PlanHash || results is null || results.Count > plan.Commands.Count ||
+            results.Where((result, index) => result.Kind != plan.Commands[index].Kind ||
+                !CodingRecordValidator.IsSha256(result.StandardOutputHash) ||
+                !CodingRecordValidator.IsSha256(result.StandardErrorHash) ||
+                result.CompletedAt < result.StartedAt || string.IsNullOrWhiteSpace(result.SandboxEvidence) ||
+                result.SandboxEvidence.Length > 2_048).Any())
+        {
+            return DomainResult.Fail<CodingVerificationReceipt>(new DomainFailure(
+                FailureCode.ValidationFailure, "Verification results do not match the exact command plan."));
+        }
+
+        var passed = results.Count == plan.Commands.Count && results.Zip(plan.Commands)
+            .All(item => item.First.Passed || !item.Second.Required);
+        var builder = new StringBuilder();
+        Append(builder, plan.PlanHash);
+        foreach (var result in results)
+        {
+            Append(builder, result.Kind); Append(builder, result.Passed); Append(builder, result.ExitCode);
+            Append(builder, result.StandardOutputHash); Append(builder, result.StandardErrorHash);
+            Append(builder, result.StartedAt.UtcTicks); Append(builder, result.CompletedAt.UtcTicks);
+            Append(builder, result.SandboxEvidence);
+        }
+        Append(builder, passed);
+        return DomainResult.Success(new CodingVerificationReceipt(
+            plan.PlanHash, results.Select(result => result with { }).ToArray(), passed, Hash(builder.ToString())));
+    }
+
     public static bool IsValid(CodingPatchSet? patch) => patch is not null &&
         Create(patch.BaselineTreeHash, patch.Files) is { IsSuccess: true } result &&
         string.Equals(result.Value.PatchHash, patch.PatchHash, StringComparison.Ordinal);

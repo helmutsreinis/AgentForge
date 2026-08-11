@@ -78,6 +78,17 @@ internal sealed class SandboxCodingVerifier(ISandbox sandbox) : ICodingVerifier
                 return DomainResult.Fail<CodingVerificationReceipt>(execution.Failure!);
             }
 
+            var required = RequiredFeatures | (command.Kind is CodingVerificationKind.Review
+                ? ProcessIsolationFeature.None
+                : ProcessIsolationFeature.NetworkIsolation | ProcessIsolationFeature.FileSystemIsolation);
+            if (!execution.Value.Sandbox.IsAvailable || execution.Value.Sandbox.Kind != command.RequiredSandbox ||
+                (execution.Value.Sandbox.SupportedFeatures & required) != required)
+            {
+                return DomainResult.Fail<CodingVerificationReceipt>(new DomainFailure(
+                    FailureCode.UnsupportedCapability,
+                    "The verifier sandbox evidence did not satisfy the exact requested isolation."));
+            }
+
             var result = new CodingVerificationResult(
                 command.Kind,
                 execution.Value.ExitCode == 0,
@@ -91,20 +102,7 @@ internal sealed class SandboxCodingVerifier(ISandbox sandbox) : ICodingVerifier
             if (!result.Passed && command.Required) break;
         }
 
-        var passed = results.Count == plan.Commands.Count && results.Zip(plan.Commands)
-            .All(item => item.First.Passed || !item.Second.Required);
-        var builder = new StringBuilder();
-        CodingPatchValidator.Append(builder, plan.PlanHash);
-        foreach (var result in results)
-        {
-            CodingPatchValidator.Append(builder, result.Kind); CodingPatchValidator.Append(builder, result.Passed);
-            CodingPatchValidator.Append(builder, result.ExitCode); CodingPatchValidator.Append(builder, result.StandardOutputHash);
-            CodingPatchValidator.Append(builder, result.StandardErrorHash); CodingPatchValidator.Append(builder, result.StartedAt.UtcTicks);
-            CodingPatchValidator.Append(builder, result.CompletedAt.UtcTicks); CodingPatchValidator.Append(builder, result.SandboxEvidence);
-        }
-        CodingPatchValidator.Append(builder, passed);
-        return DomainResult.Success(new CodingVerificationReceipt(
-            plan.PlanHash, results, passed, CodingPatchValidator.Hash(builder.ToString())));
+        return CodingPatchValidator.CreateVerificationReceipt(plan, results);
     }
 
     private static bool TryWorkingDirectory(string root, string relative, out string? fullPath)

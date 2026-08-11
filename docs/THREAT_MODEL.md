@@ -674,3 +674,13 @@ sandbox, and persist output hashes rather than content. Project build/test/analy
 security/dependency/publish execution requires denied-network container plus filesystem isolation;
 publish additionally requires an exact external-mutation approval. Until a container adapter is
 available, these return typed unsupported capability rather than falling back to the host.
+
+Durable coding sessions store objectives as hashes and raw unified diffs only as content-addressed
+artifacts. Relational snapshots bind the exact workspace, authority, repository profile, backend,
+instruction hashes, typed plan, patch/verification/review receipts, state, version, correlation, and
+previous hash. Each completed verifier command appends and commits before the next begins, so worker
+loss retries only the unrecorded command. Git review hashes the complete baseline diff, fails on an
+empty/unrelated path set or `diff --check`, and model/backend output cannot declare completion.
+Remaining risks are host compromise, a malicious trusted in-process backend, and insufficient live
+container isolation; external/untrusted backends remain patch-only and must use the later constrained
+out-of-process plugin adapter, while missing container support remains a typed unavailable gate.

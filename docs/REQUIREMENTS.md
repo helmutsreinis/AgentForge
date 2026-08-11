@@ -57,8 +57,8 @@ passing gate report.
 |---|---|---:|---|
 | AF-SKILL-001 | Portable SKILL.md packages use a validated harness sidecar, immutable versions, content hashes, dependencies, and run snapshots. | 5 | Verified |
 | AF-SKILL-002 | Seed and created skills share proposal, evaluation, promotion, canary, rollback, quarantine, archive, signature, and provenance behavior. | 5 | Verified |
-| AF-CODE-001 | Coding work uses isolated Git worktrees, semantic navigation, hash-bound patches, build/test/review verification, and durable checkpoints. | 6 | In progress |
-| AF-CODE-002 | Unrelated operator changes remain untouched and external coding backends cannot bypass AgentForge policy or verification. | 6 | In progress |
+| AF-CODE-001 | Coding work uses isolated Git worktrees, semantic navigation, hash-bound patches, build/test/review verification, and durable checkpoints. | 6 | Verified |
+| AF-CODE-002 | Unrelated operator changes remain untouched and external coding backends cannot bypass AgentForge policy or verification. | 6 | Verified |
 | AF-LEARN-001 | Evidence-backed learning separates worker, proposer, deterministic verifier, critic, and governor roles. | 9 | Planned |
 | AF-LEARN-002 | Existing-skill revisions require usage authority and baseline hashes; deterministic failure always vetoes promotion. | 9 | Planned |
 | AF-BUNDLE-001 | Repeated successful chains may produce decomposable skill DAGs with pinned contracts and baseline comparison. | 9 | Planned |

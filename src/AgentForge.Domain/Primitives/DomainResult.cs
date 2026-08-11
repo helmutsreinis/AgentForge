@@ -11,6 +11,7 @@ public enum FailureCode
     BudgetExceeded,
     RecoverableExternalFailure,
     NoProgress,
+    Cancelled,
 }
 
 public sealed record DomainFailure(
