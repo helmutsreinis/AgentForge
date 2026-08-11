@@ -9,6 +9,8 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<ITaskOrchestrator, TaskOrchestrator>();
+        services.AddScoped<IDelegationPlanner, DelegationPlanner>();
+        services.AddScoped<IDelegationService, DelegationService>();
         return services;
     }
 }

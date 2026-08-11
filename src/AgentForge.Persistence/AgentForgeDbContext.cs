@@ -38,6 +38,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
     internal DbSet<OrchestrationTaskSnapshotEntity> OrchestrationTaskSnapshots =>
         Set<OrchestrationTaskSnapshotEntity>();
 
+    internal DbSet<DelegationGrantEntity> DelegationGrants => Set<DelegationGrantEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -418,6 +420,30 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SnapshotJson).IsRequired();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<DelegationGrantEntity>(entity =>
+        {
+            entity.ToTable("delegation_grants");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ParentAgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ChildAgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.ParentTaskId, item.IssuedAtUtcTicks });
+            entity.Property(item => item.GrantHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.GrantJson).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CausationId).HasMaxLength(128);
         });

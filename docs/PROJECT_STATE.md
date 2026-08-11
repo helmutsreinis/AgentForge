@@ -95,10 +95,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Hosted Anthropic calls require a cloud-approved HTTPS profile, socket destination enforcement, prepared context, exact API version, and an invocation-scoped clearable API-key lease. The full Milestone 3 provider, routing, durable execution, failover, and typed-loop gate passes with production catalogs and public invocation still closed.
 - M4 slice 1 added the independent Orchestration module and a pure durable DAG lifecycle. Definitions bind exact authority, policy/budget/skill snapshots, capabilities, minimum context evidence, typed node budgets, bounded retries, and unique compensation nodes before an append-only canonical snapshot chain can start.
 - Claims, heartbeats, completion, failure, cancellation, and expired recovery require exact versions. Random worker tokens are persisted only as hashes, leases last at most five minutes, stale workers fail, completed nodes never repeat, and snapshot plus redacted audit commits atomically. A process-loss fixture resumes versions 0-6 in fresh scopes.
+- M4 slice 2 added canonical child delegation grants. Children receive only requested context hashes already present in parent evidence, the intersection of requested and parent capabilities, and each budget dimension clamped by request, per-child, and remaining-parent authority.
+- Missing required capability, unknown context, expired authority, exhausted depth/count/concurrency, zero useful budget, duplicate input, or grant tampering fails closed. Immutable grants pin parent/child versions plus policy/skill hashes and persist atomically with redacted audit; all orchestration pattern identities remain explicit in the task definition.
 
 ## Latest gate
 
-`artifacts/gates/M4-01-20260812.md`: Pass.
+`artifacts/gates/M4-02-20260812.md`: Pass.
 
 ## Known constraints and risks
 
@@ -116,5 +118,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Implement minimum-context child delegation with capability/budget intersection and recursion bounds,
-then add restart-safe timezone scheduling.
+Add restart-safe timezone scheduling with recurrence preview, DST, misfire, overlap, jitter,
+pause/resume, run-now, expiration, dead-letter, idempotency, and pinned authority snapshots.

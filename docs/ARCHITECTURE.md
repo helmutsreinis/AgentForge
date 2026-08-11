@@ -430,3 +430,9 @@ Workers receive a raw random lease token once; SQLite stores only its hash. Expe
 versions plus `(TaskId, Version)` uniqueness prevent competing workers from committing the same
 transition. Expired recovery releases or exhausts leases deterministically and never revisits a
 completed node.
+
+Child delegation is a separate pure authority evaluation. It receives a trusted parent snapshot and
+explicit child intent, emits only requested parent-approved context hashes, intersects capabilities,
+and clamps budgets. Depth, lifetime child count, and active concurrency are independent limits.
+The resulting grant pins parent/child versions and policy/skill evidence, is canonically hashed,
+and is stored immutably before child execution can be composed.

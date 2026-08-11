@@ -608,3 +608,15 @@ accepted. A stale or crashed worker therefore cannot overwrite takeover, and a c
 never be reclaimed. Remaining threats are dispatcher starvation, malicious but already authorized
 workers, delegation-context overexposure, and schedule-trigger flooding; the latter two are the
 next Milestone 4 gates.
+
+## M4 delegation update
+
+A child request is intent, never authority. Unknown optional capabilities disappear at the
+intersection; an unknown required capability denies the grant. Requested context must be a subset
+of parent evidence hashes, preventing full-parent-context inheritance by default. Requested budget
+is independently clamped by parent remaining and per-child limits.
+
+Depth, spawned-child count, active concurrency, expiry, identity bounds, duplicates, and zero useful
+budget are checked before a canonical grant is issued. Policy and skill hashes are inherited
+unchanged. Remaining threats are incorrect trusted parent accounting and a future public endpoint;
+neither exists in the current closed composition surface.
