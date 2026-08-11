@@ -28,6 +28,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISandbox, RestrictedHostSandbox>();
         services.AddSingleton<IToolCatalog>(_ => ToolCatalog.Create([]).Value);
         services.AddScoped<IToolInvocationService, ToolInvocationService>();
+        services.AddScoped<IToolAvailabilityProbeService, ToolAvailabilityProbeService>();
         return services;
     }
 

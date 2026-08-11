@@ -148,10 +148,11 @@ new installation-scoped idempotency key:
 An exact authenticated retry returns the original record; reusing the key with changed
 input returns exit code 3. Store neither parameter sources nor preview output in shared
 logs when they contain local path or recipient metadata. Tool ID, version, and descriptor
-hash must be supplied together. A `Deny` disposition creates
-the same exact, expiring durable evidence. This slice does not execute tools: a future
-restricted executor must source risk/tool identity from its catalog, re-evaluate policy,
-enforce isolation and containment, and consume a matching grant atomically.
+hash must be supplied together. A `Deny` disposition creates the same exact, expiring
+durable evidence. Approval creation itself never executes a tool. The internal invocation
+boundary sources risk and tool identity from the exact catalog descriptor, re-evaluates
+policy, atomically consumes a matching grant, commits authorization audit, and then calls
+the requested sandbox without weakening its controls.
 
 ## Restricted sandbox diagnostics
 
@@ -171,23 +172,32 @@ filesystem, network, credential, privilege, CPU, memory, or process-count isolat
 Requests needing `Container`, denied/loopback-only network, filesystem isolation, or
 resource isolation return `UnsupportedCapability`; operators must not weaken the request
 to make it run. There is intentionally no generic execution CLI/API. If a process starts
-before the later authoritative tool/policy/approval/audit service is enabled, stop the
-host and treat that as a security defect.
+outside the authoritative catalog/policy/approval/audit service, stop the host and treat
+that as a security defect.
 
 The authoritative catalog and policy-bound invocation service currently have no operator
 or model invocation surface. Catalog
 admission records a fully qualified process path but deliberately does not check that the
 file exists and never runs version/help. Search results are summaries; an exact description
 requires both normalized tool ID and exact SemVer version. Do not infer that inventory,
-catalog membership, a descriptor hash, or an approval row makes a tool callable. Until the
-policy-bound invocation gate passes, any process start attributed to catalog discovery is a
-security defect and the host should be stopped for evidence preservation.
+catalog membership, a descriptor hash, or an approval row makes a tool callable. Any
+process start attributed solely to catalog discovery is a security defect and the host
+should be stopped for evidence preservation.
 
 If durable diagnostics show a tool invocation in `Authorized` after an interruption, do
 not rerun it or reset its approval. Treat completion as uncertain, preserve the database,
 audit chain, descriptor hash, and process diagnostics, and require a new reviewed request
 with new approval and idempotency only after ruling out surviving effects. Terminal retry
 returns metadata and hashes only; raw stdout/stderr is intentionally unavailable on replay.
+
+Availability probes are a separate admitted descriptor operation, not an inventory flag.
+Operators must require capability `tool:availability.probe`, risk `Inventory`, no target or
+parameters, denied network, empty environment, a container sandbox reporting network
+isolation, and bounded fixed `--version`/help-style arguments. The probe still requires an
+exact descriptor-hash-bound approval and invocation idempotency key. Its immediate result
+may contain one redacted printable line; replay returns availability status without text.
+There is currently no CLI/API probe command and the production catalog is empty. Do not
+compose a live probe until the container/namespace capabilities are verified on that host.
 
 ## Passive environment inventory
 

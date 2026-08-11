@@ -84,6 +84,26 @@ public sealed record ToolInvocationResult(
     byte[] StandardError,
     ProcessSandboxCapabilities? Sandbox);
 
+public sealed record ToolAvailabilityProbeRequest(
+    long ExpectedInstallationVersion,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    ActorId ActorId,
+    string ToolId,
+    string ToolVersion,
+    string Workspace,
+    string IdempotencyKey,
+    CorrelationId CorrelationId,
+    CorrelationId? CausationId = null);
+
+public sealed record ToolAvailabilityProbeResult(
+    ToolInvocationRecord Invocation,
+    bool IsAvailable,
+    bool IsIdempotentReplay,
+    string? ObservedSummary,
+    bool SummaryWasRedacted,
+    bool SummaryWasTruncated);
+
 public static class ToolInvocationStateMachine
 {
     public static DomainResult<ToolInvocationRecord> Authorize(

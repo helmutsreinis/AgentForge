@@ -52,6 +52,12 @@ public enum ToolOutputSensitivity
     PotentiallySensitive,
 }
 
+public enum ToolOperationKind
+{
+    Invocation,
+    AvailabilityProbe,
+}
+
 public sealed record ToolProvenance(
     ToolCatalogSourceKind SourceKind,
     ToolTrustLevel TrustLevel,
@@ -99,7 +105,8 @@ public sealed record ToolDescriptorDefinition(
     ToolOutputSensitivity OutputSensitivity,
     IReadOnlyList<ToolParameterDescriptor> Parameters,
     ToolProcessDefinition Process,
-    ToolProvenance Provenance);
+    ToolProvenance Provenance,
+    ToolOperationKind OperationKind = ToolOperationKind.Invocation);
 
 public sealed record ToolDescriptor(
     ToolDescriptorDefinition Definition,
@@ -116,6 +123,7 @@ public sealed record ToolSummary(
     ToolSideEffectKind SideEffects,
     ToolCatalogSourceKind SourceKind,
     ToolTrustLevel TrustLevel,
+    ToolOperationKind OperationKind,
     string DescriptorHash);
 
 public sealed record ToolSearchRequest(

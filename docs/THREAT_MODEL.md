@@ -280,11 +280,11 @@ description. Search and admission do not touch or execute the candidate path, so
 PATH entry cannot turn inventory into a probe.
 
 Descriptions remain untrusted model context even when their catalog provenance is valid.
-The next boundary must accept parameter values only, reconstruct all security fields from
-the exact descriptor, validate and canonicalize those values, bind the descriptor hash
-into authorization, consume approval and append start evidence transactionally, then use
-the restricted sandbox. Safe version/help probing must traverse that same boundary with a
-separate inventory/read capability and bounded output; the catalog itself never probes.
+The invocation boundary accepts parameter values only, reconstructs all security fields
+from the exact descriptor, validates and canonicalizes those values, binds the descriptor
+hash into authorization, consumes approval and appends start evidence transactionally,
+then uses the requested sandbox. Safe version/help probing traverses that same boundary
+with a separate inventory capability and bounded output; the catalog itself never probes.
 
 ## M2 policy-bound invocation update
 
@@ -318,3 +318,24 @@ silently use it. Container/namespace availability remains the gate for descripto
 require those controls. A local configuration race can still occur after the final policy
 read and filesystem replacement can occur before process open; high-risk effects remain
 disabled pending stronger isolation and later durable orchestration.
+
+## M2 safe-availability-probe update
+
+Version/help execution is not inferred from PATH inventory and cannot be smuggled into an
+ordinary tool descriptor. The catalog admits a probe only under the exact inventory-only
+capability with no caller parameters, target, side effects, environment, or network. A
+literal argument, tight time/output limits, container sandbox, and declared network
+isolation are mandatory; missing controls reject the descriptor rather than downgrade it.
+
+The probe application service does not bypass invocation policy. It needs the current
+agent grant and a single-use descriptor-hash-bound approval, commits authorization and
+audit before the sandbox, and reuses durable idempotency. A probe can therefore reveal
+only approved local metadata, never confer authority to another tool. Immediate output is
+strict-UTF-8 and printable, fully scanned for credential material before a 512-character
+first-line summary is returned. Sensitive or malformed output is suppressed, raw bytes
+are not persisted, and a terminal replay returns no reconstructed summary.
+
+The deterministic sandbox proves this boundary without claiming live isolation. A real
+container/namespace adapter and equipped CI runner remain required before production probe
+descriptors can be composed. Executable replacement between admission and process open is
+also unresolved; immutable images or executable evidence are required for higher-risk use.

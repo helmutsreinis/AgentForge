@@ -1339,12 +1339,13 @@ public sealed class PersistenceFoundationTests : IDisposable
         var target = Path.Combine(workspace, "src", "fixture.txt");
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var definition = CreateInvocationDescriptor();
+        var probeDefinition = CreateAvailabilityProbeDescriptor();
         var hostNetworkDefinition = definition with
         {
             Version = "2.0.0",
             Process = definition.Process with { NetworkPolicy = ProcessNetworkPolicy.InheritHost },
         };
-        var catalog = ToolCatalog.Create([definition, hostNetworkDefinition]);
+        var catalog = ToolCatalog.Create([definition, hostNetworkDefinition, probeDefinition]);
         Assert.True(catalog.IsSuccess, catalog.Failure?.Message);
         var sandbox = new RecordingSandbox();
         await using var services = BuildServices(
@@ -1383,8 +1384,16 @@ public sealed class PersistenceFoundationTests : IDisposable
                 new ActorId("local-admin"),
                 new CorrelationId("tool-provider")), CancellationToken.None);
             Assert.True(provider.IsSuccess, provider.Failure?.Message);
+            var candidate = CreateAgentCandidate(provider.Value.Profile.Id);
+            candidate = candidate with
+            {
+                CapabilityPolicy = candidate.CapabilityPolicy with
+                {
+                    ToolGrants = ["tool:repo.read", "tool:availability.probe"],
+                },
+            };
             var created = await setup.CreateAgentAsync(new CreateAgentRequest(
-                CreateAgentCandidate(provider.Value.Profile.Id),
+                candidate,
                 new ActorId("local-admin"),
                 new CorrelationId("tool-agent")), CancellationToken.None);
             Assert.True(created.IsSuccess, created.Failure?.Message);
@@ -1414,6 +1423,16 @@ public sealed class PersistenceFoundationTests : IDisposable
             workspace,
             "tool-invocation-001",
             new CorrelationId("tool-invocation"));
+        var probeRequest = new ToolAvailabilityProbeRequest(
+            installationVersion,
+            agent.Id,
+            agent.Version,
+            new ActorId("worker"),
+            probeDefinition.Id,
+            probeDefinition.Version,
+            workspace,
+            "tool-probe-001",
+            new CorrelationId("tool-probe"));
 
         await using (var noApprovalScope = services.CreateAsyncScope())
         {
@@ -1442,6 +1461,10 @@ public sealed class PersistenceFoundationTests : IDisposable
                 null,
                 CancellationToken.None);
             Assert.Equal(FailureCode.PolicyDenied, networkEscalation.Failure?.Code);
+            var missingProbeApproval = await noApprovalScope.ServiceProvider
+                .GetRequiredService<IToolAvailabilityProbeService>()
+                .ProbeAsync(probeRequest, CancellationToken.None);
+            Assert.Equal(FailureCode.ApprovalRequired, missingProbeApproval.Failure?.Code);
             Assert.Equal(0, sandbox.Calls);
         }
 
@@ -1578,8 +1601,105 @@ public sealed class PersistenceFoundationTests : IDisposable
             Assert.Equal(1, sandbox.Calls);
         }
 
+        var probeDescriptor = await catalog.Value.DescribeAsync(
+            probeRequest.ToolId,
+            probeRequest.ToolVersion,
+            CancellationToken.None);
+        Assert.True(probeDescriptor.IsSuccess, probeDescriptor.Failure?.Message);
+        var probeApprovalInvocation = new CapabilityInvocationRequest(
+            installationId,
+            installationVersion,
+            agent.Id,
+            agent.Version,
+            probeRequest.ActorId,
+            probeDescriptor.Value.Definition.CapabilityId,
+            probeDescriptor.Value.Definition.RiskClass,
+            probeDescriptor.Value.Definition.Id,
+            probeDescriptor.Value.Definition.Version,
+            probeDescriptor.Value.DescriptorHash,
+            "{}",
+            AuthorizationTargetKind.None,
+            null,
+            workspace,
+            probeRequest.CorrelationId);
+        await using (var probeApprovalScope = services.CreateAsyncScope())
+        {
+            var materialized = await probeApprovalScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .MaterializeAsync(administrator.ClientCredentialReference, CancellationToken.None);
+            Assert.True(materialized.IsSuccess, materialized.Failure?.Message);
+            await using var credential = materialized.Value;
+            var service = probeApprovalScope.ServiceProvider.GetRequiredService<ICapabilityApprovalService>();
+            var expiration = DateTimeOffset.UtcNow.AddMinutes(10);
+            var preview = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                probeApprovalInvocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("tool-probe-approval"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            var applied = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                probeApprovalInvocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                preview.Value.PreviewHash,
+                "tool-probe-approval-001",
+                new ActorId("local-admin"),
+                new CorrelationId("tool-probe-approval"),
+                credential.Value), CancellationToken.None);
+            Assert.True(applied.IsSuccess, applied.Failure?.Message);
+        }
+
+        sandbox.NextOutput = Encoding.UTF8.GetBytes("fixture-tool 1.2.3\nsecond line");
+        ToolAvailabilityProbeResult firstProbe;
+        await using (var probeScope = services.CreateAsyncScope())
+        {
+            var service = probeScope.ServiceProvider.GetRequiredService<IToolAvailabilityProbeService>();
+            var wrongOperation = await service.ProbeAsync(
+                probeRequest with
+                {
+                    ToolId = definition.Id,
+                    ToolVersion = definition.Version,
+                    IdempotencyKey = "tool-probe-wrong-operation",
+                },
+                CancellationToken.None);
+            Assert.Equal(FailureCode.UnsupportedCapability, wrongOperation.Failure?.Code);
+            var result = await service.ProbeAsync(probeRequest, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            firstProbe = result.Value;
+            Assert.True(firstProbe.IsAvailable);
+            Assert.False(firstProbe.IsIdempotentReplay);
+            Assert.Equal("fixture-tool 1.2.3", firstProbe.ObservedSummary);
+            Assert.False(firstProbe.SummaryWasRedacted);
+            Assert.False(firstProbe.SummaryWasTruncated);
+        }
+
+        Assert.Equal(2, sandbox.Calls);
+        Assert.NotNull(sandbox.LastRequest);
+        Assert.Equal(["--version"], sandbox.LastRequest.Arguments);
+        Assert.Empty(sandbox.LastRequest.Environment);
+        Assert.Equal(ProcessSandboxKind.Container, sandbox.LastRequest.RequiredSandbox);
+        Assert.Equal(ProcessNetworkPolicy.Denied, sandbox.LastRequest.NetworkPolicy);
+        Assert.True(sandbox.LastRequest.RequiredFeatures.HasFlag(ProcessIsolationFeature.NetworkIsolation));
+
+        await using (var probeReplayScope = services.CreateAsyncScope())
+        {
+            var replay = await probeReplayScope.ServiceProvider
+                .GetRequiredService<IToolAvailabilityProbeService>()
+                .ProbeAsync(probeRequest, CancellationToken.None);
+            Assert.True(replay.IsSuccess, replay.Failure?.Message);
+            Assert.True(replay.Value.IsAvailable);
+            Assert.True(replay.Value.IsIdempotentReplay);
+            Assert.Equal(firstProbe.Invocation.Id, replay.Value.Invocation.Id);
+            Assert.Null(replay.Value.ObservedSummary);
+            Assert.Equal(2, sandbox.Calls);
+            Assert.True((await probeReplayScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+        }
+
         var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "tool-invocation.db"));
         Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes("fixture-output")));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes("fixture-tool 1.2.3")));
     }
 
     [Fact]
@@ -1931,6 +2051,39 @@ public sealed class PersistenceFoundationTests : IDisposable
             "1.0.0",
             "sha256:" + new string('a', 64)));
 
+    private ToolDescriptorDefinition CreateAvailabilityProbeDescriptor() => new(
+        "tool:fixture.availability",
+        "1.0.0",
+        "Fixture tool availability",
+        "Checks whether the deterministic fixture tool is available.",
+        "Runs one bounded, isolated, inventory-only version probe.",
+        "tool:availability.probe",
+        CapabilityRiskClass.Inventory,
+        AuthorizationTargetKind.None,
+        null,
+        ToolSideEffectKind.None,
+        ToolOutputSensitivity.LocalMetadata,
+        [],
+        new ToolProcessDefinition(
+            Path.Combine(_directory, "deterministic-tool"),
+            ["--version"],
+            [],
+            [],
+            ProcessSandboxKind.Container,
+            ProcessNetworkPolicy.Denied,
+            ProcessIsolationFeature.DirectExecutable |
+                ProcessIsolationFeature.ArgumentArray |
+                ProcessIsolationFeature.NetworkIsolation,
+            5,
+            4096),
+        new ToolProvenance(
+            ToolCatalogSourceKind.BuiltIn,
+            ToolTrustLevel.BuiltIn,
+            "agentforge.integration-tests",
+            "1.0.0",
+            "sha256:" + new string('a', 64)),
+        ToolOperationKind.AvailabilityProbe);
+
     private sealed class StubEnvironmentProfiler(EnvironmentProfile profile) : IEnvironmentProfiler
     {
         public Task<DomainResult<EnvironmentProfile>> CaptureAsync(
@@ -1956,6 +2109,8 @@ public sealed class PersistenceFoundationTests : IDisposable
 
         public ProcessExecutionRequest? LastRequest { get; private set; }
 
+        public byte[]? NextOutput { get; set; }
+
         public Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
             ProcessExecutionRequest request,
             IProcessOutputObserver? observer,
@@ -1965,9 +2120,11 @@ public sealed class PersistenceFoundationTests : IDisposable
             Calls++;
             LastRequest = request;
             var now = DateTimeOffset.UtcNow;
+            var output = NextOutput ?? Encoding.UTF8.GetBytes("fixture-output");
+            NextOutput = null;
             return Task.FromResult(DomainResult.Success(new ProcessExecutionResult(
                 0,
-                Encoding.UTF8.GetBytes("fixture-output"),
+                output,
                 [],
                 now,
                 now,
