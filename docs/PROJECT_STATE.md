@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Close the live Milestone 2 container/namespace gate when a runtime is available, while
-starting Milestone 3 with provider-neutral contracts and deterministic providers. Keep
-generic process execution and high-risk fallback disabled.
+Implement the generic OpenAI-compatible adapter behind the provider-neutral boundary and
+exercise it against the operator's credential-free `qwen3.6` endpoint. Keep the unavailable
+live container gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -56,17 +56,20 @@ generic process execution and high-risk fallback disabled.
 - M2 slice 4 added an explicit `AvailabilityProbe` catalog operation rather than inferring probes from inventory or arbitrary descriptors. Admission permits only the exact `tool:availability.probe` inventory capability with no target, parameters, side effects, environment, or network; it requires container/network-isolation evidence, a literal version/help argument, a 30-second timeout ceiling, and a 64 KiB output ceiling.
 - `IToolAvailabilityProbeService` traverses the existing descriptor-hash policy, exact approval, durable idempotency, audit, and sandbox boundary. It exposes at most one printable strict-UTF-8 line capped at 512 characters after full-line credential redaction. Invalid encoding and redacted output expose no text; durable replay exposes status only and never reconstructs output.
 - Adversarial catalog and summary tests plus the deterministic container-capable integration fixture prove no execution before approval, exact `--version` arguments, denied networking, empty environment, single execution, redacted raw-output absence from SQLite, and audit integrity. The live container/namespace adapter remains a named gate because Docker is unavailable locally.
+- M3 slice 1 added harness-owned provider-neutral model records for typed messages, artifact-backed image/audio/document references, response formats and JSON schemas, tool definitions/results/call deltas, usage/cost, safe errors, completion reasons, request budgets, correlations, and sequenced streaming events. Domain remains BCL-only and Abstractions owns only the narrow provider/catalog contracts.
+- The new `AgentForge.Models` feature module adds strict request/descriptor normalization, duplicate-key-safe bounded JSON, cross-platform attachment metadata, capability evidence with source/availability/expiry, immutable exact-profile catalog snapshots, and stable SHA-256 input fingerprints that include attachment references rather than dropping media.
+- A deterministic provider snapshots mutable scripts and requests, streams text/tool/structured/usage/failure events in exact order, enforces declared capabilities and request tool/event/token/time bounds, honors cancellation, and never converts a typed error into false completion. Production composition registers an empty provider catalog and exposes no model endpoint.
 
 ## Latest gate
 
-`artifacts/gates/M2-04-20260811.md`: Pass.
+`artifacts/gates/M3-01-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Provider validation is deterministic only. Live provider adapters and model-context redaction remain disabled until Milestone 3.
+- Runtime model contracts and the deterministic provider are implemented, but all external provider adapters, routing, secret materialization, model-context redaction, and public invocation remain disabled until their Milestone 3 gates pass.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
@@ -76,6 +79,7 @@ generic process execution and high-risk fallback disabled.
 
 ## Exact next action
 
-Keep the container/namespace adapter as the remaining live Milestone 2 gate, and begin
-Milestone 3 provider-neutral model contracts plus deterministic providers. Do not expose
-generic process execution or weaken network/isolation requests.
+Continue Milestone 3 with the generic OpenAI-compatible adapter behind the harness-owned
+contracts, then run the credential-free live gate against the operator's loopback/LAN
+`qwen3.6` endpoint. Do not expose public model invocation before context redaction,
+policy/locality routing, budgets, audit, and durable run snapshots are connected.

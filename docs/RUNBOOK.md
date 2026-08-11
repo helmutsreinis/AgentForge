@@ -280,6 +280,26 @@ every referenced provider secret, and re-evaluates capabilities and policy. It c
 add or remove identities. After apply, run doctor and `setup complete`; never edit
 the artifact, snapshot metadata, secret references, or SQLite manually.
 
+## Model runtime diagnostics
+
+The host currently registers an empty exact-profile model-provider catalog and exposes no
+CLI/API model invocation. The `deterministic` runtime adapter exists for automated fixtures
+and in-process composition only. Its scripts are trusted operator/test inputs, not raw
+provider responses; never copy an external error body or credential into a script.
+
+Every request must retain its exact model, correlation, typed messages, tool schemas,
+artifact attachment hashes, and token/tool/event/time limits. Duplicate-key JSON,
+filesystem-shaped attachment names, expired or opposed capability evidence, unlisted tool
+calls, and unsupported media fail typed. A started event's input hash should change when
+any attachment reference or other normalized input changes. Cancellation should terminate
+enumeration, and an error stream must not contain a later completion event.
+
+Do not enable an OpenAI-compatible or hosted adapter merely because setup accepted its
+profile. The adapter must first pass model-context redaction, invocation-scoped secret
+materialization, locality/policy routing, bounded streaming/error translation, usage and
+cost accounting, cancellation, audit, and deterministic regression gates. The operator's
+`qwen3.6` endpoint is reserved for the next credential-free live-integration gate.
+
 ## SQLite migration and cold backup
 
 The host applies checked-in forward migrations before it starts listening. Before a

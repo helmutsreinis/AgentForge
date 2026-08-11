@@ -339,3 +339,31 @@ The deterministic sandbox proves this boundary without claiming live isolation. 
 container/namespace adapter and equipped CI runner remain required before production probe
 descriptors can be composed. Executable replacement between admission and process open is
 also unresolved; immutable images or executable evidence are required for higher-risk use.
+
+## M3 provider-neutral-contract update
+
+Vendor SDK types, raw HTTP responses, and provider-specific finish/error records are not
+trusted application state. The harness boundary accepts bounded typed requests and emits
+only AgentForge event records. Requests are snapshotted before streaming, preventing a
+caller from mutating messages, tools, schemas, attachment references, correlations, or
+budgets after validation. Started evidence carries a SHA-256 over the normalized complete
+input, including media references.
+
+JSON is a parser-confusion boundary. Schemas, tool results, tool-call arguments, and
+structured outputs have fixed character/depth bounds, must parse, and reject duplicate
+property names recursively before normalization. Attachment names reject both slash forms
+on every OS and never act as filesystem paths; bytes remain in the content-addressed
+artifact store. Unsupported image/audio/document capability returns a typed error rather
+than dropping content.
+
+Capability declarations alone are not routing authority. Evidence records its declared,
+probed, observed, overridden, or policy-approved source separately from available,
+unavailable, unknown, or temporarily failing status and optional expiry. The deterministic
+provider fails closed on opposed, future, or expired evidence. Later routing must still
+intersect data locality, current policy, provider health, context, tools, cost, and latency.
+
+Deterministic scripts are trusted test/configuration fixtures, not a parser for external
+provider errors. They are snapshotted, bounded, capability-checked, and terminally ordered;
+a retryable failure never produces false completion. No external adapter, credential
+materialization, model-context redaction, public call surface, or cloud fallback is enabled
+in this slice, so no prompt can yet cross an external model trust boundary.

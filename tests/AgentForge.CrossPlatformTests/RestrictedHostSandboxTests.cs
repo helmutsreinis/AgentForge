@@ -102,7 +102,7 @@ public sealed class RestrictedHostSandboxTests : IDisposable
     {
         var observer = new BlockingObserver();
         var result = await Sandbox.ExecuteAsync(
-            Request("echo-arguments", "observer-output") with { Timeout = TimeSpan.FromSeconds(3) },
+            Request("write-and-wait", "observer-output", "30000") with { Timeout = TimeSpan.FromSeconds(3) },
             observer,
             CancellationToken.None);
 
