@@ -108,10 +108,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Coding backends receive no filesystem path and can only propose immutable patches. The exact-version catalog and read-only language-server contract confer no authority. Harness-owned verification rechecks workspace/authority/plan hashes, stores output hashes, requires denied-network container/filesystem isolation for project execution, and makes publish approval explicit.
 - M6 slice 3 added append-only hash-chained coding sessions with typed plans, content-addressed patch artifacts, before/after receipts, per-command durable verifier checkpoints, failure/recovery evidence, Git exact-diff review reports, idempotency, and redacted audit.
 - The checked faulty Calculator sample is fixed only inside an isolated worktree, actually built and executed, interrupted after the build checkpoint, resumed without repeating build, reviewed against the exact changed path, and completed at version 7. The source checkout stays unchanged and the relational database contains neither objective nor patched source.
+- M7 search added harness-owned normalized research contracts, deterministic/local fixtures, exact Brave and official Google HTTPS adapters, invocation-scoped credential headers, bounded JSON, canonical-URL deduplication, reciprocal-rank fusion, immutable citation evidence, cache identity, and typed quota/throttle/outage handling.
+- A throttled source no longer discards independently cited evidence, while an all-provider outage fails retryably. Production composition has no configured external provider and exposes no search mutation route.
 
 ## Latest gate
 
-`artifacts/gates/M6-03-20260812.md`: Pass. Milestone 6 is complete.
+`artifacts/gates/M7-01-20260812.md`: Pass. Governed research is complete; Milestone 7 continues.
 
 ## Known constraints and risks
 
@@ -129,5 +131,4 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Begin Milestone 7 with independently gated search, memory, messaging, and authenticated loopback
-web-setup slices over the existing policy, audit, artifact, and setup boundaries.
+Continue Milestone 7 with separately scoped, attributable, bounded, and removable memory.

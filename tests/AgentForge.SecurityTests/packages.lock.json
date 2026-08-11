@@ -637,6 +637,7 @@
           "AgentForge.Orchestration": "[1.0.0, )",
           "AgentForge.Persistence": "[1.0.0, )",
           "AgentForge.Runtime": "[1.0.0, )",
+          "AgentForge.Search": "[1.0.0, )",
           "AgentForge.Security": "[1.0.0, )",
           "AgentForge.Setup": "[1.0.0, )",
           "AgentForge.Skills": "[1.0.0, )",
@@ -667,6 +668,13 @@
         }
       },
       "agentforge.runtime": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
+      "agentforge.search": {
         "type": "Project",
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",

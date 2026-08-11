@@ -12,6 +12,7 @@ using AgentForge.Models;
 using AgentForge.Orchestration;
 using AgentForge.Persistence;
 using AgentForge.Runtime;
+using AgentForge.Search;
 using AgentForge.Security;
 using AgentForge.Setup;
 using AgentForge.Skills;
@@ -40,6 +41,7 @@ builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddAgentForgeModels();
 builder.Services.AddAgentForgeOrchestration();
 builder.Services.AddAgentForgeRuntime();
+builder.Services.AddAgentForgeSearch();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddHealthChecks()

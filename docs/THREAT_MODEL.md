@@ -684,3 +684,15 @@ empty/unrelated path set or `diff --check`, and model/backend output cannot decl
 Remaining risks are host compromise, a malicious trusted in-process backend, and insufficient live
 container isolation; external/untrusted backends remain patch-only and must use the later constrained
 out-of-process plugin adapter, while missing container support remains a typed unavailable gate.
+
+## M7 governed-research update
+
+Search providers, query text, remote JSON, URLs, titles, snippets, status codes, and quota evidence are
+untrusted. Requests are identity- and scope-bound, provider selection is explicit, endpoints for Brave
+and official Google search are exact HTTPS origins, redirects/proxies/cookies are disabled, response
+size/depth/result counts are bounded, and credentials exist only in invocation-local headers.
+
+Canonical URL identity removes fragments before deduplication. Citations retain exact source URI,
+provider IDs, bounded excerpts, rank score, and evidence hashes; provider content never changes policy
+or capability. Throttling and outages are typed and allow independent cited evidence to survive, while
+an all-source failure is retryable rather than fabricated. The production catalog remains empty.
