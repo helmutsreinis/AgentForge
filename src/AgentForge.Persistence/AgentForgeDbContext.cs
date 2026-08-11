@@ -52,6 +52,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<CodingSessionSnapshotEntity> CodingSessionSnapshots => Set<CodingSessionSnapshotEntity>();
 
+    internal DbSet<MemoryEntryEntity> MemoryEntries => Set<MemoryEntryEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -563,6 +565,31 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<MemoryEntryEntity>(entity =>
+        {
+            entity.ToTable("memory_entries");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>().WithMany().HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.ScopeId, item.Kind, item.ExpiresAtUtcTicks });
+            entity.Property(item => item.ScopeId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Kind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Content).IsRequired();
+            entity.Property(item => item.ContentHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SourceKind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.SourceId).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.SourceEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SourceUri).HasMaxLength(2048);
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
         });
     }
 }

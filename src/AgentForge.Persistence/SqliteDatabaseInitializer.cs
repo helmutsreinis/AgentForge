@@ -13,6 +13,7 @@ internal sealed class SqliteDatabaseInitializer(AgentForgeDbContext dbContext) :
         {
             await ExecutePragmaAsync("PRAGMA journal_mode=WAL;", cancellationToken);
             await ExecutePragmaAsync("PRAGMA foreign_keys=ON;", cancellationToken);
+            await ExecutePragmaAsync("PRAGMA secure_delete=ON;", cancellationToken);
             await ExecutePragmaAsync("PRAGMA busy_timeout=5000;", cancellationToken);
         }
         finally

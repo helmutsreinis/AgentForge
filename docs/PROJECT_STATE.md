@@ -110,10 +110,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - The checked faulty Calculator sample is fixed only inside an isolated worktree, actually built and executed, interrupted after the build checkpoint, resumed without repeating build, reviewed against the exact changed path, and completed at version 7. The source checkout stays unchanged and the relational database contains neither objective nor patched source.
 - M7 search added harness-owned normalized research contracts, deterministic/local fixtures, exact Brave and official Google HTTPS adapters, invocation-scoped credential headers, bounded JSON, canonical-URL deduplication, reciprocal-rank fusion, immutable citation evidence, cache identity, and typed quota/throttle/outage handling.
 - A throttled source no longer discards independently cited evidence, while an all-provider outage fails retryably. Production composition has no configured external provider and exposes no search mutation route.
+- M7 memory added seven separately sourced kinds: working, task, episodic, semantic, user, environment, and procedural. Every record is exact installation/agent/scope bound, redacted before persistence, content/source hashed, kind/retention bounded, idempotent, expiring, searchable with literal wildcard escaping, and removable only through the same scope tuple.
+- Migration 0019 adds durable memory with installation/agent foreign keys and scoped lookup indexes. SQLite secure deletion is enabled; a restart test proves scope isolation, citation attribution, raw-secret absence, audit integrity, and exact deletion.
 
 ## Latest gate
 
-`artifacts/gates/M7-01-20260812.md`: Pass. Governed research is complete; Milestone 7 continues.
+`artifacts/gates/M7-02-20260812.md`: Pass. Scoped durable memory is complete; Milestone 7 continues.
 
 ## Known constraints and risks
 
@@ -131,4 +133,4 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Continue Milestone 7 with separately scoped, attributable, bounded, and removable memory.
+Continue Milestone 7 with authenticated, replay-protected channels and exact-send approval evidence.

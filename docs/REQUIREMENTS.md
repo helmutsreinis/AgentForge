@@ -68,7 +68,7 @@ passing gate report.
 | ID | Requirement and acceptance criterion | Milestone | Status |
 |---|---|---:|---|
 | AF-SEARCH-001 | Search supports Brave, a configurable official Google path, fakes, normalization, dedupe, rank fusion, extraction, caching, and citations. | 7 | Verified |
-| AF-MEM-001 | Working, task, episodic, semantic, user/environment, and procedural memory are separately scoped, bounded, attributable, and removable. | 7 | Planned |
+| AF-MEM-001 | Working, task, episodic, semantic, user/environment, and procedural memory are separately scoped, bounded, attributable, and removable. | 7 | Verified |
 | AF-CHAN-001 | Telegram and official WhatsApp Business adapters normalize authenticated, replay-protected inbound/outbound events with identity binding and deterministic fakes. | 7 | Planned |
 | AF-DEV-001 | Serial/USB discovery is passive and separates inventory, capture, read, write, command, calibration, firmware, and privileged capabilities. | 8 | Planned |
 | AF-DEV-002 | Captures are bounded immutable evidence with raw bytes, timing, hashes, truncation/drop accounting, and deterministic replay. | 8 | Planned |

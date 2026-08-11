@@ -10,6 +10,7 @@
     <Project Path="src/AgentForge.Domain/AgentForge.Domain.csproj" />
     <Project Path="src/AgentForge.Environment/AgentForge.Environment.csproj" />
     <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />
+    <Project Path="src/AgentForge.Memory/AgentForge.Memory.csproj" />
     <Project Path="src/AgentForge.Models/AgentForge.Models.csproj" />
     <Project Path="src/AgentForge.Orchestration/AgentForge.Orchestration.csproj" />
     <Project Path="src/AgentForge.Persistence/AgentForge.Persistence.csproj" />

@@ -633,6 +633,7 @@
           "AgentForge.Coding": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Environment": "[1.0.0, )",
+          "AgentForge.Memory": "[1.0.0, )",
           "AgentForge.Models": "[1.0.0, )",
           "AgentForge.Orchestration": "[1.0.0, )",
           "AgentForge.Persistence": "[1.0.0, )",
@@ -642,6 +643,13 @@
           "AgentForge.Setup": "[1.0.0, )",
           "AgentForge.Skills": "[1.0.0, )",
           "AgentForge.Tools": "[1.0.0, )"
+        }
+      },
+      "agentforge.memory": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
         }
       },
       "agentforge.models": {

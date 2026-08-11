@@ -696,3 +696,16 @@ Canonical URL identity removes fragments before deduplication. Citations retain 
 provider IDs, bounded excerpts, rank score, and evidence hashes; provider content never changes policy
 or capability. Throttling and outages are typed and allow independent cited evidence to survive, while
 an all-source failure is retryable rather than fabricated. The production catalog remains empty.
+
+## M7 scoped-memory update
+
+Memory text, provenance, source URLs, retrieval text, kind declarations, retention, and scope IDs are
+untrusted. Creation validates exact installation/agent/scope identity, enforces kind-specific source,
+size, and retention constraints, applies structured sensitive-data redaction before repository access,
+and stores content/source hashes with correlation and audit evidence.
+
+Retrieval intersects installation, agent, scope, kind, expiry, literal escaped text, and result bounds.
+Memory is data only and cannot add capabilities, instructions, or policy. Deletion requires the exact
+same installation/agent/scope tuple, removes the row atomically with a hash-only audit event, and SQLite
+secure deletion is enabled. Backup copies created before deletion retain their historical data and must
+remain subject to the R1 encrypted-backup retention and destruction runbook.
