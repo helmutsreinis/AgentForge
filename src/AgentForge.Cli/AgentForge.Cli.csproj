@@ -14,6 +14,7 @@
     <ProjectReference Include="..\AgentForge.Audit\AgentForge.Audit.csproj" />
     <ProjectReference Include="..\AgentForge.Domain\AgentForge.Domain.csproj" />
     <ProjectReference Include="..\AgentForge.Environment\AgentForge.Environment.csproj" />
+    <ProjectReference Include="..\AgentForge.Models\AgentForge.Models.csproj" />
     <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
     <ProjectReference Include="..\AgentForge.Security\AgentForge.Security.csproj" />
     <ProjectReference Include="..\AgentForge.Setup\AgentForge.Setup.csproj" />

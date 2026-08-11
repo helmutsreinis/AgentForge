@@ -398,6 +398,13 @@ link-local, carrier-NAT, multicast, benchmark, unspecified, or documentation ran
 construction also requires the chosen location to equal current policy-approved routing evidence.
 Proxy, redirects, cookies, ambient authentication, and automatic decompression remain disabled.
 
+Named compatible identities (`openai`, `deepseek`, `vllm`, and `openai-compatible`) share this
+transport but remain distinct descriptors and profiles. Shared host/CLI validation materializes the
+exact configured secret only to prove bounded header compatibility, then clears it. Configuration
+evidence authorizes text/streaming only and is explicitly unprobed; tool and image support require
+later capability evidence. OpenAI/DeepSeek require HTTPS, while local/private vLLM or generic
+profiles may explicitly use HTTP and are still rechecked by the socket policy at invocation.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,

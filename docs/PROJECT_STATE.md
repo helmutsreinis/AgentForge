@@ -4,7 +4,7 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Finish the remaining named provider adapters for Milestone 3, then start durable task orchestration,
+Finish the Anthropic Messages adapter and close Milestone 3, then start durable task orchestration,
 delegation, fault recovery, and scheduling in Milestone 4.
 Keep the unavailable live container gate open and all public model/tool invocation disabled.
 
@@ -89,10 +89,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - The SQLite store appends snapshots under loop/sequence and binds concurrent initial mutations through installation/idempotency/sequence uniqueness. A simulated process exit after Observe resumes at Plan in a new scope; completion appends seven self-consistent snapshots, and terminal or conflicting replay performs no execution. Migration 0013 preserves prior authority and fabricates no loop.
 - M3 slice 11 moved provider data-location enforcement into the actual socket connection. Each new production connection verifies the exact configured host/port, resolves once, rejects the complete answer if any address falls outside Loopback, PrivateNetwork, or Cloud policy, and connects directly to an approved address while TLS authenticates the configured hostname.
 - Conservative IPv4/IPv6 classification rejects loopback/private/link-local/carrier-NAT/multicast/benchmark/documentation rebinding shapes for cloud routes and rejects mixed answers for every route class. Hosted construction exact-matches policy-approved routing evidence before secret materialization. The private-LAN `qwen3.6` live gate passes through the policy-bound handler.
+- M3 slice 12A added exact `openai`, `deepseek`, `vllm`, and `openai-compatible` profile identities over the common hardened chat-completions adapter. Provider type remains visible to catalog, started events, routing, and health rather than being collapsed into the generic identity.
+- Host and CLI setup now compose the Models profile validator. Exact secret-store binding, bounded header-safe materialization, HTTPS requirements for cloud OpenAI/DeepSeek, local/private-only plaintext for vLLM/generic profiles, buffer clearing, and unsupported-type denial pass deterministically. Configuration exposes conservative text/streaming evidence only; model-specific tool/media support remains unavailable until probed.
 
 ## Latest gate
 
-`artifacts/gates/M3-11-20260811.md`: Pass.
+`artifacts/gates/M3-12A-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -110,6 +112,6 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Add named OpenAI, Anthropic, DeepSeek, generic-compatible, and vLLM adapter profiles behind the
-existing contracts and destination boundary without opening public invocation. Then create
+Implement the bounded Anthropic Messages request/stream adapter behind the same context, secret,
+destination, event, and catalog contracts. Keep live Anthropic credential-gated. Then create
 Milestone 4 task/DAG/checkpoint/lease state machines and deterministic kill-and-resume orchestration.

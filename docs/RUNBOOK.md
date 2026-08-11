@@ -405,6 +405,12 @@ class, and bounded policy result. Do not log resolved address lists in ordinary 
 to PrivateNetwork to make a request pass, enable an ambient proxy, or retry through a default
 handler. Correct DNS/profile policy, issue fresh health evidence, and retry through normal routing.
 
+Provider type is operational identity: use `openai`, `deepseek`, `vllm`, or `openai-compatible`
+exactly. Do not relabel a failing profile to bypass endpoint rules. A newly configured profile has
+configured-unprobed text/streaming evidence only; run a bounded capability gate before approving
+tools or media. CLI credential input must remain redirected stdin or hidden prompt input, never an
+argument, environment variable, report, or log.
+
 The internal typed loop writes one immutable snapshot and audit event per accepted phase. A worker
 restart must call the same request with the same loop ID, installation/agent version, budget,
 initial-state hash, actor, correlation, and idempotency key. It resumes from the latest durable

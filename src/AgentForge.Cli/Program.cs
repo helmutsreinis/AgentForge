@@ -15,6 +15,7 @@ using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Environment;
+using AgentForge.Models;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
@@ -198,6 +199,7 @@ static async Task<int> BeginSetupAsync(string[] arguments)
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
+    services.AddAgentForgeModels();
 
     await using var provider = services.BuildServiceProvider(validateScopes: true);
     await using var scope = provider.CreateAsyncScope();
@@ -479,6 +481,7 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
+    services.AddAgentForgeModels();
 
     await using var provider = services.BuildServiceProvider(validateScopes: true);
     await using var scope = provider.CreateAsyncScope();
@@ -695,6 +698,7 @@ static async Task<int> CompleteSetupAsync(string[] arguments)
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
+    services.AddAgentForgeModels();
 
     await using var provider = services.BuildServiceProvider(validateScopes: true);
     await using var scope = provider.CreateAsyncScope();
@@ -1252,6 +1256,7 @@ static ServiceProvider BuildSetupProvider(string dataDirectory)
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
+    services.AddAgentForgeModels();
     services.AddAgentForgeEnvironment(configuration);
     return services.BuildServiceProvider(validateScopes: true);
 }
