@@ -31,6 +31,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ModelBudgetLedgerEntity> ModelBudgetLedgers => Set<ModelBudgetLedgerEntity>();
 
+    internal DbSet<ModelProviderHealthEntity> ModelProviderHealth => Set<ModelProviderHealthEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -330,6 +332,36 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
                 .HasForeignKey(item => item.AgentId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(item => new { item.InstallationId, item.AgentId }).IsUnique();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ModelProviderHealthEntity>(entity =>
+        {
+            entity.ToTable("model_provider_health");
+            entity.HasKey(item => item.ProfileId);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ModelRunEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.LastRunId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ModelRunAttemptEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.LastAttemptId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.Status).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Source).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.EvidenceCode).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
             entity.Property(item => item.Version).IsConcurrencyToken();
         });
     }

@@ -73,6 +73,21 @@ public sealed class PersistenceFoundationTests : IDisposable
     }
 
     [Fact]
+    public async Task Default_provider_health_source_is_the_scoped_durable_repository()
+    {
+        await InitializeAsync();
+        await using var scope = _services.CreateAsyncScope();
+
+        var repository = scope.ServiceProvider.GetRequiredService<IModelProviderHealthRepository>();
+        var source = scope.ServiceProvider.GetRequiredService<IModelProviderHealthSource>();
+        var evidence = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Same(repository, source);
+        Assert.True(evidence.IsSuccess, evidence.Failure?.Message);
+        Assert.Empty(evidence.Value);
+    }
+
+    [Fact]
     public async Task Installation_and_hash_chained_audit_survive_new_scopes()
     {
         await InitializeAsync();
@@ -2019,6 +2034,8 @@ public sealed class PersistenceFoundationTests : IDisposable
         Assert.Equal(ModelRunStreamEvidence.Empty, upgraded.Attempt.StreamEvidence);
         Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
             .FindAsync(agentId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelProviderHealthRepository>()
+            .FindAsync(providerId, CancellationToken.None));
     }
 
     [Fact]

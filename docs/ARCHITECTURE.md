@@ -283,9 +283,9 @@ result contains no endpoint, secret, or request content. It pins prepared input,
 installation/agent/provider versions, route/health evidence, and expires after at most five
 seconds. It is diagnostic planning evidence, not permission to call a provider.
 
-Production provider and health catalogs are both empty. The admission boundary below now
-persists run/attempt reservation and audit, while exact adapter resolution and provider start
-remain disabled. No public model route exists.
+The production provider catalog is empty. Provider health uses a scoped durable source that starts
+empty and receives only bounded observed execution evidence. The admission boundary below persists
+run/attempt reservation and audit, while no public model route exists.
 
 ## Durable model run admission
 
@@ -329,10 +329,17 @@ retryable failure, overages become `BudgetExceeded`, and caller cancellation bec
 `Canceled` evidence before cancellation propagates. Optimistic ledger/run versions make a race
 fail atomically rather than partially starting or releasing work.
 
-This slice executes only when an embedding application deliberately populates the provider and
-health catalogs. Production composition leaves both empty and has no API/CLI model mutation.
-Expired-lease recovery, heartbeat/takeover, health writes, additional attempts/failover,
-cross-attempt cost accounting, and destination/DNS revalidation remain later boundaries.
+This slice executes only when an embedding application deliberately populates the provider catalog.
+Production composition has no API/CLI model mutation.
+
+`IModelRunRecoveryService` advances heartbeats only for the exact lease owner/token, never extends
+expiry, and writes only the run version. At or after exact expiry it can atomically mark a stranded
+attempt as retryable failure, release its ledger reservation, append recovery audit, and record a
+bounded observed provider-health failure. Normal success records healthy evidence; retryable
+external failure records temporary unavailability; cancellation and non-provider failures write no
+health judgment. One versioned `model_provider_health` row per profile is the default scoped route-
+planning source. Background lease scanning, takeover, additional attempts/failover, cross-attempt
+cost accounting, and destination/DNS revalidation remain later boundaries.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence

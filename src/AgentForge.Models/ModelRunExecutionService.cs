@@ -14,6 +14,7 @@ namespace AgentForge.Models;
 internal sealed class ModelRunExecutionService(
     IModelRunRepository runs,
     IModelBudgetLedgerRepository ledgers,
+    IModelProviderHealthRepository health,
     IModelRoutePlanner routePlanner,
     IModelRouteAuthoritySnapshotReader authorityReader,
     IModelProviderCatalog catalog,
@@ -357,6 +358,37 @@ internal sealed class ModelRunExecutionService(
             return DomainResult.Fail<ModelRunAggregate>(reconciled.Failure!);
         }
 
+        ModelProviderHealthMutation? healthMutation = null;
+        var healthOutcome = terminal.Run.State is ModelRunState.Succeeded
+            ? ModelProviderHealthObservationOutcome.Succeeded
+            : terminal.Attempt.IsRetryable &&
+                terminal.Run.FailureCode is FailureCode.RecoverableExternalFailure
+                ? ModelProviderHealthObservationOutcome.RetryableFailure
+                : (ModelProviderHealthObservationOutcome?)null;
+        if (healthOutcome is { } observedOutcome)
+        {
+            var currentHealth = await health.FindAsync(terminal.Run.Route.ProfileId, cancellationToken);
+            var observedAt = AtLeast(clock.UtcNow, terminal.Run.CompletedAt!.Value);
+            var observed = ModelProviderHealthStateMachine.Observe(
+                currentHealth,
+                new ModelProviderHealthObservation(
+                    terminal.Run.InstallationId,
+                    terminal.Run.Route.ProfileId,
+                    terminal.Run.Id,
+                    terminal.Attempt.Id,
+                    observedOutcome,
+                    terminal.Run.ActorId,
+                    terminal.Run.CorrelationId,
+                    terminal.Run.CausationId,
+                    observedAt));
+            if (!observed.IsSuccess)
+            {
+                return DomainResult.Fail<ModelRunAggregate>(observed.Failure!);
+            }
+
+            healthMutation = observed.Value;
+        }
+
         await runs.UpdateAsync(
             terminal,
             terminal.Run.Version - 1,
@@ -366,7 +398,25 @@ internal sealed class ModelRunExecutionService(
             reconciled.Value.Ledger,
             reconciled.Value.ExpectedVersion!.Value,
             cancellationToken);
-        await RecordTerminalAsync(terminal, reconciled.Value.Ledger, outcome, errorClassification, cancellationToken);
+        if (healthMutation is { } mutation)
+        {
+            if (mutation.IsNew)
+            {
+                await health.AddAsync(mutation.Record, cancellationToken);
+            }
+            else
+            {
+                await health.UpdateAsync(mutation.Record, mutation.ExpectedVersion!.Value, cancellationToken);
+            }
+        }
+
+        await RecordTerminalAsync(
+            terminal,
+            reconciled.Value.Ledger,
+            healthMutation?.Record,
+            outcome,
+            errorClassification,
+            cancellationToken);
         var commit = await unitOfWork.CommitAsync(cancellationToken);
         return commit.Succeeded
             ? DomainResult.Success(terminal)
@@ -417,6 +467,7 @@ internal sealed class ModelRunExecutionService(
     private async Task RecordTerminalAsync(
         ModelRunAggregate aggregate,
         ModelBudgetLedgerRecord ledger,
+        ModelProviderHealthRecord? healthRecord,
         AuditOutcome outcome,
         string? errorClassification,
         CancellationToken cancellationToken)
@@ -453,6 +504,9 @@ internal sealed class ModelRunExecutionService(
                 LedgerVersion = ledger.Version,
                 ledger.ActiveRuns,
                 ledger.Consumption.CompletedRuns,
+                HealthStatus = healthRecord?.Evidence.Status.ToString(),
+                HealthEvidenceCode = healthRecord?.Evidence.EvidenceCode,
+                HealthVersion = healthRecord?.Version,
             },
             errorClassification), cancellationToken);
     }

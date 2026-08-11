@@ -353,6 +353,19 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             Assert.Equal(60, ledger.Consumption.OutputTokens);
             Assert.Equal(4, ledger.Consumption.Events);
 
+            var healthRepository = verificationScope.ServiceProvider
+                .GetRequiredService<IModelProviderHealthRepository>();
+            var health = await healthRepository.FindAsync(ProviderId, CancellationToken.None);
+            Assert.NotNull(health);
+            Assert.Equal(ModelProviderHealthStatus.Healthy, health.Evidence.Status);
+            Assert.Equal(ModelHealthEvidenceSource.Observed, health.Evidence.Source);
+            Assert.Equal("attempt-succeeded", health.Evidence.EvidenceCode);
+            Assert.Equal(executed.Aggregate.Run.Id, health.LastRunId);
+            var durableEvidence = await ((IModelProviderHealthSource)healthRepository).ReadAsync(
+                CancellationToken.None);
+            Assert.True(durableEvidence.IsSuccess, durableEvidence.Failure?.Message);
+            Assert.Equal(ModelProviderHealthStatus.Healthy, Assert.Single(durableEvidence.Value).Status);
+
             var audit = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
                 .ReadAsync(InstallationId, 0, 10, CancellationToken.None);
             Assert.Equal(
@@ -410,6 +423,14 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Assert.NotNull(ledger);
         Assert.Equal(0, ledger.ActiveRuns);
         Assert.Equal(1, ledger.Consumption.CompletedRuns);
+        var health = await verificationScope.ServiceProvider
+            .GetRequiredService<IModelProviderHealthRepository>()
+            .FindAsync(ProviderId, CancellationToken.None);
+        Assert.NotNull(health);
+        Assert.Equal(ModelProviderHealthStatus.TemporarilyUnavailable, health.Evidence.Status);
+        Assert.Equal("attempt-retryable-failure", health.Evidence.EvidenceCode);
+        Assert.Equal(1, health.Evidence.ConsecutiveFailures);
+        Assert.NotNull(health.Evidence.RetryAfter);
     }
 
     [Fact]
@@ -446,6 +467,134 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             .FindAsync(AgentId, CancellationToken.None);
         Assert.NotNull(ledger);
         Assert.Equal(0, ledger.ActiveRuns);
+        Assert.Null(await verificationScope.ServiceProvider
+            .GetRequiredService<IModelProviderHealthRepository>()
+            .FindAsync(ProviderId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Heartbeat_persists_only_the_hash_bound_monotonic_lease_evidence()
+    {
+        await SeedAsync();
+        var admission = Admission("heartbeat fixture", "execution-heartbeat");
+        ModelRunAggregate started;
+        const string leaseToken = "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH";
+        await using (var startScope = Services.CreateAsyncScope())
+        {
+            var admitted = (await startScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value.Aggregate;
+            started = ModelRunStateMachine.Start(
+                admitted,
+                "integration-worker",
+                leaseToken,
+                admitted.Run.CreatedAt,
+                admitted.Run.CreatedAt.AddSeconds(45)).Value;
+            await startScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .UpdateAsync(started, 0, 0, CancellationToken.None);
+            Assert.True((await startScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await using (var heartbeatScope = Services.CreateAsyncScope())
+        {
+            var heartbeat = await heartbeatScope.ServiceProvider.GetRequiredService<IModelRunRecoveryService>()
+                .HeartbeatAsync(new ModelRunHeartbeatRequest(
+                    started.Run.Id,
+                    1,
+                    1,
+                    "integration-worker",
+                    leaseToken,
+                    new CorrelationId("heartbeat-test")), CancellationToken.None);
+
+            Assert.True(heartbeat.IsSuccess, heartbeat.Failure?.Message);
+            Assert.True(heartbeat.Value.Aggregate.Run.Lease!.HeartbeatAt > started.Run.Lease!.HeartbeatAt);
+            Assert.Equal(started.Run.Lease.ExpiresAt, heartbeat.Value.Aggregate.Run.Lease.ExpiresAt);
+            Assert.Equal(2, heartbeat.Value.Aggregate.Run.Version);
+            Assert.Equal(1, heartbeat.Value.Aggregate.Attempt.Version);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.ASCII.GetBytes(leaseToken)));
+    }
+
+    [Fact]
+    public async Task Expired_lease_recovery_atomically_releases_budget_and_records_provider_health()
+    {
+        await SeedAsync();
+        var admission = Admission("expired lease fixture", "execution-expired");
+        ModelRunAggregate started;
+        const string leaseToken = "RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR";
+        await using (var startScope = Services.CreateAsyncScope())
+        {
+            var admitted = (await startScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value.Aggregate;
+            var reserved = ModelBudgetLedgerStateMachine.Reserve(
+                null,
+                admitted.Run,
+                new AgentBudget(8, 4, 4_096, 1_024, 60),
+                admitted.Run.CreatedAt);
+            Assert.True(reserved.IsSuccess, reserved.Failure?.Message);
+            started = ModelRunStateMachine.Start(
+                admitted,
+                "crashed-worker",
+                leaseToken,
+                admitted.Run.CreatedAt,
+                admitted.Run.CreatedAt.AddTicks(1)).Value;
+            await startScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .UpdateAsync(started, 0, 0, CancellationToken.None);
+            await startScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+                .AddAsync(reserved.Value.Ledger, CancellationToken.None);
+            Assert.True((await startScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        ModelRunRecoveryResult recovered;
+        await using (var recoveryScope = Services.CreateAsyncScope())
+        {
+            var result = await recoveryScope.ServiceProvider.GetRequiredService<IModelRunRecoveryService>()
+                .RecoverExpiredAsync(new ModelRunRecoveryRequest(
+                    started.Run.Id,
+                    1,
+                    1,
+                    new ActorId("recovery-worker"),
+                    new CorrelationId("expired-recovery")), CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            recovered = result.Value;
+        }
+
+        Assert.Equal(ModelRunState.Failed, recovered.Aggregate.Run.State);
+        Assert.True(recovered.Aggregate.Attempt.IsRetryable);
+        Assert.Equal(started.Run.Lease!.ExpiresAt, recovered.Aggregate.Run.CompletedAt);
+        Assert.Equal("lease-expired", recovered.Health.Evidence.EvidenceCode);
+        Assert.Equal(ModelProviderHealthStatus.TemporarilyUnavailable, recovered.Health.Evidence.Status);
+
+        await using (var verificationScope = Services.CreateAsyncScope())
+        {
+            var duplicate = await verificationScope.ServiceProvider.GetRequiredService<IModelRunRecoveryService>()
+                .RecoverExpiredAsync(new ModelRunRecoveryRequest(
+                    started.Run.Id,
+                    1,
+                    1,
+                    new ActorId("recovery-worker"),
+                    new CorrelationId("expired-recovery")), CancellationToken.None);
+            Assert.Equal(FailureCode.ConcurrencyConflict, duplicate.Failure?.Code);
+            var ledger = await verificationScope.ServiceProvider
+                .GetRequiredService<IModelBudgetLedgerRepository>()
+                .FindAsync(AgentId, CancellationToken.None);
+            Assert.NotNull(ledger);
+            Assert.Equal(0, ledger.ActiveRuns);
+            Assert.Equal(1, ledger.Consumption.CompletedRuns);
+            var audit = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(InstallationId, 0, 10, CancellationToken.None);
+            Assert.Equal(
+                ["model.run-reserved", "model.run-lease-expired"],
+                audit.Select(item => item.OperationType));
+            Assert.True((await verificationScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.ASCII.GetBytes(leaseToken)));
     }
 
     [Fact]
