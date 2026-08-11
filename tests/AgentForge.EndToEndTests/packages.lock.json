@@ -605,6 +605,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.channels": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.coding": {
         "type": "Project",
         "dependencies": {
@@ -630,6 +637,7 @@
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",
           "AgentForge.Audit": "[1.0.0, )",
+          "AgentForge.Channels": "[1.0.0, )",
           "AgentForge.Coding": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Environment": "[1.0.0, )",

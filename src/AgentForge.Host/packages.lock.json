@@ -180,6 +180,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.channels": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.coding": {
         "type": "Project",
         "dependencies": {

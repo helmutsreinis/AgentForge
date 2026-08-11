@@ -709,3 +709,22 @@ Memory is data only and cannot add capabilities, instructions, or policy. Deleti
 same installation/agent/scope tuple, removes the row atomically with a hash-only audit event, and SQLite
 secure deletion is enabled. Backup copies created before deletion retain their historical data and must
 remain subject to the R1 encrypted-backup retention and destruction runbook.
+
+## M7 governed-channel update
+
+Webhook headers/bodies, provider IDs, sender/recipient IDs, timestamps, text, attachment metadata,
+transport status, and remote JSON are untrusted. The selected exact account adapter authenticates raw
+bytes before parsing: Telegram uses a fixed-time webhook secret-token check and WhatsApp uses the exact
+HMAC-SHA256 body signature. Sender identity must resolve through a durable installation/agent binding.
+
+Inbound records bound body/header/result sizes, time skew, attachments, hashes, and order keys. Every
+attachment passes a separate scanner; the production default rejects. A duplicate provider identity is
+idempotent only for the same normalized hash and conflicting replay fails. Outbound sends build a canonical
+recipient/body/account request, consume the existing exact external-mutation approval before transport,
+and enforce quiet hours, hourly rate, and attempt limits. Definite throttling may retry; timeouts, transport
+errors, server uncertainty, and malformed success evidence dead-letter without automatic replay.
+
+Official adapters accept text only at this gate; media payloads fail instead of being silently discarded.
+Credentials are invocation-scoped. Telegram's protocol requires its token in the request path, so the
+adapter uses a private direct `HttpClient`, emits no URI/error body evidence, and never registers live
+accounts by default. Remote-mode webhook exposure remains disabled until Milestone 10 hardening.

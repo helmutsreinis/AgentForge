@@ -112,10 +112,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - A throttled source no longer discards independently cited evidence, while an all-provider outage fails retryably. Production composition has no configured external provider and exposes no search mutation route.
 - M7 memory added seven separately sourced kinds: working, task, episodic, semantic, user, environment, and procedural. Every record is exact installation/agent/scope bound, redacted before persistence, content/source hashed, kind/retention bounded, idempotent, expiring, searchable with literal wildcard escaping, and removable only through the same scope tuple.
 - Migration 0019 adds durable memory with installation/agent foreign keys and scoped lookup indexes. SQLite secure deletion is enabled; a restart test proves scope isolation, citation attribution, raw-secret absence, audit integrity, and exact deletion.
+- M7 channels added authenticated Telegram and WhatsApp webhook adapters, deterministic equivalents, exact external-sender bindings, bounded normalized inbox records, attachment scanning, replay/content conflict detection, deterministic ordering, and durable SQLite inbox evidence.
+- Outbound sends bind recipient/body/account/channel to the existing exact capability-approval boundary, consume the approval before transport, enforce quiet hours and hourly limits, retry only definite non-delivery, and dead-letter uncertain outcomes. Official text sends materialize credentials for one invocation; unsupported media fails rather than being omitted. Migration 0020 persists bindings, inbox, delivery state, retries, and dead letters.
 
 ## Latest gate
 
-`artifacts/gates/M7-02-20260812.md`: Pass. Scoped durable memory is complete; Milestone 7 continues.
+`artifacts/gates/M7-03-20260812.md`: Pass. Governed messaging is complete; Milestone 7 continues.
 
 ## Known constraints and risks
 
@@ -133,4 +135,4 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Continue Milestone 7 with authenticated, replay-protected channels and exact-send approval evidence.
+Complete Milestone 7 with the nonce/session/CSRF-protected loopback web setup wizard over shared setup services.
