@@ -300,14 +300,22 @@ calls, and unsupported media fail typed. A started event's input hash should cha
 any attachment reference or other normalized input changes. Cancellation should terminate
 enumeration, and an error stream must not contain a later completion event.
 
-The credential-free OpenAI-compatible adapter has passed deterministic translation and the
-operator-authorized `qwen3.6` LAN live gate. It requires HTTPS by default; plaintext HTTP is
+The credential-free OpenAI-compatible live adapter has passed deterministic translation and
+the operator-authorized `qwen3.6` LAN gate. It requires HTTPS by default; plaintext HTTP is
 an explicit per-composition opt-in. It rejects endpoint credentials/query/fragment,
 redirects, caller-owned HTTP clients/headers, cookies/proxies, and media capability claims.
-Do not attach a credential or expose it through the host/CLI. A live diagnostic must use a
+Every external call now requires the registered `agentforge-context-redaction-v1` preparation
+policy; do not substitute a pass-through preparer. A live diagnostic must use a
 fixed non-secret prompt, exact endpoint/model, bounded tokens/events/time, and
 `DisableThinking`; record only typed results and hashes, never raw model context or remote
 error bodies.
+
+Hosted compatible construction exists for deterministic security verification but remains
+unregistered. It requires an exact persisted HTTPS profile and store/reference; it accepts
+no raw credential or header dictionary. Credential materialization and bearer-header lifetime
+are internal to one send. Do not call this factory from the host/CLI until routing re-reads the
+current profile and enforces locality/policy/destination controls, audit, budgets, and durable
+snapshots.
 
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
@@ -321,8 +329,7 @@ dotnet test tests/AgentForge.IntegrationTests --filter FullyQualifiedName~OpenAi
 The test is skipped when either variable is absent. These variables are endpoint/model
 metadata only; this credential-free gate accepts no API key or authorization header.
 
-Before runtime enablement, add model-context redaction, invocation-scoped secret
-materialization, network/locality policy and DNS/IP controls, routing/failover, audit,
+Before runtime enablement, add network/locality policy and DNS/IP controls, routing/failover, audit,
 durable snapshots, and cross-attempt usage/cost accounting. Setup profile acceptance alone
 does not compose an adapter.
 

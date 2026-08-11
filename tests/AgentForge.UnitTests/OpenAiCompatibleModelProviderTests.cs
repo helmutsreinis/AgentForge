@@ -2,11 +2,17 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Models;
+using AgentForge.Security;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentForge.UnitTests;
 
@@ -22,16 +28,19 @@ public sealed class OpenAiCompatibleModelProviderTests
         var insecure = OpenAiCompatibleModelProvider.Create(
             Descriptor(),
             new OpenAiCompatibleModelProviderOptions(new Uri("http://192.0.2.10:8000/v1/chat/completions")),
+            ContextPreparer(),
             new FixedClock());
         var explicitInsecure = OpenAiCompatibleModelProvider.Create(
             Descriptor(),
             new OpenAiCompatibleModelProviderOptions(
                 new Uri("http://192.0.2.10:8000/v1/chat/completions"),
                 AllowInsecureHttp: true),
+            ContextPreparer(),
             new FixedClock());
         var multimodal = OpenAiCompatibleModelProvider.Create(
             Descriptor(ModelCapability.ImageInput),
             new OpenAiCompatibleModelProviderOptions(HttpsEndpoint),
+            ContextPreparer(),
             new FixedClock());
 
         Assert.False(insecure.IsSuccess);
@@ -329,6 +338,171 @@ public sealed class OpenAiCompatibleModelProviderTests
             Assert.IsType<ModelErrorEvent>(jsonEvents[^1]).Error.Code);
     }
 
+    [Fact]
+    public async Task Context_is_redacted_before_request_serialization_and_records_evidence()
+    {
+        const string shapedSecret = "Bearer abcdefghijklmnopqrstuvwxyz";
+        string? requestJson = null;
+        using var handler = Handler(async (request, cancellationToken) =>
+        {
+            requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return Sse(request,
+                Event("{\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}"),
+                Done());
+        });
+        using var provider = CreateProvider(handler, Descriptor());
+        var original = Request() with
+        {
+            Messages =
+            [
+                new ModelMessage(ModelMessageRole.User, [new ModelTextContent(shapedSecret)]),
+            ],
+        };
+
+        var events = await CollectAsync(provider.StreamAsync(original, CancellationToken.None));
+
+        var started = Assert.IsType<ModelStartedEvent>(events[0]);
+        Assert.Equal(1, started.ContextRedactionCount);
+        Assert.Equal(ModelContextPreparer.PolicyName, started.ContextPreparationPolicy);
+        Assert.DoesNotContain(shapedSecret, requestJson, StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", requestJson, StringComparison.Ordinal);
+        Assert.Equal(shapedSecret, Assert.IsType<ModelTextContent>(original.Messages[0].Content[0]).Text);
+        Assert.IsType<ModelCompletedEvent>(events[^1]);
+    }
+
+    [Fact]
+    public async Task Hosted_profile_materializes_exact_bearer_only_for_send_and_clears_the_lease()
+    {
+        const string credential = "hosted-credential-unit-value";
+        var store = new TrackingSecretStore(credential);
+        string? observedScheme = null;
+        string? observedCredential = null;
+        string? requestJson = null;
+        HttpRequestMessage? capturedRequest = null;
+        using var handler = Handler(async (request, cancellationToken) =>
+        {
+            capturedRequest = request;
+            observedScheme = request.Headers.Authorization?.Scheme;
+            observedCredential = request.Headers.Authorization?.Parameter;
+            requestJson = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return Sse(request,
+                Event("{\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}"),
+                Done());
+        });
+        using var provider = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(store),
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(HttpsEndpoint, DisableThinking: true),
+            handler,
+            ContextPreparer(),
+            store,
+            new FixedClock()).Value;
+
+        var events = await CollectAsync(provider.StreamAsync(Request(), CancellationToken.None));
+
+        Assert.Equal("Bearer", observedScheme);
+        Assert.Equal(credential, observedCredential);
+        Assert.DoesNotContain(credential, requestJson, StringComparison.Ordinal);
+        Assert.Equal(1, store.MaterializeCalls);
+        Assert.NotNull(store.LastLeaseBuffer);
+        Assert.All(store.LastLeaseBuffer!, character => Assert.Equal('\0', character));
+        Assert.Null(capturedRequest!.Headers.Authorization);
+        Assert.IsType<ModelCompletedEvent>(events[^1]);
+    }
+
+    [Fact]
+    public async Task Hosted_profile_mismatch_or_missing_secret_fails_before_transport_without_leakage()
+    {
+        var mismatchedStore = new TrackingSecretStore("not-materialized-value");
+        using var mismatchHandler = Handler((_, _) => throw new InvalidOperationException("Transport must not run."));
+        var mismatch = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(mismatchedStore) with { Endpoint = new Uri("https://other.example.test/v1/chat/completions") },
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(HttpsEndpoint),
+            mismatchHandler,
+            ContextPreparer(),
+            mismatchedStore,
+            new FixedClock());
+
+        Assert.False(mismatch.IsSuccess);
+        Assert.Equal(0, mismatchedStore.MaterializeCalls);
+
+        using var capabilityHandler = Handler((_, _) => throw new InvalidOperationException("Transport must not run."));
+        var capabilityMismatch = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(mismatchedStore) with
+            {
+                Capabilities = HostedProfile(mismatchedStore).Capabilities with { ToolCalls = true },
+            },
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(HttpsEndpoint),
+            capabilityHandler,
+            ContextPreparer(),
+            mismatchedStore,
+            new FixedClock());
+
+        Assert.False(capabilityMismatch.IsSuccess);
+        Assert.Equal(0, mismatchedStore.MaterializeCalls);
+
+        var unavailableStore = new TrackingSecretStore("unavailable-secret") { FailMaterialization = true };
+        var transportCalls = 0;
+        using var unavailableHandler = Handler((request, _) =>
+        {
+            transportCalls++;
+            return Task.FromResult(Sse(request, Done()));
+        });
+        using var unavailable = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(unavailableStore),
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(HttpsEndpoint),
+            unavailableHandler,
+            ContextPreparer(),
+            unavailableStore,
+            new FixedClock()).Value;
+
+        var events = await CollectAsync(unavailable.StreamAsync(Request(), CancellationToken.None));
+
+        Assert.Equal(0, transportCalls);
+        Assert.Collection(
+            events,
+            item => Assert.IsType<ModelStartedEvent>(item),
+            item => Assert.Equal(
+                ModelProviderErrorCode.AuthenticationFailed,
+                Assert.IsType<ModelErrorEvent>(item).Error.Code));
+        Assert.DoesNotContain(
+            "unavailable-secret",
+            Assert.IsType<ModelErrorEvent>(events[^1]).Error.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Hosted_credential_rejects_header_injection_and_clears_the_failed_lease()
+    {
+        var store = new TrackingSecretStore("token-value\r\nX-Injected: true");
+        var transportCalls = 0;
+        using var handler = Handler((request, _) =>
+        {
+            transportCalls++;
+            return Task.FromResult(Sse(request, Done()));
+        });
+        using var provider = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(store),
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(HttpsEndpoint),
+            handler,
+            ContextPreparer(),
+            store,
+            new FixedClock()).Value;
+
+        var events = await CollectAsync(provider.StreamAsync(Request(), CancellationToken.None));
+
+        Assert.Equal(0, transportCalls);
+        Assert.Equal(
+            ModelProviderErrorCode.AuthenticationFailed,
+            Assert.IsType<ModelErrorEvent>(events[^1]).Error.Code);
+        Assert.NotNull(store.LastLeaseBuffer);
+        Assert.All(store.LastLeaseBuffer!, character => Assert.Equal('\0', character));
+    }
+
     private static OpenAiCompatibleModelProvider CreateProvider(
         HttpMessageHandler handler,
         ModelProviderDescriptor descriptor,
@@ -339,7 +513,37 @@ public sealed class OpenAiCompatibleModelProviderTests
                 HttpsEndpoint,
                 DisableThinking: true),
             handler,
+            ContextPreparer(),
             new FixedClock()).Value;
+
+    private static IModelContextPreparer ContextPreparer()
+    {
+        var services = new ServiceCollection();
+        services.AddAgentForgeSecurity(new ConfigurationBuilder().Build());
+        services.AddAgentForgeModels();
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        return provider.GetRequiredService<IModelContextPreparer>();
+    }
+
+    private static ProviderProfile HostedProfile(ISecretStore store) => new(
+        ProfileId,
+        new InstallationId(Guid.Parse("43488023-9d94-4dc7-ab72-bd6a18f30aad")),
+        "hosted-unit",
+        "openai-compatible",
+        HttpsEndpoint,
+        "qwen3.6",
+        new SecretReference(store.StoreName, "hosted-unit-reference"),
+        new ProviderCapabilitySummary(
+            TextGeneration: true,
+            Streaming: true,
+            ToolCalls: false,
+            Images: false,
+            EvidenceSource: "hosted-unit-evidence"),
+        1,
+        Now.AddHours(-1),
+        Now.AddMinutes(-5),
+        new ActorId("hosted-unit-operator"),
+        new CorrelationId("hosted-unit-profile"));
 
     private static ModelProviderDescriptor Descriptor(params ModelCapability[] optionalCapabilities)
     {
@@ -411,5 +615,45 @@ public sealed class OpenAiCompatibleModelProviderTests
     private sealed class FixedClock : IClock
     {
         public DateTimeOffset UtcNow => Now;
+    }
+
+    private sealed class TrackingSecretStore(string value) : ISecretStore
+    {
+        public string StoreName => "tracking-unit-store";
+
+        public int MaterializeCalls { get; private set; }
+
+        public char[]? LastLeaseBuffer { get; private set; }
+
+        public bool FailMaterialization { get; init; }
+
+        public SecretStoreCapability GetCapability() => new(StoreName, true, null);
+
+        public Task<DomainResult<SecretReference>> StoreAsync(
+            string logicalName,
+            ReadOnlyMemory<char> secret,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<DomainResult<SecretLease>> MaterializeAsync(
+            SecretReference secretReference,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            MaterializeCalls++;
+            if (FailMaterialization)
+            {
+                return Task.FromResult(DomainResult.Fail<SecretLease>(new DomainFailure(
+                    FailureCode.RecoverableExternalFailure,
+                    "Secret fixture unavailable.",
+                    true)));
+            }
+
+            LastLeaseBuffer = value.ToCharArray();
+            return Task.FromResult(DomainResult.Success(new SecretLease(LastLeaseBuffer)));
+        }
+
+        public Task<DomainResult<bool>> DeleteAsync(
+            SecretReference secretReference,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

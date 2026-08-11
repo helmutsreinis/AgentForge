@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\AgentForge.Models\AgentForge.Models.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Security\AgentForge.Security.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Host\AgentForge.Host.csproj" />
   </ItemGroup>
