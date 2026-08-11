@@ -7,13 +7,16 @@
     <Project Path="src/AgentForge.Audit/AgentForge.Audit.csproj" />
     <Project Path="src/AgentForge.Cli/AgentForge.Cli.csproj" />
     <Project Path="src/AgentForge.Coding/AgentForge.Coding.csproj" />
+    <Project Path="src/AgentForge.Channels/AgentForge.Channels.csproj" />
     <Project Path="src/AgentForge.Domain/AgentForge.Domain.csproj" />
     <Project Path="src/AgentForge.Environment/AgentForge.Environment.csproj" />
     <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />
+    <Project Path="src/AgentForge.Memory/AgentForge.Memory.csproj" />
     <Project Path="src/AgentForge.Models/AgentForge.Models.csproj" />
     <Project Path="src/AgentForge.Orchestration/AgentForge.Orchestration.csproj" />
     <Project Path="src/AgentForge.Persistence/AgentForge.Persistence.csproj" />
     <Project Path="src/AgentForge.Runtime/AgentForge.Runtime.csproj" />
+    <Project Path="src/AgentForge.Search/AgentForge.Search.csproj" />
     <Project Path="src/AgentForge.Security/AgentForge.Security.csproj" />
     <Project Path="src/AgentForge.Skills/AgentForge.Skills.csproj" />
     <Project Path="src/AgentForge.Setup/AgentForge.Setup.csproj" />

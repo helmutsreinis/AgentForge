@@ -136,20 +136,29 @@
           <span class="section-number">01</span>
           <div>
             <span class="eyebrow">FIRST RUN</span>
-            <h2 id="setup-title">Complete setup in the trusted CLI</h2>
-            <p>The web surface is read-only in this preview. Use the shared setup service through the CLI to create the installation, then refresh this page.</p>
+            <h2 id="setup-title">Secure first-run setup</h2>
+            <p>The loopback wizard uses the same setup service and validation as the CLI. Its one-time nonce, session cookie, CSRF token, and idempotency keys expire when setup completes.</p>
           </div>
         </div>
-        <div class="command-card">
-          <div class="command-topline">
-            <span>PowerShell</span>
-            <button id="copy-button" type="button" aria-label="Copy setup command">
-              <span aria-hidden="true">⧉</span>
-              <span id="copy-label">Copy</span>
-            </button>
+        <form id="setup-form" class="setup-form" autocomplete="off">
+          <div id="setup-message" class="setup-message" aria-live="polite">Loading one-time setup nonce…</div>
+          <label>Setup nonce<input id="setup-nonce" name="nonce" required maxlength="128" spellcheck="false"></label>
+          <div class="form-row">
+            <label>Provider name<input id="provider-name" value="primary" required maxlength="128"></label>
+            <label>Provider type<select id="provider-type"><option value="deterministic">Deterministic</option><option value="vllm">vLLM</option><option value="openai-compatible">OpenAI compatible</option></select></label>
           </div>
-          <pre><code id="setup-command">dotnet run --project src/AgentForge.Cli -- setup begin --interactive</code></pre>
-        </div>
+          <label>Endpoint<input id="provider-endpoint" type="url" value="http://127.0.0.1:9000/v1" required maxlength="2048"></label>
+          <div class="form-row">
+            <label>Model<input id="provider-model" value="deterministic-text-v1" required maxlength="256"></label>
+            <label>Credential<input id="provider-credential" type="password" required maxlength="4096"></label>
+          </div>
+          <div class="form-row">
+            <label>Agent name<input id="agent-name" value="local-agent" required maxlength="128"></label>
+            <label>Time zone<input id="agent-timezone" value="UTC" required maxlength="128"></label>
+          </div>
+          <button id="setup-submit" class="setup-submit" type="submit">Configure AgentForge <span aria-hidden="true">→</span></button>
+          <p class="setup-note">Credentials are sent only to this loopback origin and cleared from the form immediately after submission.</p>
+        </form>
       </section>
 
       <footer>

@@ -42,5 +42,9 @@
 | D-038 | Perform coding in exact-baseline Git worktrees, treat repository discovery and Roslyn/MSBuild navigation as bounded read-only evidence, and keep patching, verification, policy, and durable state behind harness-owned contracts. | Accepted |
 | D-039 | Accept backend output only as canonical baseline/file-hash-bound unified patches; preflight the complete set before contained writes; keep every verifier harness-owned and require denied-network container/filesystem isolation for project execution. | Accepted |
 | D-040 | Persist coding work as append-only hash-chained snapshots with the raw unified patch in a content-addressed artifact, per-command verification checkpoints, exact Git diff review, and bounded state-driven resume that never repeats a recorded command. | Accepted |
+| D-041 | Normalize research behind harness-owned providers, use citation identity as immutable evidence, fuse exact canonical URLs with reciprocal-rank scoring, keep credentials invocation-scoped, and treat throttling/quota/outage as typed partial evidence. | Accepted |
+| D-042 | Persist redacted memory as seven explicitly sourced kinds under exact installation/agent/scope and retention bounds; retrieval intersects all scopes and deletion requires the same authority tuple. | Accepted |
+| D-043 | Admit channel events only after adapter-owned webhook authentication and exact sender binding; consume an exact recipient/body approval before outbound delivery; retry definite failures only and dead-letter uncertain outcomes. | Accepted |
+| D-044 | Expose web setup only on loopback through a consumed nonce, short-lived HttpOnly SameSite session, session-bound CSRF, exact idempotency cache, and staged text credential body; construct CLI-equivalent safe defaults and call only shared setup services. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

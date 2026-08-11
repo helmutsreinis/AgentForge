@@ -14,10 +14,13 @@ const elements = {
   sandboxIndicator: document.querySelector("#sandbox-indicator"),
   sandboxCopy: document.querySelector("#sandbox-copy"),
   sandboxKind: document.querySelector("#sandbox-kind"),
-  copy: document.querySelector("#copy-button"),
-  copyLabel: document.querySelector("#copy-label"),
-  command: document.querySelector("#setup-command"),
+  setupForm: document.querySelector("#setup-form"),
+  setupMessage: document.querySelector("#setup-message"),
+  setupNonce: document.querySelector("#setup-nonce"),
+  setupSubmit: document.querySelector("#setup-submit"),
 };
+
+let csrfToken = null;
 
 async function readJson(path) {
   const response = await fetch(path, {
@@ -113,22 +116,101 @@ async function refreshStatus() {
   }
 }
 
-async function copySetupCommand() {
-  try {
-    await navigator.clipboard.writeText(elements.command.textContent);
-    elements.copyLabel.textContent = "Copied";
-  } catch {
-    elements.copyLabel.textContent = "Select command";
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(elements.command);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
+function setupStatus(message, state = "") {
+  elements.setupMessage.textContent = message;
+  elements.setupMessage.className = `setup-message ${state}`;
+}
 
-  window.setTimeout(() => { elements.copyLabel.textContent = "Copy"; }, 1800);
+async function mutation(path, payload, contentType = "application/json") {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": contentType,
+      "Idempotency-Key": crypto.randomUUID(),
+      "X-CSRF-Token": csrfToken,
+      Accept: "application/json",
+    },
+    body: contentType.startsWith("application/json") ? JSON.stringify(payload) : payload,
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body.detail ?? body.title ?? "Setup request failed");
+  }
+  return body;
+}
+
+async function loadSetupNonce() {
+  try {
+    const result = await readJson("/api/v1/setup/web/nonce");
+    if (result.ok) {
+      elements.setupNonce.value = result.payload.nonce;
+      setupStatus("One-time nonce loaded. Review the safe local defaults, then continue.");
+    } else if (result.status === 409) {
+      setupStatus("The one-time nonce was already consumed. Restart the host if no setup session is active.", "error");
+    } else {
+      setupStatus("The setup nonce is unavailable.", "error");
+    }
+  } catch {
+    setupStatus("Could not load the local setup nonce.", "error");
+  }
+}
+
+async function runSetup(event) {
+  event.preventDefault();
+  elements.setupSubmit.disabled = true;
+  const credentialInput = document.querySelector("#provider-credential");
+  try {
+    setupStatus("Creating protected setup session…");
+    const sessionResponse = await fetch("/api/v1/setup/web/session", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ nonce: elements.setupNonce.value }),
+    });
+    const session = await sessionResponse.json();
+    if (!sessionResponse.ok) throw new Error(session.detail ?? "Session creation failed");
+    csrfToken = session.csrfToken;
+
+    setupStatus("Initializing durable installation…");
+    await mutation("/api/v1/setup/web/begin", {});
+    await mutation("/api/v1/setup/web/provider", {
+      name: document.querySelector("#provider-name").value,
+      providerType: document.querySelector("#provider-type").value,
+      endpoint: document.querySelector("#provider-endpoint").value,
+      model: document.querySelector("#provider-model").value,
+    });
+    const credential = credentialInput.value;
+    credentialInput.value = "";
+    setupStatus("Validating provider through the shared setup service…");
+    await mutation("/api/v1/setup/web/provider/credential", credential, "text/plain;charset=UTF-8");
+
+    const agent = {
+      name: document.querySelector("#agent-name").value,
+      expertise: "local agent harness",
+      mission: "operate within explicit AgentForge policy",
+      preferredLanguage: "en",
+      timeZone: document.querySelector("#agent-timezone").value,
+      responseStyle: "concise and evidence-backed",
+      defaultWorkspace: null,
+    };
+    setupStatus("Previewing effective policy and capabilities…");
+    await mutation("/api/v1/setup/web/agent/preview", agent);
+    await mutation("/api/v1/setup/web/agent", agent);
+    setupStatus("Running minimum-viability checks…");
+    await mutation("/api/v1/setup/web/complete", {});
+    csrfToken = null;
+    setupStatus("Setup complete. AgentForge is Ready.", "ok");
+    await refreshStatus();
+  } catch (error) {
+    credentialInput.value = "";
+    setupStatus(error instanceof Error ? error.message : "Setup failed safely.", "error");
+  } finally {
+    elements.setupSubmit.disabled = false;
+  }
 }
 
 elements.refresh.addEventListener("click", refreshStatus);
-elements.copy.addEventListener("click", copySetupCommand);
+elements.setupForm.addEventListener("submit", runSetup);
 refreshStatus();
+loadSetupNonce();

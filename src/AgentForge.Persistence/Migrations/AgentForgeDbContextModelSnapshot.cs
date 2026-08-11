@@ -521,6 +521,156 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("capability_approvals", (string)null);
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelDeliveryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeliveryJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("InstallationId", "AgentId", "Channel", "State", "UpdatedAtUtcTicks");
+
+                    b.ToTable("channel_deliveries", (string)null);
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelIdentityBindingEntity", b =>
+                {
+                    b.Property<string>("Channel")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalSenderId")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EvidenceHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Channel", "AccountId", "ExternalSenderId");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("InstallationId");
+
+                    b.ToTable("channel_identity_bindings", (string)null);
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelInboundMessageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalMessageId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MessageJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OrderKey")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("ReceivedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("Channel", "AccountId", "ExternalMessageId")
+                        .IsUnique();
+
+                    b.HasIndex("InstallationId", "AgentId", "OrderKey");
+
+                    b.ToTable("channel_inbound_messages", (string)null);
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.CodingSessionSnapshotEntity", b =>
                 {
                     b.Property<Guid>("SessionId")
@@ -747,6 +897,100 @@ namespace AgentForge.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("local_administrators", (string)null);
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.MemoryEntryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CausationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ExpiresAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RedactionCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ScopeId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceEvidenceHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceUri")
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("InstallationId", "AgentId", "ScopeId", "Kind", "ExpiresAtUtcTicks");
+
+                    b.ToTable("memory_entries", (string)null);
                 });
 
             modelBuilder.Entity("AgentForge.Persistence.Entities.ModelBudgetLedgerEntity", b =>
@@ -1913,6 +2157,51 @@ namespace AgentForge.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelDeliveryEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelIdentityBindingEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.ChannelInboundMessageEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.CodingSessionSnapshotEntity", b =>
                 {
                     b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
@@ -1945,6 +2234,21 @@ namespace AgentForge.Persistence.Migrations
 
             modelBuilder.Entity("AgentForge.Persistence.Entities.LocalAdministratorEntity", b =>
                 {
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.MemoryEntryEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
                         .WithMany()
                         .HasForeignKey("InstallationId")

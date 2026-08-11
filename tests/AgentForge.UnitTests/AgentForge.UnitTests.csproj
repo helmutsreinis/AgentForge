@@ -14,10 +14,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AgentForge.Audit\AgentForge.Audit.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Coding\AgentForge.Coding.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Channels\AgentForge.Channels.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Domain\AgentForge.Domain.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Environment\AgentForge.Environment.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Models\AgentForge.Models.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Memory\AgentForge.Memory.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Runtime\AgentForge.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Search\AgentForge.Search.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Security\AgentForge.Security.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Skills\AgentForge.Skills.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Setup\AgentForge.Setup.csproj" />

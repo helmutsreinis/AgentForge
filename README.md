@@ -16,11 +16,11 @@ dotnet format --verify-no-changes
 ```
 
 Run the local host with `dotnet run --project src/AgentForge.Host`. It binds to
-`127.0.0.1:5047` by default. Open `http://127.0.0.1:5047/` for the read-only local
-control-plane preview. An uninitialized installation exposes health and setup status
-only; normal runtime endpoints fail closed until setup is complete. Credential entry
-and every setup mutation remain in the trusted CLI until the authenticated web-wizard
-gate is complete.
+`127.0.0.1:5047` by default. Open `http://127.0.0.1:5047/` for the local control plane
+and secure first-run wizard. The wizard is loopback-only and uses a one-time nonce,
+short-lived HttpOnly session, CSRF token, mutation idempotency, and the same setup
+services and conservative defaults as the CLI. An uninitialized installation exposes
+health and setup only; normal runtime endpoints fail closed until setup completes.
 
 Start the first offline setup transaction with explicit deterministic input:
 
@@ -44,5 +44,5 @@ agentforge environment inspect --data-directory <path> --actor local-operator --
 
 The command stores redacted content-addressed evidence and prints only an executable
 count by default. Add `--include-executables true` only when local path disclosure is
-intended. Milestone 1 is the `0.1 Foundation Alpha` checkpoint; see
+intended. Milestone 7 is the `0.4 Integration Beta` checkpoint; see
 `docs/RUNBOOK.md` for the currently executable commands.

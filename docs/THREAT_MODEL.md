@@ -684,3 +684,65 @@ empty/unrelated path set or `diff --check`, and model/backend output cannot decl
 Remaining risks are host compromise, a malicious trusted in-process backend, and insufficient live
 container isolation; external/untrusted backends remain patch-only and must use the later constrained
 out-of-process plugin adapter, while missing container support remains a typed unavailable gate.
+
+## M7 governed-research update
+
+Search providers, query text, remote JSON, URLs, titles, snippets, status codes, and quota evidence are
+untrusted. Requests are identity- and scope-bound, provider selection is explicit, endpoints for Brave
+and official Google search are exact HTTPS origins, redirects/proxies/cookies are disabled, response
+size/depth/result counts are bounded, and credentials exist only in invocation-local headers.
+
+Canonical URL identity removes fragments before deduplication. Citations retain exact source URI,
+provider IDs, bounded excerpts, rank score, and evidence hashes; provider content never changes policy
+or capability. Throttling and outages are typed and allow independent cited evidence to survive, while
+an all-source failure is retryable rather than fabricated. The production catalog remains empty.
+
+## M7 scoped-memory update
+
+Memory text, provenance, source URLs, retrieval text, kind declarations, retention, and scope IDs are
+untrusted. Creation validates exact installation/agent/scope identity, enforces kind-specific source,
+size, and retention constraints, applies structured sensitive-data redaction before repository access,
+and stores content/source hashes with correlation and audit evidence.
+
+Retrieval intersects installation, agent, scope, kind, expiry, literal escaped text, and result bounds.
+Memory is data only and cannot add capabilities, instructions, or policy. Deletion requires the exact
+same installation/agent/scope tuple, removes the row atomically with a hash-only audit event, and SQLite
+secure deletion is enabled. Backup copies created before deletion retain their historical data and must
+remain subject to the R1 encrypted-backup retention and destruction runbook.
+
+## M7 governed-channel update
+
+Webhook headers/bodies, provider IDs, sender/recipient IDs, timestamps, text, attachment metadata,
+transport status, and remote JSON are untrusted. The selected exact account adapter authenticates raw
+bytes before parsing: Telegram uses a fixed-time webhook secret-token check and WhatsApp uses the exact
+HMAC-SHA256 body signature. Sender identity must resolve through a durable installation/agent binding.
+
+Inbound records bound body/header/result sizes, time skew, attachments, hashes, and order keys. Every
+attachment passes a separate scanner; the production default rejects. A duplicate provider identity is
+idempotent only for the same normalized hash and conflicting replay fails. Outbound sends build a canonical
+recipient/body/account request, consume the existing exact external-mutation approval before transport,
+and enforce quiet hours, hourly rate, and attempt limits. Definite throttling may retry; timeouts, transport
+errors, server uncertainty, and malformed success evidence dead-letter without automatic replay.
+
+Official adapters accept text only at this gate; media payloads fail instead of being silently discarded.
+Credentials are invocation-scoped. Telegram's protocol requires its token in the request path, so the
+adapter uses a private direct `HttpClient`, emits no URI/error body evidence, and never registers live
+accounts by default. Remote-mode webhook exposure remains disabled until Milestone 10 hardening.
+
+## M7 loopback web-setup update
+
+Browser origins, cookies, nonces, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
+requests are untrusted. Every web-setup endpoint verifies loopback remote address and, when present, exact
+same-origin scheme/authority. A random 256-bit nonce is consumed atomically into a 20-minute HttpOnly,
+SameSite=Strict cookie session with an independent CSRF token. Mutation keys bind operation and request hash;
+conflicting reuse denies and exact success replays do not repeat durable work.
+
+Provider metadata is staged before a separate bounded `text/plain` credential body. Strict UTF-8 decoding
+targets a clearable character array, the existing setup service stores only its OS-secret reference, and the
+buffers are cleared in all outcomes. The browser necessarily owns its input string until submission and
+clears the field immediately. CSP, anti-frame, no-sniff, no-referrer, permissions policy, and no-store headers
+remain active. Completion makes the session exact-replay-only; the nonce cannot create another session.
+
+The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
+provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
+wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.

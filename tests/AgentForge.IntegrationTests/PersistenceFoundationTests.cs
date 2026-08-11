@@ -44,7 +44,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentForge.IntegrationTests;
 
-public sealed class PersistenceFoundationTests : IDisposable
+public sealed partial class PersistenceFoundationTests : IDisposable
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 10, 16, 0, 0, TimeSpan.Zero);
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-persistence-{Guid.NewGuid():N}");

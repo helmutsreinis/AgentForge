@@ -3,15 +3,19 @@ using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Abstractions.Tracing;
 using AgentForge.Audit;
+using AgentForge.Channels;
 using AgentForge.Coding;
 using AgentForge.Domain.Installations;
 using AgentForge.Environment;
 using AgentForge.Host.Health;
 using AgentForge.Host.Http;
+using AgentForge.Host.Setup;
+using AgentForge.Memory;
 using AgentForge.Models;
 using AgentForge.Orchestration;
 using AgentForge.Persistence;
 using AgentForge.Runtime;
+using AgentForge.Search;
 using AgentForge.Security;
 using AgentForge.Setup;
 using AgentForge.Skills;
@@ -35,13 +39,17 @@ builder.Services.AddAgentForgeSecurity(builder.Configuration);
 builder.Services.AddAgentForgeSkills();
 builder.Services.AddAgentForgeAudit();
 builder.Services.AddAgentForgeCoding();
+builder.Services.AddAgentForgeChannels();
 builder.Services.AddAgentForgeEnvironment(builder.Configuration);
 builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddAgentForgeModels();
+builder.Services.AddAgentForgeMemory();
 builder.Services.AddAgentForgeOrchestration();
 builder.Services.AddAgentForgeRuntime();
+builder.Services.AddAgentForgeSearch();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
+builder.Services.AddSingleton<WebSetupSessionManager>();
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 
@@ -57,6 +65,11 @@ app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.Use(async (context, next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/api/v1/setup/web"))
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.Pragma = "no-cache";
+    }
     context.Response.Headers.ContentSecurityPolicy =
         "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; " +
         "form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; " +
@@ -182,6 +195,8 @@ app.MapGet("/api/v1/runtime/ping", async (
         Array.Clear(credential);
     }
 });
+
+app.MapAgentForgeWebSetup();
 
 static bool TryGetBearerCredential(HttpRequest request, out char[] credential)
 {

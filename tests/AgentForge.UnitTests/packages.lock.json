@@ -253,6 +253,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.channels": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.coding": {
         "type": "Project",
         "dependencies": {
@@ -273,6 +280,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.memory": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.models": {
         "type": "Project",
         "dependencies": {
@@ -281,6 +295,13 @@
         }
       },
       "agentforge.runtime": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
+      "agentforge.search": {
         "type": "Project",
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",

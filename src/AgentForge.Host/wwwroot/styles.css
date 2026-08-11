@@ -355,6 +355,19 @@ main {
 .command-topline button:hover { color: var(--text); }
 pre { margin: 0; padding: 18px; overflow-x: auto; color: #cfc7f9; font: 11px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+.setup-form { display: grid; gap: 12px; padding: 20px; border: 1px solid var(--line-strong); border-radius: 13px; background: #0b0c10; }
+.setup-form label { display: grid; gap: 6px; color: var(--dim); font-size: 10px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; }
+.setup-form input, .setup-form select { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); background: #111219; font: 12px/1.3 Inter, system-ui, sans-serif; outline: none; }
+.setup-form input:focus, .setup-form select:focus { border-color: rgba(142, 115, 255, 0.7); box-shadow: 0 0 0 3px rgba(142, 115, 255, 0.1); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.setup-submit { display: flex; justify-content: space-between; padding: 12px 14px; border: 1px solid rgba(142, 115, 255, 0.45); border-radius: 9px; color: #eeeaff; background: rgba(142, 115, 255, 0.16); font-size: 12px; font-weight: 650; cursor: pointer; }
+.setup-submit:hover { background: rgba(142, 115, 255, 0.25); }
+.setup-submit:disabled { cursor: wait; opacity: 0.55; }
+.setup-message { min-height: 18px; color: var(--amber); font-size: 11px; line-height: 1.5; }
+.setup-message.ok { color: var(--green); }
+.setup-message.error { color: var(--danger); }
+.setup-note { margin: 0; color: var(--dim); font-size: 10px; line-height: 1.5; }
+
 footer { display: flex; justify-content: center; gap: 10px; padding: 25px 0 0; color: #4f4f58; font-size: 10px; }
 footer a:hover { color: var(--muted); }
 noscript { position: fixed; bottom: 12px; right: 12px; padding: 10px; background: #191a20; }
@@ -391,4 +404,5 @@ noscript { position: fixed; bottom: 12px; right: 12px; padding: 10px; background
   .setup-panel { padding: 28px 24px; }
   .setup-copy { display: block; }
   .section-number { display: block; margin-bottom: 15px; }
+  .form-row { grid-template-columns: 1fr; }
 }
