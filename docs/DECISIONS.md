@@ -25,5 +25,6 @@
 | D-021 | Own provider-neutral model requests, artifact-backed content, capability evidence, usage/errors, and sequenced events in Domain/Abstractions; keep vendor SDKs behind adapters and require deterministic providers before live integrations. | Accepted |
 | D-022 | Expose an early loopback-only, read-only status preview using same-origin diagnostics and local static assets; keep all web setup mutations and credential entry disabled until the authenticated wizard gate. | Accepted |
 | D-023 | Require a versioned immutable context-redaction snapshot for every external model adapter call; bind hosted bearer authorization to an exact HTTPS provider profile and secret reference, and materialize/clear it only around the HTTP send. | Accepted |
+| D-024 | Route exact model profiles through a fixed capability/locality/policy/context/tool sequence; prefer a viable primary, rank approved fallbacks deterministically, and bind each selection to immutable evidence without exposing an invocation surface. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

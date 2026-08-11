@@ -434,3 +434,25 @@ This is not runtime authorization or routing. Production still has no provider c
 public invocation route, hosted setup validation, destination/DNS enforcement, current-profile
 re-read, audit, cumulative budget, or run snapshot. Those gates must pass before a stored
 profile can cause model egress.
+
+## M3 model-routing update
+
+Routing identity and policy are constructed outside model content. The router only considers
+exact-model catalog snapshots, rejects duplicate or excessive attempt exclusions, and requires
+current capability evidence plus separate current policy-approved routing evidence. Missing or
+malformed routing evidence denies the candidate. `LocalOnly` excludes every cloud descriptor
+before fallback, so an outage cannot weaken locality. Context/output capacity is checked before
+tool eligibility, and media creates a mandatory image/audio/document capability rather than a
+reason to omit the attachment.
+
+Fallback cannot silently choose an arbitrary provider. A viable exact primary wins; otherwise
+fallback must be enabled and is ordered by bounded reliability, known cost, latency, then stable
+profile ID. The selection hash covers policy, context requirements, attempt exclusions, required
+capabilities, and all selected provider evidence, allowing a later audit to detect changed
+selection inputs.
+
+The pure router still trusts its caller to supply the current durable `AgentModelPolicy`, and
+descriptor-level policy evidence is not yet bound to an agent/profile version. Provider health,
+DNS/IP destination revalidation, audit, cumulative reservation, and durable run snapshots are
+not implemented here. Therefore the catalog remains empty and there is no public model route;
+the later invocation service must close those races before egress.

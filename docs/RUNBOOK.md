@@ -317,6 +317,20 @@ are internal to one send. Do not call this factory from the host/CLI until routi
 current profile and enforces locality/policy/destination controls, audit, budgets, and durable
 snapshots.
 
+The internal model router is also registered, but its production catalog is empty. It expects
+a trusted current agent model policy and immutable descriptors with current policy-approved
+routing evidence. It filters exact model, attempt exclusions, required media/structured
+capabilities, locality, approval, context/output bounds, and tool support. A local-only request
+must never select a cloud descriptor; do not work around a typed routing failure by removing
+an attachment, changing the requested model, or enabling fallback. Selection hashes are
+diagnostic evidence, not authorization tokens.
+
+Do not populate the production catalog or add a CLI/API model call yet. Runtime enablement must
+atomically re-read durable agent/profile versions, incorporate bounded health and destination
+evidence, reserve cumulative budget, append redacted audit, persist the run snapshot, and then
+resolve the exact selected profile. On retry, pass only stable profile IDs that failed this
+attempt as exclusions and preserve the original request and policy.
+
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
 
