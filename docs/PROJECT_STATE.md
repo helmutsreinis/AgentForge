@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Milestone 2 slice 4b: require current policy and exact approval consumption before an
-authoritative catalog descriptor may start the restricted executor, with atomic audit
-evidence and no generic process surface.
+Milestone 2 slice 5: add bounded version/help availability probes through the same
+policy-bound invocation boundary, then implement the container/namespace adapter when a
+runtime is available. Keep generic process execution and high-risk fallback disabled.
 
 ## Completed
 
@@ -50,10 +50,13 @@ evidence and no generic process surface.
 - Isolation capability reporting is explicit through the host and `agentforge sandbox capabilities`. Restricted-host execution rejects container, denied/loopback-network, filesystem-isolation, and resource-isolation requests with `UnsupportedCapability` instead of degrading. Hostile fixtures cover shell metacharacters, environment leakage, output floods, observer stalls, timeout/cancellation child cleanup, path escape/symlinks, unsupported isolation, and shell fallback on both supported platforms.
 - M2 slice 3b added an authoritative immutable tool catalog. Admission validates exact normalized ID/SemVer 2 versions, typed parameters and argument mappings, required target bindings, provenance/trust plus evidence hashes, side-effect risk floors, output sensitivity, sandbox/network controls, and execution bounds before calculating a canonical descriptor hash.
 - Progressive search returns bounded summaries without executable paths or argument/environment templates; exact description requires ID and version. Admission snapshots mutable input and deliberately performs no existence check, version/help probe, or execution. Hostile shapes, duplicate versions, precedence, cancellation, stable hashes, disclosure, and non-execution pass deterministic tests.
+- M2 slice 3c added descriptor-hash-bound approval identity and a durable policy-bound invocation service. Callers provide typed parameter values only; capability/risk/target, executable, argument mapping, network/sandbox requirements, time, and output bounds come from the exact immutable descriptor.
+- Approval consumption, an `Authorized` invocation with installation-scoped idempotency, and redacted authorization audit commit atomically before sandbox start. Current installation/agent policy is re-read before execution. Completion stores exit/failure plus output hashes and lengths without raw bytes. Exact terminal retries never execute; conflicting or uncertain retries fail closed.
+- Migrations 0007/0008 preserve prior state, make legacy hashless tool approvals non-authorizing, and add durable invocation records. Unit and integration fixtures cover descriptor substitution, typed transitions, missing approval, invalid values, network escalation, exact arguments, single-use grants, idempotent/conflicting retries, raw-output absence, audit integrity, and upgrade behavior.
 
 ## Latest gate
 
-`artifacts/gates/M2-03B-20260811.md`: Pass.
+`artifacts/gates/M2-03C-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -65,10 +68,10 @@ evidence and no generic process surface.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 - Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
-- The restricted kernel has no public invocation endpoint. Exact approvals, passive inventory, and catalog membership still make nothing callable. The next tool service must source every security field from the exact descriptor hash, validate values, re-evaluate current policy, atomically consume a matching grant and append audit evidence before using `ISandbox`.
+- The policy-bound invocation service is registered but has no public endpoint and the default catalog is empty. Exact approvals, passive inventory, and catalog membership alone still make nothing callable. Restricted host cannot satisfy the configured denied/loopback agent network postures, so it fails typed rather than weakening isolation; a deterministic container-capable fake verifies the complete boundary until the live adapter exists.
 - Restricted-host working-path verification is vulnerable to local filesystem replacement after validation, and process attachment/descendant discovery has OS timing limits. It is not filesystem, network, credential, privilege, CPU, memory, or process-count isolation; high-risk requests must require a later container/namespace adapter.
 
 ## Exact next action
 
-Continue Milestone 2 with policy-bound exact tool invocation and safe availability
-probing. Do not expose generic process execution through the API or CLI.
+Continue Milestone 2 with safe availability probing and the container/namespace adapter.
+Do not expose generic process execution or weaken network/isolation requests.

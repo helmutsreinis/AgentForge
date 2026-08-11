@@ -23,7 +23,8 @@ internal sealed class AuthorizationContextFactory : IAuthorizationContextFactory
             (request.CausationId is { } causation && !IsIdentifier(causation.Value, 128)) ||
             !Enum.IsDefined(request.RiskClass) || !IsCapabilityId(request.CapabilityId) ||
             !IsOptionalIdentifier(request.ToolId, 256) ||
-            !IsOptionalIdentifier(request.ToolVersion, 128))
+            !IsOptionalIdentifier(request.ToolVersion, 128) || !IsOptionalSha256(request.ToolDescriptorHash) ||
+            !HasCompleteToolIdentity(request))
         {
             return Invalid("Authorization identity, capability, tool, or version is invalid.");
         }
@@ -49,6 +50,7 @@ internal sealed class AuthorizationContextFactory : IAuthorizationContextFactory
         var capabilityId = request.CapabilityId.Trim().ToLowerInvariant();
         var toolId = NormalizeOptional(request.ToolId)?.ToLowerInvariant();
         var toolVersion = NormalizeOptional(request.ToolVersion);
+        var toolDescriptorHash = NormalizeOptional(request.ToolDescriptorHash);
         var parametersHash = Hash(parameters.Value);
         var targetHash = Hash(target.Value ?? string.Empty);
         var workspaceHash = Hash(workspace.Value ?? string.Empty);
@@ -63,6 +65,7 @@ internal sealed class AuthorizationContextFactory : IAuthorizationContextFactory
             RiskClass = request.RiskClass.ToString(),
             ToolId = toolId,
             ToolVersion = toolVersion,
+            ToolDescriptorHash = toolDescriptorHash,
             ParametersHash = parametersHash,
             TargetKind = request.TargetKind.ToString(),
             TargetHash = targetHash,
@@ -79,6 +82,7 @@ internal sealed class AuthorizationContextFactory : IAuthorizationContextFactory
             request.RiskClass,
             toolId,
             toolVersion,
+            toolDescriptorHash,
             parameters.Value,
             parametersHash,
             request.TargetKind,
@@ -251,6 +255,33 @@ internal sealed class AuthorizationContextFactory : IAuthorizationContextFactory
 
     private static bool IsOptionalIdentifier(string? value, int maximumLength) =>
         value is null || IsIdentifier(value, maximumLength);
+
+    private static bool IsOptionalSha256(string? value)
+    {
+        if (value is null)
+        {
+            return true;
+        }
+
+        if (value.Length != 71 || !value.StartsWith("sha256:", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (var character in value.AsSpan(7))
+        {
+            if (!char.IsAsciiDigit(character) && character is not (>= 'a' and <= 'f'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasCompleteToolIdentity(CapabilityInvocationRequest request) =>
+        request.ToolId is null && request.ToolVersion is null && request.ToolDescriptorHash is null ||
+        request.ToolId is not null && request.ToolVersion is not null && request.ToolDescriptorHash is not null;
 
     private static bool IsIdentifier(string? value, int maximumLength) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= maximumLength && !value.Any(char.IsControl);

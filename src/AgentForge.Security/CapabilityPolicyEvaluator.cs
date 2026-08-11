@@ -126,6 +126,7 @@ internal sealed class CapabilityPolicyEvaluator : ICapabilityPolicyEvaluator
         approval.RiskClass == context.RiskClass &&
         string.Equals(approval.ToolId, context.ToolId, StringComparison.Ordinal) &&
         string.Equals(approval.ToolVersion, context.ToolVersion, StringComparison.Ordinal) &&
+        string.Equals(approval.ToolDescriptorHash, context.ToolDescriptorHash, StringComparison.Ordinal) &&
         string.Equals(approval.ParametersHash, context.ParametersHash, StringComparison.Ordinal) &&
         approval.TargetKind == context.TargetKind &&
         string.Equals(approval.TargetHash, context.TargetHash, StringComparison.Ordinal) &&

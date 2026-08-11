@@ -39,8 +39,13 @@ public sealed class CapabilityPolicyTests : IDisposable
         Assert.StartsWith("sha256:", first.Value.WorkspaceHash, StringComparison.Ordinal);
 
         var changedToolVersion = factory.Create(CreateRequest("{\"a\":1}") with { ToolVersion = "2.0.0" });
+        var changedDescriptor = factory.Create(CreateRequest("{\"a\":1}") with
+        {
+            ToolDescriptorHash = "sha256:" + new string('c', 64),
+        });
         var baseline = factory.Create(CreateRequest("{\"a\":1}"));
         Assert.NotEqual(baseline.Value.RequestHash, changedToolVersion.Value.RequestHash);
+        Assert.NotEqual(baseline.Value.RequestHash, changedDescriptor.Value.RequestHash);
     }
 
     [Theory]
@@ -64,6 +69,19 @@ public sealed class CapabilityPolicyTests : IDisposable
 
         Assert.False(result.IsSuccess);
         Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+    }
+
+    [Fact]
+    public void Context_rejects_partial_or_malformed_tool_descriptor_identity()
+    {
+        var factory = _services.GetRequiredService<IAuthorizationContextFactory>();
+        var missingHash = factory.Create(CreateRequest("{}") with { ToolDescriptorHash = null });
+        var missingVersion = factory.Create(CreateRequest("{}") with { ToolVersion = null });
+        var malformedHash = factory.Create(CreateRequest("{}") with { ToolDescriptorHash = "sha256:invalid" });
+
+        Assert.Equal(FailureCode.ValidationFailure, missingHash.Failure?.Code);
+        Assert.Equal(FailureCode.ValidationFailure, missingVersion.Failure?.Code);
+        Assert.Equal(FailureCode.ValidationFailure, malformedHash.Failure?.Code);
     }
 
     [Fact]
@@ -116,6 +134,14 @@ public sealed class CapabilityPolicyTests : IDisposable
         Assert.Equal(
             CapabilityDecision.RequireApproval,
             evaluator.Evaluate(changedContext, policy, approval, Now).Decision);
+        var changedDescriptor = _services.GetRequiredService<IAuthorizationContextFactory>()
+            .Create(CreateRequest("{\"path\":\"src\"}") with
+            {
+                ToolDescriptorHash = "sha256:" + new string('c', 64),
+            });
+        Assert.Equal(
+            CapabilityDecision.RequireApproval,
+            evaluator.Evaluate(changedDescriptor.Value, policy, approval, Now).Decision);
         var changedInstallationVersion = _services.GetRequiredService<IAuthorizationContextFactory>()
             .Create(CreateRequest("{\"path\":\"src\"}") with { InstallationVersion = 8 });
         Assert.Equal(
@@ -192,6 +218,7 @@ public sealed class CapabilityPolicyTests : IDisposable
         CapabilityRiskClass.Read,
         "repo.read",
         "1.0.0",
+        "sha256:" + new string('d', 64),
         parameters,
         AuthorizationTargetKind.FileSystemPath,
         Path.Combine(Path.GetTempPath(), "agentforge-policy-target"),

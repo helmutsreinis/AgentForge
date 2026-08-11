@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
@@ -8,6 +9,7 @@ using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
@@ -17,10 +19,13 @@ using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
+using AgentForge.Domain.Tools;
 using AgentForge.Environment;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
+using AgentForge.Tools;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
@@ -60,6 +65,7 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddSingleton<ISecretStore, DeterministicSecretStore>();
         services.AddAgentForgeAudit();
         services.AddAgentForgeEnvironment(configuration);
+        services.AddAgentForgeTools(configuration);
         configure?.Invoke(services);
         return services.BuildServiceProvider(validateScopes: true);
     }
@@ -1169,6 +1175,7 @@ public sealed class PersistenceFoundationTests : IDisposable
             CapabilityRiskClass.Read,
             "repo.read",
             "1.0.0",
+            "sha256:" + new string('d', 64),
             $"{{\"token\":\"{sensitiveParameter}\",\"path\":\"src\"}}",
             AuthorizationTargetKind.FileSystemPath,
             Path.Combine(_directory, "workspace", "src"),
@@ -1254,6 +1261,7 @@ public sealed class PersistenceFoundationTests : IDisposable
                 new CorrelationId("approval-grant"),
                 credential.Value), CancellationToken.None);
             Assert.True(applied.IsSuccess, applied.Failure?.Message);
+            Assert.Equal(invocation.ToolDescriptorHash, applied.Value.ToolDescriptorHash);
             var replay = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
                 invocation,
                 CapabilityApprovalDisposition.Grant,
@@ -1325,6 +1333,256 @@ public sealed class PersistenceFoundationTests : IDisposable
     }
 
     [Fact]
+    public async Task Tool_invocation_consumes_exact_approval_before_sandbox_and_is_durably_idempotent()
+    {
+        var workspace = Path.Combine(_directory, "tool-workspace");
+        var target = Path.Combine(workspace, "src", "fixture.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        var definition = CreateInvocationDescriptor();
+        var hostNetworkDefinition = definition with
+        {
+            Version = "2.0.0",
+            Process = definition.Process with { NetworkPolicy = ProcessNetworkPolicy.InheritHost },
+        };
+        var catalog = ToolCatalog.Create([definition, hostNetworkDefinition]);
+        Assert.True(catalog.IsSuccess, catalog.Failure?.Message);
+        var sandbox = new RecordingSandbox();
+        await using var services = BuildServices(
+            _directory,
+            "tool-invocation.db",
+            collection =>
+            {
+                collection.AddSingleton<IToolCatalog>(catalog.Value);
+                collection.AddSingleton<ISandbox>(sandbox);
+            });
+
+        InstallationId installationId;
+        AgentIdentity agent;
+        LocalAdministrator administrator;
+        long installationVersion;
+        await using (var setupScope = services.CreateAsyncScope())
+        {
+            await setupScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                .InitializeAsync(CancellationToken.None);
+            var setup = setupScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            installationId = new InstallationId(Guid.Parse("b2be3c6f-5e88-430a-b0ec-fb4c92dd2bf7"));
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("local-admin"),
+                new CorrelationId("tool-begin")), CancellationToken.None)).IsSuccess);
+            var secret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("tool-provider", "provider-fixture".AsMemory(), CancellationToken.None);
+            Assert.True(secret.IsSuccess);
+            var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    secret.Value),
+                new ActorId("local-admin"),
+                new CorrelationId("tool-provider")), CancellationToken.None);
+            Assert.True(provider.IsSuccess, provider.Failure?.Message);
+            var created = await setup.CreateAgentAsync(new CreateAgentRequest(
+                CreateAgentCandidate(provider.Value.Profile.Id),
+                new ActorId("local-admin"),
+                new CorrelationId("tool-agent")), CancellationToken.None);
+            Assert.True(created.IsSuccess, created.Failure?.Message);
+            agent = created.Value.Agent;
+            var completed = await setup.CompleteAsync(new CompleteSetupRequest(
+                new ActorId("local-admin"),
+                new CorrelationId("tool-ready")), CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            administrator = completed.Value.Administrator;
+            installationVersion = completed.Value.Installation.Version;
+        }
+
+        var values = new Dictionary<string, ToolParameterValue>(StringComparer.Ordinal)
+        {
+            ["path"] = new(ToolParameterValueKind.Text, target, null, null),
+            ["count"] = new(ToolParameterValueKind.WholeNumber, null, 2, null),
+            ["verbose"] = new(ToolParameterValueKind.Switch, null, null, true),
+        };
+        var request = new ToolInvocationRequest(
+            installationVersion,
+            agent.Id,
+            agent.Version,
+            new ActorId("worker"),
+            "tool:repo.read",
+            "1.0.0",
+            values,
+            workspace,
+            "tool-invocation-001",
+            new CorrelationId("tool-invocation"));
+
+        await using (var noApprovalScope = services.CreateAsyncScope())
+        {
+            var service = noApprovalScope.ServiceProvider.GetRequiredService<IToolInvocationService>();
+            var invalidValues = new Dictionary<string, ToolParameterValue>(values, StringComparer.Ordinal)
+            {
+                ["unknown"] = new(ToolParameterValueKind.Text, "value", null, null),
+            };
+            var invalid = await service.InvokeAsync(
+                request with { Parameters = invalidValues },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.ValidationFailure, invalid.Failure?.Code);
+            var missingApproval = await service.InvokeAsync(request, null, CancellationToken.None);
+            Assert.Equal(FailureCode.ApprovalRequired, missingApproval.Failure?.Code);
+            var credentialInput = await service.InvokeAsync(
+                request with
+                {
+                    IdempotencyKey = "sk-" + "1234567890abcdefghijklmnop",
+                },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.ValidationFailure, credentialInput.Failure?.Code);
+            var networkEscalation = await service.InvokeAsync(
+                request with { ToolVersion = "2.0.0", IdempotencyKey = "tool-network-escalation" },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.PolicyDenied, networkEscalation.Failure?.Code);
+            Assert.Equal(0, sandbox.Calls);
+        }
+
+        var descriptor = await catalog.Value.DescribeAsync(
+            request.ToolId,
+            request.ToolVersion,
+            CancellationToken.None);
+        var parametersJson = JsonSerializer.Serialize(new SortedDictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["count"] = 2L,
+            ["path"] = target,
+            ["verbose"] = true,
+        });
+        var approvalInvocation = new CapabilityInvocationRequest(
+            installationId,
+            installationVersion,
+            agent.Id,
+            agent.Version,
+            request.ActorId,
+            descriptor.Value.Definition.CapabilityId,
+            descriptor.Value.Definition.RiskClass,
+            descriptor.Value.Definition.Id,
+            descriptor.Value.Definition.Version,
+            descriptor.Value.DescriptorHash,
+            parametersJson,
+            descriptor.Value.Definition.TargetKind,
+            target,
+            workspace,
+            request.CorrelationId);
+        CapabilityApproval granted;
+        await using (var approvalScope = services.CreateAsyncScope())
+        {
+            var materialized = await approvalScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .MaterializeAsync(administrator.ClientCredentialReference, CancellationToken.None);
+            Assert.True(materialized.IsSuccess, materialized.Failure?.Message);
+            await using var credential = materialized.Value;
+            var service = approvalScope.ServiceProvider.GetRequiredService<ICapabilityApprovalService>();
+            var expiration = DateTimeOffset.UtcNow.AddMinutes(10);
+            var preview = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                approvalInvocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("tool-approval"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            var applied = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                approvalInvocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                preview.Value.PreviewHash,
+                "tool-approval-001",
+                new ActorId("local-admin"),
+                new CorrelationId("tool-approval"),
+                credential.Value), CancellationToken.None);
+            Assert.True(applied.IsSuccess, applied.Failure?.Message);
+            granted = applied.Value;
+        }
+
+        ToolInvocationResult first;
+        await using (var invocationScope = services.CreateAsyncScope())
+        {
+            var service = invocationScope.ServiceProvider.GetRequiredService<IToolInvocationService>();
+            var result = await service.InvokeAsync(request, null, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            first = result.Value;
+            Assert.Equal(ToolInvocationState.Succeeded, first.Invocation.State);
+            Assert.Equal(granted.Id, first.Invocation.ApprovalId);
+            Assert.Equal(descriptor.Value.DescriptorHash, first.Invocation.ToolDescriptorHash);
+            Assert.Equal("fixture-output", Encoding.UTF8.GetString(first.StandardOutput));
+            Assert.False(first.IsIdempotentReplay);
+        }
+
+        Assert.Equal(1, sandbox.Calls);
+        Assert.NotNull(sandbox.LastRequest);
+        Assert.Equal(
+            ["probe", "--path", target, "--count", "2", "--verbose"],
+            sandbox.LastRequest.Arguments);
+        Assert.Empty(sandbox.LastRequest.Environment);
+        Assert.Equal(ProcessSandboxKind.Container, sandbox.LastRequest.RequiredSandbox);
+        Assert.Equal(ProcessNetworkPolicy.LoopbackOnly, sandbox.LastRequest.NetworkPolicy);
+
+        await using (var verificationScope = services.CreateAsyncScope())
+        {
+            var service = verificationScope.ServiceProvider.GetRequiredService<IToolInvocationService>();
+            var replay = await service.InvokeAsync(request, null, CancellationToken.None);
+            Assert.True(replay.IsSuccess, replay.Failure?.Message);
+            Assert.True(replay.Value.IsIdempotentReplay);
+            Assert.Equal(first.Invocation.Id, replay.Value.Invocation.Id);
+            Assert.Empty(replay.Value.StandardOutput);
+            Assert.Equal(1, sandbox.Calls);
+
+            var conflictValues = new Dictionary<string, ToolParameterValue>(values, StringComparer.Ordinal)
+            {
+                ["count"] = new(ToolParameterValueKind.WholeNumber, null, 3, null),
+            };
+            var conflict = await service.InvokeAsync(
+                request with { Parameters = conflictValues },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
+            var correlationConflict = await service.InvokeAsync(
+                request with { CorrelationId = new CorrelationId("different-correlation") },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.ConcurrencyConflict, correlationConflict.Failure?.Code);
+
+            var consumed = await verificationScope.ServiceProvider
+                .GetRequiredService<ICapabilityApprovalRepository>()
+                .FindByIdAsync(granted.Id, CancellationToken.None);
+            Assert.Equal(CapabilityApprovalState.Consumed, consumed?.State);
+            var stored = await verificationScope.ServiceProvider.GetRequiredService<IToolInvocationRepository>()
+                .FindByIdempotencyKeyAsync(installationId, request.IdempotencyKey, CancellationToken.None);
+            Assert.Equal(ToolInvocationState.Succeeded, stored?.State);
+            Assert.Equal(first.Invocation.StandardOutputHash, stored?.StandardOutputHash);
+
+            var events = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 20, CancellationToken.None);
+            var toolEvents = events.Where(item => item.OperationType.StartsWith("tool.invocation-", StringComparison.Ordinal))
+                .ToArray();
+            Assert.Equal(2, toolEvents.Length);
+            Assert.DoesNotContain(
+                "fixture-output",
+                string.Join(string.Empty, toolEvents.Select(item => item.Input.Json + item.Output.Json)),
+                StringComparison.Ordinal);
+            Assert.True((await verificationScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+
+            var secondAttempt = await service.InvokeAsync(
+                request with { IdempotencyKey = "tool-invocation-002" },
+                null,
+                CancellationToken.None);
+            Assert.Equal(FailureCode.ApprovalRequired, secondAttempt.Failure?.Code);
+            Assert.Equal(1, sandbox.Calls);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "tool-invocation.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes("fixture-output")));
+    }
+
+    [Fact]
     public async Task Capability_approval_migration_preserves_existing_agent_profiles()
     {
         var installationId = new InstallationId(Guid.Parse("334bc4bc-e826-4df4-8535-bba96c369187"));
@@ -1380,6 +1638,110 @@ public sealed class PersistenceFoundationTests : IDisposable
                 agentId,
                 "sha256:" + new string('a', 64),
                 CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Descriptor_binding_migration_preserves_legacy_approval_but_it_cannot_authorize()
+    {
+        var installationId = new InstallationId(Guid.Parse("08278ee2-a2a4-463f-8ab2-a419ccdf27d5"));
+        var providerId = new ProviderProfileId(Guid.Parse("b2cfdca6-20d7-4978-b5ce-87ab3fe0032b"));
+        var agentId = new AgentIdentityId(Guid.Parse("47368551-259b-47a1-b1f7-79dbf1119be4"));
+        var approvalId = Guid.Parse("d8d73d84-c826-4a1e-9b83-b2c88fef4287");
+        await using (var previousSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = previousSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260811045227_CapabilityApprovals", CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("descriptor-upgrade"),
+                    new CorrelationId("descriptor-upgrade")), CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "descriptor-upgrade"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("descriptor-upgrade"),
+                    new CorrelationId("descriptor-upgrade")), CancellationToken.None);
+            Assert.True((await previousSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+
+            var hash = "sha256:" + new string('a', 64);
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO capability_approvals
+                (Id, InstallationId, InstallationVersion, AgentId, AgentVersion, RequestActorId,
+                 CapabilityId, RiskClass, ToolId, ToolVersion, ParametersHash, TargetKind,
+                 TargetHash, WorkspaceHash, RequestHash, Disposition, State, CreatedAtUtcTicks,
+                 ExpiresAtUtcTicks, DecidedBy, CorrelationId, PreviewHash, IdempotencyKey, Version,
+                 ConsumedAtUtcTicks, RevokedAtUtcTicks)
+                VALUES
+                ({approvalId}, {installationId.Value}, 0, {agentId.Value}, 0, {"worker"},
+                 {"tool:repo.read"}, {"Read"}, {"tool:repo.read"}, {"1.0.0"}, {hash}, {"None"},
+                 {hash}, {hash}, {hash}, {"Grant"}, {"Active"}, {Now.UtcTicks},
+                 {Now.AddMinutes(10).UtcTicks}, {"administrator"}, {"descriptor-upgrade"}, {hash},
+                 {"descriptor-upgrade-approval"}, 0, NULL, NULL)
+                """, CancellationToken.None);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        var legacy = await upgradedScope.ServiceProvider.GetRequiredService<ICapabilityApprovalRepository>()
+            .FindByIdAsync(new CapabilityApprovalId(approvalId), CancellationToken.None);
+        Assert.NotNull(legacy);
+        Assert.Null(legacy.ToolDescriptorHash);
+
+        var contextResult = upgradedScope.ServiceProvider.GetRequiredService<IAuthorizationContextFactory>()
+            .Create(new CapabilityInvocationRequest(
+                installationId,
+                0,
+                agentId,
+                0,
+                new ActorId("worker"),
+                "tool:repo.read",
+                CapabilityRiskClass.Read,
+                "tool:repo.read",
+                "1.0.0",
+                "sha256:" + new string('d', 64),
+                "{}",
+                AuthorizationTargetKind.None,
+                null,
+                null,
+                new CorrelationId("descriptor-upgrade")));
+        Assert.True(contextResult.IsSuccess, contextResult.Failure?.Message);
+        var policy = new CapabilityPolicySnapshot(
+            installationId,
+            0,
+            agentId,
+            0,
+            [new CapabilityPolicyRule(
+                "tool:repo.read",
+                CapabilityRiskClass.Read,
+                CapabilityDecision.RequireApproval,
+                "fixture")],
+            "sha256:" + new string('e', 64));
+        var evaluation = upgradedScope.ServiceProvider.GetRequiredService<ICapabilityPolicyEvaluator>()
+            .Evaluate(contextResult.Value, policy, legacy, Now);
+        Assert.Equal(CapabilityDecision.RequireApproval, evaluation.Decision);
     }
 
     [Fact]
@@ -1526,6 +1888,49 @@ public sealed class PersistenceFoundationTests : IDisposable
         false,
         "sha256:" + new string('a', 64));
 
+    private ToolDescriptorDefinition CreateInvocationDescriptor() => new(
+        "tool:repo.read",
+        "1.0.0",
+        "Read repository file",
+        "Reads one approved repository file.",
+        "Runs a bounded deterministic repository read fixture.",
+        "tool:repo.read",
+        CapabilityRiskClass.Read,
+        AuthorizationTargetKind.FileSystemPath,
+        "path",
+        ToolSideEffectKind.ReadsFileSystem,
+        ToolOutputSensitivity.PotentiallySensitive,
+        [
+            new ToolParameterDescriptor(
+                "path", ToolParameterType.Text, true, 2048, null, null, [], "Approved path."),
+            new ToolParameterDescriptor(
+                "count", ToolParameterType.WholeNumber, false, 0, 1, 10, [], "Bounded count."),
+            new ToolParameterDescriptor(
+                "verbose", ToolParameterType.Switch, false, 0, null, null, [], "Verbose output."),
+        ],
+        new ToolProcessDefinition(
+            Path.Combine(_directory, "deterministic-tool"),
+            ["probe"],
+            [
+                new ToolArgumentBinding(ToolArgumentBindingKind.NamedValue, "path", "--path"),
+                new ToolArgumentBinding(ToolArgumentBindingKind.NamedValue, "count", "--count"),
+                new ToolArgumentBinding(ToolArgumentBindingKind.BooleanSwitch, "verbose", "--verbose"),
+            ],
+            [],
+            ProcessSandboxKind.Container,
+            ProcessNetworkPolicy.LoopbackOnly,
+            ProcessIsolationFeature.DirectExecutable |
+                ProcessIsolationFeature.ArgumentArray |
+                ProcessIsolationFeature.NetworkIsolation,
+            30,
+            65_536),
+        new ToolProvenance(
+            ToolCatalogSourceKind.BuiltIn,
+            ToolTrustLevel.BuiltIn,
+            "agentforge.integration-tests",
+            "1.0.0",
+            "sha256:" + new string('a', 64)));
+
     private sealed class StubEnvironmentProfiler(EnvironmentProfile profile) : IEnvironmentProfiler
     {
         public Task<DomainResult<EnvironmentProfile>> CaptureAsync(
@@ -1534,6 +1939,40 @@ public sealed class PersistenceFoundationTests : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(DomainResult.Success(profile));
+        }
+    }
+
+    private sealed class RecordingSandbox : ISandbox
+    {
+        public ProcessSandboxCapabilities Capabilities { get; } = new(
+            ProcessSandboxKind.Container,
+            true,
+            ProcessIsolationFeature.DirectExecutable |
+                ProcessIsolationFeature.ArgumentArray |
+                ProcessIsolationFeature.NetworkIsolation,
+            "Deterministic integration fixture.");
+
+        public int Calls { get; private set; }
+
+        public ProcessExecutionRequest? LastRequest { get; private set; }
+
+        public Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
+            ProcessExecutionRequest request,
+            IProcessOutputObserver? observer,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls++;
+            LastRequest = request;
+            var now = DateTimeOffset.UtcNow;
+            return Task.FromResult(DomainResult.Success(new ProcessExecutionResult(
+                0,
+                Encoding.UTF8.GetBytes("fixture-output"),
+                [],
+                now,
+                now,
+                TimeSpan.Zero,
+                Capabilities)));
         }
     }
 }

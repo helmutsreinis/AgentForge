@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<ISensitiveDataRedactor, StructuredSensitiveDataRedactor>();
         services.AddSingleton<IAuthorizationContextFactory, AuthorizationContextFactory>();
+        services.AddSingleton<ICapabilityPolicyFactory, CapabilityPolicyFactory>();
         services.AddSingleton<ICapabilityPolicyEvaluator, CapabilityPolicyEvaluator>();
         services.AddScoped<ICapabilityApprovalService, CapabilityApprovalService>();
         services.AddScoped<ILocalAdministratorCredentialService, LocalAdministratorCredentialService>();

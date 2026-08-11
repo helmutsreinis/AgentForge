@@ -129,7 +129,7 @@ request parameters or credentials in process arguments. Preview with the current
 version and the exact tool, target, workspace, expiry, actor, and correlation values:
 
 ```text
-<bounded-parameter-source> | agentforge policy approval preview --data-directory <absolute-path> --agent-id <guid> --agent-version <n> --request-actor <actor-id> --capability <capability-id> --risk <risk-class> --tool-id <tool-id> --tool-version <version> --target-kind FileSystemPath --target <absolute-target> --workspace <absolute-workspace> --disposition Grant --expires-at <ISO-8601-with-offset> --actor <administrator-actor> --correlation <approval-correlation> --invocation-correlation <invocation-correlation> --parameters-stdin
+<bounded-parameter-source> | agentforge policy approval preview --data-directory <absolute-path> --agent-id <guid> --agent-version <n> --request-actor <actor-id> --capability <capability-id> --risk <risk-class> --tool-id <tool-id> --tool-version <version> --tool-descriptor-hash <sha256> --target-kind FileSystemPath --target <absolute-target> --workspace <absolute-workspace> --disposition Grant --expires-at <ISO-8601-with-offset> --actor <administrator-actor> --correlation <approval-correlation> --invocation-correlation <invocation-correlation> --parameters-stdin
 ```
 
 The CLI materializes the administrator credential through its OS reference for one
@@ -147,7 +147,8 @@ new installation-scoped idempotency key:
 
 An exact authenticated retry returns the original record; reusing the key with changed
 input returns exit code 3. Store neither parameter sources nor preview output in shared
-logs when they contain local path or recipient metadata. A `Deny` disposition creates
+logs when they contain local path or recipient metadata. Tool ID, version, and descriptor
+hash must be supplied together. A `Deny` disposition creates
 the same exact, expiring durable evidence. This slice does not execute tools: a future
 restricted executor must source risk/tool identity from its catalog, re-evaluate policy,
 enforce isolation and containment, and consume a matching grant atomically.
@@ -173,13 +174,20 @@ to make it run. There is intentionally no generic execution CLI/API. If a proces
 before the later authoritative tool/policy/approval/audit service is enabled, stop the
 host and treat that as a security defect.
 
-The authoritative catalog currently has no operator or model invocation surface. Catalog
+The authoritative catalog and policy-bound invocation service currently have no operator
+or model invocation surface. Catalog
 admission records a fully qualified process path but deliberately does not check that the
 file exists and never runs version/help. Search results are summaries; an exact description
 requires both normalized tool ID and exact SemVer version. Do not infer that inventory,
 catalog membership, a descriptor hash, or an approval row makes a tool callable. Until the
 policy-bound invocation gate passes, any process start attributed to catalog discovery is a
 security defect and the host should be stopped for evidence preservation.
+
+If durable diagnostics show a tool invocation in `Authorized` after an interruption, do
+not rerun it or reset its approval. Treat completion as uncertain, preserve the database,
+audit chain, descriptor hash, and process diagnostics, and require a new reviewed request
+with new approval and idempotency only after ruling out surviving effects. Terminal retry
+returns metadata and hashes only; raw stdout/stderr is intentionally unavailable on replay.
 
 ## Passive environment inventory
 
@@ -292,6 +300,15 @@ instead of applying it to operator state.
 Migration 0006 creates exact capability approval/denial evidence. Its down migration
 drops security decisions and is destructive; restore the full pre-0006 SQLite, artifact,
 and OS-reference backup instead of applying down to operator state.
+
+Migration 0007 adds the exact descriptor hash to capability approvals. Existing tool
+approvals retain a null hash and intentionally cannot authorize a descriptor-bound request.
+Do not backfill or guess hashes; issue a new preview and approval for the exact catalog
+descriptor. Its down migration removes this binding and must not be used to regain authority.
+
+Migration 0008 creates durable tool invocation/idempotency records and optional approval
+provenance. Its down migration destroys execution evidence. Stop the host and restore the
+complete pre-0008 backup rather than applying down to operator state.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
