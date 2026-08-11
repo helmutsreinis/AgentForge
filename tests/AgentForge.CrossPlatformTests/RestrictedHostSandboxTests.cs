@@ -102,7 +102,7 @@ public sealed class RestrictedHostSandboxTests : IDisposable
     {
         var observer = new BlockingObserver();
         var result = await Sandbox.ExecuteAsync(
-            Request("echo-arguments", "observer-output") with { Timeout = TimeSpan.FromMilliseconds(300) },
+            Request("echo-arguments", "observer-output") with { Timeout = TimeSpan.FromSeconds(3) },
             observer,
             CancellationToken.None);
 
@@ -115,14 +115,16 @@ public sealed class RestrictedHostSandboxTests : IDisposable
     public async Task Timeout_terminates_the_process_tree()
     {
         var sentinel = Path.Combine(_temporaryRoot, "timeout-child-sentinel");
+        using var observer = new RecordingObserver();
         var result = await Sandbox.ExecuteAsync(
-            Request("spawn-child", sentinel, "1500") with { Timeout = TimeSpan.FromMilliseconds(300) },
-            null,
+            Request("spawn-child", sentinel, "30000") with { Timeout = TimeSpan.FromSeconds(2) },
+            observer,
             CancellationToken.None);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(FailureCode.BudgetExceeded, result.Failure?.Code);
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.True(TryReadProcessId(observer.StandardOutput, out var childId));
+        Assert.True(await WaitForProcessExitAsync(childId));
         Assert.False(File.Exists(sentinel));
     }
 
@@ -173,14 +175,16 @@ public sealed class RestrictedHostSandboxTests : IDisposable
     public async Task Cancellation_terminates_the_process_tree_and_propagates()
     {
         var sentinel = Path.Combine(_temporaryRoot, "canceled-child-sentinel");
-        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        using var observer = new RecordingObserver();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Sandbox.ExecuteAsync(
-            Request("spawn-child", sentinel, "1500"),
-            null,
+            Request("spawn-child", sentinel, "30000"),
+            observer,
             cancellation.Token));
 
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.True(TryReadProcessId(observer.StandardOutput, out var childId));
+        Assert.True(await WaitForProcessExitAsync(childId));
         Assert.False(File.Exists(sentinel));
     }
 
@@ -353,6 +357,13 @@ public sealed class RestrictedHostSandboxTests : IDisposable
             return true;
         }
     }
+
+    private static bool TryReadProcessId(byte[] output, out int processId) =>
+        int.TryParse(
+            Encoding.UTF8.GetString(output).Trim(),
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out processId);
 
     private static string FindRepositoryRoot()
     {
