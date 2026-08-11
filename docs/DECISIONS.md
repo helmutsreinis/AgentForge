@@ -36,5 +36,6 @@
 | D-032 | Preserve OpenAI, DeepSeek, vLLM, and generic-compatible provider identities over the common hardened wire adapter; validate their secret and transport during shared host/CLI setup without guessing unprobed tool or media capabilities. | Accepted |
 | D-033 | Translate Anthropic Messages as a distinct bounded protocol; require exact HTTPS/cloud destination policy, prepared context, invocation-scoped API-key materialization, listed tools, usage, and terminal message evidence. | Accepted |
 | D-034 | Own durable task DAGs as immutable hash-chained snapshots with exact-version, hash-only worker leases, bounded retry/compensation, atomic audit, and no completed-node replay. | Accepted |
+| D-035 | Derive child grants only by intersecting explicit parent context, capability, budget, policy, skill, depth, count, concurrency, and expiry authority; persist the immutable canonical result. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

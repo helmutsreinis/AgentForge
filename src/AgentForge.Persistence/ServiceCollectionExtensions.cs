@@ -59,6 +59,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IModelBudgetLedgerRepository, SqliteModelBudgetLedgerRepository>();
         services.AddScoped<IRunSnapshotStore, SqliteRunSnapshotStore>();
         services.AddScoped<ITaskSnapshotStore, SqliteTaskSnapshotStore>();
+        services.AddScoped<IDelegationGrantStore, SqliteDelegationGrantStore>();
         services.AddScoped<SqliteModelProviderHealthRepository>();
         services.AddScoped<IModelProviderHealthRepository>(provider =>
             provider.GetRequiredService<SqliteModelProviderHealthRepository>());

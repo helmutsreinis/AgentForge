@@ -295,6 +295,53 @@ public sealed class PersistenceFoundationTests : IDisposable
             Assert.True(replay.IsSuccess);
             Assert.True(replay.Value.WasReplay);
 
+            var parentAuthority = new ParentDelegationAuthority(
+                taskId,
+                installationId,
+                agentId,
+                0,
+                0,
+                0,
+                0,
+                2,
+                2,
+                1,
+                ["tool:repo.read"],
+                [hash],
+                new TaskExecutionBudget(4, 1_000, 1_000, 60),
+                new TaskExecutionBudget(2, 500, 500, 30),
+                hash,
+                hash,
+                clock.UtcNow.AddMinutes(5));
+            var delegationRequest = new ChildDelegationRequest(
+                new ChildDelegationId(Guid.Parse("11234567-0000-0000-0000-000000000005")),
+                agentId,
+                0,
+                DelegationRole.Worker,
+                ["tool:repo.read"],
+                ["tool:repo.read"],
+                [hash],
+                new TaskExecutionBudget(4, 1_000, 1_000, 60),
+                hash,
+                new CorrelationId("orchestration-delegation"),
+                new CorrelationId("orchestration-run"));
+            var delegationService = firstWorker.ServiceProvider.GetRequiredService<IDelegationService>();
+            var delegation = await delegationService.CreateAsync(
+                parentAuthority,
+                delegationRequest,
+                new ActorId("orchestration-worker"),
+                CancellationToken.None);
+            Assert.True(delegation.IsSuccess, delegation.Failure?.Message);
+            Assert.False(delegation.Value.WasReplay);
+            Assert.Equal(new TaskExecutionBudget(2, 500, 500, 30), delegation.Value.Grant.Budget);
+            var delegationReplay = await delegationService.CreateAsync(
+                parentAuthority,
+                delegationRequest,
+                new ActorId("orchestration-worker"),
+                CancellationToken.None);
+            Assert.True(delegationReplay.IsSuccess);
+            Assert.True(delegationReplay.Value.WasReplay);
+
             var claim = await orchestrator.ClaimAsync(
                 taskId,
                 0,
