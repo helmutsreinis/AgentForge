@@ -42,6 +42,14 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ScheduleSnapshotEntity> ScheduleSnapshots => Set<ScheduleSnapshotEntity>();
 
+    internal DbSet<SkillVersionEntity> SkillVersions => Set<SkillVersionEntity>();
+
+    internal DbSet<SkillActiveVersionEntity> SkillActiveVersions => Set<SkillActiveVersionEntity>();
+
+    internal DbSet<SkillProposalSnapshotEntity> SkillProposalSnapshots => Set<SkillProposalSnapshotEntity>();
+
+    internal DbSet<SkillRunSnapshotEntity> SkillRunSnapshots => Set<SkillRunSnapshotEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -470,6 +478,69 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SnapshotJson).IsRequired();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<SkillVersionEntity>(entity =>
+        {
+            entity.ToTable("skill_versions");
+            entity.HasKey(item => new { item.InstallationId, item.SkillId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>().WithMany().HasForeignKey(item => item.ArtifactContentHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.SkillId, item.Status });
+            entity.Property(item => item.SkillId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.ArtifactContentHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PackageHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ManifestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.Status).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Provenance).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.DescriptorJson).IsRequired();
+            entity.Property(item => item.RecordVersion).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillActiveVersionEntity>(entity =>
+        {
+            entity.ToTable("skill_active_versions");
+            entity.HasKey(item => new { item.InstallationId, item.SkillId });
+            entity.HasOne<SkillVersionEntity>().WithMany()
+                .HasForeignKey(item => new { item.InstallationId, item.SkillId, item.Version })
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.SkillId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillProposalSnapshotEntity>(entity =>
+        {
+            entity.ToTable("skill_proposal_snapshots");
+            entity.HasKey(item => new { item.ProposalId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.SkillId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.SkillId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ProposalJson).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillRunSnapshotEntity>(entity =>
+        {
+            entity.ToTable("skill_run_snapshots");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CausationId).HasMaxLength(128);
         });

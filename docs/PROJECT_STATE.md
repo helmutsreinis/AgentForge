@@ -99,10 +99,13 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Missing required capability, unknown context, expired authority, exhausted depth/count/concurrency, zero useful budget, duplicate input, or grant tampering fails closed. Immutable grants pin parent/child versions plus policy/skill hashes and persist atomically with redacted audit; all orchestration pattern identities remain explicit in the task definition.
 - M4 slice 3 added durable one-shot, interval, bounded cron, and local-calendar schedules. Exact timezone resolution, explicit spring-gap/fall-ambiguity handling, deterministic jitter, preview, misfire, overlap, retry, recovery, pause/resume, run-now, expiry, and dead-letter transitions are pure and hash chained.
 - A bounded hosted scan reads only latest due versions and appends durable occurrences through optimistic service transitions. Occurrence/run-now identities are idempotent, worker tokens remain hash-only, schedule authority pins the exact agent plus policy/capability/budget/skill hashes, and restart recovery completes versions 0-6 without duplicate dispatch.
+- M5 added the independent Skills module, strict portable package loading, deterministic SemVer/dependency validation, canonical content-addressed bundles, signature verification boundary, immutable registry versions, descriptor-only discovery, and artifact-only skill bodies.
+- Seed, user, and agent-proposed packages now share one install and governance path. Append-only hash-chained proposals bind exact baseline/candidate hashes, deterministic evaluation and permission diffs, separate approval, canary evidence, quarantine, archive/restore, and atomic active-pointer promotion/rollback.
+- Run snapshots pin exact transitive skill versions, permissions, artifacts, and hashes. Existing sessions retain their original body after promotion; stale promotions fail, regressing canaries quarantine, and raw Markdown is absent from relational rows.
 
 ## Latest gate
 
-`artifacts/gates/M4-03-20260812.md`: Pass. Milestone 4 is complete.
+`artifacts/gates/M5-20260812.md`: Pass. Milestone 5 is complete.
 
 ## Known constraints and risks
 
@@ -120,5 +123,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Begin Milestone 5 with portable `SKILL.md` plus `skill.harness.json` validation, immutable package
-versions, dependency resolution, run snapshots, and the governed promotion lifecycle.
+Begin Milestone 6 with isolated Git worktrees, repository and semantic discovery, hash-bound
+patches, policy-bound coding backends, durable plans/checkpoints, and build/test/review verification.

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "skill:csharp.review",
+  "version": "1.0.0",
+  "description": "Review C# changes with bounded repository-read authority.",
+  "dependencies": [],
+  "requirements": {
+    "operatingSystems": ["windows", "linux"],
+    "modelCapabilities": ["text-generation"],
+    "tools": []
+  },
+  "permissions": ["repository:read"],
+  "signature": null
+}

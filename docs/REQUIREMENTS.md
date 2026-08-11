@@ -11,7 +11,7 @@ passing gate report.
 | AF-PLAT-001 | The same .NET host builds and starts on supported Windows and Linux environments without platform logic in Domain. | 0 | Verified |
 | AF-PLAT-002 | Projects use locked dependencies, nullable annotations, analyzers, deterministic output, and warnings-as-errors. | 0 | Verified |
 | AF-ARCH-001 | Domain has no infrastructure dependencies and feature implementations communicate through Abstractions. | 0 | Verified |
-| AF-ARCH-002 | The bootstrap kernel contains only configuration, recovery, policy, audit, loading, snapshots, and promotion primitives. | 0-5 | In progress |
+| AF-ARCH-002 | The bootstrap kernel contains only configuration, recovery, policy, audit, loading, snapshots, and promotion primitives. | 0-5 | Verified |
 | AF-SET-001 | A clean launch detects an uninitialized installation and exposes setup while normal runtime operations fail closed. | 0 | Verified |
 | AF-SET-002 | Interactive and non-interactive setup use the same application services and validation rules. | 1 | Verified |
 | AF-SET-003 | Setup validates storage, one text provider/model, policy, audit, and one named agent before Ready. | 1 | Verified |
@@ -55,8 +55,8 @@ passing gate report.
 
 | ID | Requirement and acceptance criterion | Milestone | Status |
 |---|---|---:|---|
-| AF-SKILL-001 | Portable SKILL.md packages use a validated harness sidecar, immutable versions, content hashes, dependencies, and run snapshots. | 5 | Planned |
-| AF-SKILL-002 | Seed and created skills share proposal, evaluation, promotion, canary, rollback, quarantine, archive, signature, and provenance behavior. | 5 | Planned |
+| AF-SKILL-001 | Portable SKILL.md packages use a validated harness sidecar, immutable versions, content hashes, dependencies, and run snapshots. | 5 | Verified |
+| AF-SKILL-002 | Seed and created skills share proposal, evaluation, promotion, canary, rollback, quarantine, archive, signature, and provenance behavior. | 5 | Verified |
 | AF-CODE-001 | Coding work uses isolated Git worktrees, semantic navigation, hash-bound patches, build/test/review verification, and durable checkpoints. | 6 | Planned |
 | AF-CODE-002 | Unrelated operator changes remain untouched and external coding backends cannot bypass AgentForge policy or verification. | 6 | Planned |
 | AF-LEARN-001 | Evidence-backed learning separates worker, proposer, deterministic verifier, critic, and governor roles. | 9 | Planned |
