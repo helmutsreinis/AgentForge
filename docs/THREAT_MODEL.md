@@ -367,3 +367,30 @@ provider errors. They are snapshotted, bounded, capability-checked, and terminal
 a retryable failure never produces false completion. No external adapter, credential
 materialization, model-context redaction, public call surface, or cloud fallback is enabled
 in this slice, so no prompt can yet cross an external model trust boundary.
+
+## M3 credential-free OpenAI-compatible update
+
+The compatible adapter crosses an external HTTP boundary only when explicitly constructed;
+it is absent from production DI and has no CLI/API route. It accepts no credential reference
+or raw header map. HTTPS is the default, while the operator's LAN endpoint requires a visible
+plaintext-transport opt-in. URIs containing user info, query, or fragment are rejected, the
+successful response must report the exact original request URI, and public construction
+owns a transport with redirects, cookies, proxies, and automatic decompression disabled.
+It accepts no caller-owned client or arbitrary header map; the fake-handler seam is internal
+to the unit-test assembly. This is not yet a complete SSRF control: network policy, DNS/IP
+revalidation, and locality routing remain mandatory before runtime composition.
+
+Outbound JSON is written from a normalized snapshot and has a fixed byte ceiling. The
+response must be `text/event-stream`; declared length, total bytes, individual lines/events,
+wall time, output usage, tool calls, arguments, and emitted events are bounded. Every SSE
+line is strict UTF-8. Data JSON is depth-limited, recursively duplicate-key checked, and
+translated to typed records. Unknown tools, unstable IDs/names, malformed arguments,
+unsupported reasoning channels, inconsistent finish reasons, invalid structured output,
+and truncation terminate with an error and no false completion. Remote error bodies are
+discarded; only bounded status/retry metadata and fixed AgentForge messages cross inward.
+
+The live gate sent one fixed non-secret prompt to the operator-authorized `qwen3.6` LAN
+endpoint and verified text, usage, and typed stop completion through the actual adapter.
+Because model-context redaction and secret materialization are not connected, the adapter
+remains credential-free and unregistered. Media evidence is rejected at adapter creation so
+artifact-backed content cannot be silently omitted.
