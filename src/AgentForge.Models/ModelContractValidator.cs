@@ -263,7 +263,7 @@ internal static class ModelContractValidator
         Enum.IsDefined(attachment.Modality) &&
         (attachment.FileName is null || IsFileName(attachment.FileName));
 
-    private static string ComputeInputHash(ModelRequest request)
+    internal static string ComputeInputHash(ModelRequest request)
     {
         var canonical = new
         {

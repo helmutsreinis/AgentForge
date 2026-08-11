@@ -339,11 +339,24 @@ healthy; do not fabricate `Healthy`, extend evidence beyond 15 minutes, clear at
 or reuse an expired plan to force a route.
 
 Route plans contain hashes and versions but are not bearer capabilities or invocation receipts.
-There is intentionally no CLI/API command to create or consume one. Until durable run/audit and
-budget reservation are implemented, leave both production catalogs empty and do not resolve the
-selected adapter. A retry may add only the exact profile that produced a typed retryable failure,
-up to eight unique attempts, while retaining the original prepared request and expected policy
-versions.
+There is intentionally no CLI/API command to create or consume one. The internal admission
+service may consume only a current exact plan to reserve durable state; leave both production
+catalogs empty and do not resolve the selected adapter. A retry may add only the exact profile
+that produced a typed retryable failure, up to eight unique attempts, while retaining the
+original prepared request and expected policy versions.
+
+Model run admission now persists a `Reserved` run and `Planned` first attempt together with one
+redacted audit event. It is still an internal service with no CLI/API route. Exact retries must
+reuse the installation-scoped idempotency key and all original authority, request, actor, and
+correlation inputs; a changed request must use a new key. Never repair a conflicting retry by
+editing hashes, deleting the existing row, extending a plan lifetime, or reconstructing context
+inside SQLite.
+
+A `Reserved` run proves only durable admission. Do not manually mark it `Running`, resolve its
+profile, materialize its secret, or call a provider. The next runtime gate must acquire a durable
+start lease, re-read current authority/destination, reconcile cumulative reservations, and commit
+start evidence before egress. Cancellation and terminal transitions exist as pure domain logic
+but are not yet exposed as operational recovery commands.
 
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
@@ -400,6 +413,11 @@ descriptor. Its down migration removes this binding and must not be used to rega
 Migration 0008 creates durable tool invocation/idempotency records and optional approval
 provenance. Its down migration destroys execution evidence. Stop the host and restore the
 complete pre-0008 backup rather than applying down to operator state.
+
+Migration 0009 creates durable model-run and first-attempt reservation evidence. Its down
+migration destroys idempotency, route provenance, budget reservations, and terminal history.
+Stop the host and restore the complete pre-0009 backup rather than applying down to operator
+state. Never delete a reserved run to make an uncertain retry appear new.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

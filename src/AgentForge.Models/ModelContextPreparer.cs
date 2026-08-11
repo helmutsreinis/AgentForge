@@ -91,7 +91,11 @@ public sealed class ModelContextPreparer(ISensitiveDataRedactor redactor) : IMod
                 ResponseFormat = request.ResponseFormat with { JsonSchema = responseSchema },
                 Limits = request.Limits with { },
             };
-            return DomainResult.Success(new PreparedModelContext(preparedRequest, redactionCount, PolicyName));
+            return DomainResult.Success(new PreparedModelContext(
+                preparedRequest,
+                redactionCount,
+                PolicyName,
+                ModelContractValidator.ComputeInputHash(preparedRequest)));
         }
         catch (Exception exception) when (exception is ArgumentException or JsonException or NotSupportedException or OverflowException)
         {

@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IModelProviderHealthSource>(_ => ModelProviderHealthCatalog.Create([]).Value);
         services.AddSingleton<IModelRouter, ModelRouter>();
         services.AddScoped<IModelRoutePlanner, ModelRoutePlanner>();
+        services.AddScoped<IModelRunAdmissionService, ModelRunAdmissionService>();
         return services;
     }
 }

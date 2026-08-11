@@ -283,9 +283,30 @@ result contains no endpoint, secret, or request content. It pins prepared input,
 installation/agent/provider versions, route/health evidence, and expires after at most five
 seconds. It is diagnostic planning evidence, not permission to call a provider.
 
-Production provider and health catalogs are both empty. The next service must atomically
-create durable run/attempt state, reserve cumulative budget, append redacted audit, revalidate
-the short-lived plan, and only then resolve a provider. No public model route exists.
+Production provider and health catalogs are both empty. The admission boundary below now
+persists run/attempt reservation and audit, while exact adapter resolution and provider start
+remain disabled. No public model route exists.
+
+## Durable model run admission
+
+`IModelRunAdmissionService` consumes a caller request only through the existing context preparer
+and route planner. Context preparation supplies a redacted effective-input hash for idempotency;
+the planner supplies exact versioned route, prepared-input, health, and short-lived plan evidence.
+Admission verifies identity/version/reservation agreement and uses the pure
+`ModelRunStateMachine` to create one `Reserved` run and one `Planned` attempt.
+
+Persistence maps the aggregate to `model_runs` and `model_run_attempts`. A unique
+installation/idempotency key plus fixed-time admission-hash comparison distinguishes exact
+replay from conflicting reuse. The two rows and one redacted `model.run-reserved` audit event
+share an EF unit of work. Durable fields are limited to IDs, versions, bounded typed route and
+capability evidence, hashes, reservations, usage, state, timestamps, actor/correlation, and
+terminal classification; request content and provider connection material have no schema path.
+
+Run transitions are pure domain code: reservation can start once; a started attempt can succeed
+or fail only within its input/output/tool/time reservation; observed overage becomes
+`BudgetExceeded`; reserved or running work can cancel once. Versions advance on every transition.
+Admission deliberately stops before start. Production catalogs remain empty and no host/CLI
+model mutation exists, so a durable reservation cannot yet cause provider egress.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
