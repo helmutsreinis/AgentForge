@@ -2,6 +2,7 @@ using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
@@ -51,6 +52,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IArtifactStore, FileSystemArtifactStore>();
         services.AddScoped<IProviderProfileRepository, SqliteProviderProfileRepository>();
         services.AddScoped<IAgentIdentityRepository, SqliteAgentIdentityRepository>();
+        services.AddScoped<IModelRouteAuthoritySnapshotReader, SqliteModelRouteAuthoritySnapshotReader>();
         services.AddScoped<ILocalAdministratorRepository, SqliteLocalAdministratorRepository>();
         services.AddScoped<ISetupProfileSnapshotRepository, SqliteSetupProfileSnapshotRepository>();
         services.AddScoped<ICapabilityApprovalRepository, SqliteCapabilityApprovalRepository>();

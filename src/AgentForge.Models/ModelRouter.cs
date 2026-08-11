@@ -14,7 +14,7 @@ public sealed class ModelRouter(
     IModelProviderCatalog catalog,
     IClock clock) : IModelRouter
 {
-    private const int MaximumExcludedProfiles = 64;
+    private const int MaximumExcludedProfiles = 256;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     public DomainResult<ModelRouteSelection> SelectRoute(ModelRoutingRequest request)

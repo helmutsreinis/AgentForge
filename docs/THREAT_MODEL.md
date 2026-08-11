@@ -456,3 +456,27 @@ descriptor-level policy evidence is not yet bound to an agent/profile version. P
 DNS/IP destination revalidation, audit, cumulative reservation, and durable run snapshots are
 not implemented here. Therefore the catalog remains empty and there is no public model route;
 the later invocation service must close those races before egress.
+
+## M3 health-aware route-planning update
+
+The scoped planner no longer accepts policy, model identity, or budget from model content as
+authority. Context is prepared first; then a serializable persistence reader returns the exact
+installation, agent, and provider-profile set. Exact expected versions, `Ready`, the primary
+profile's durable model, provider catalog/profile identity, persisted capability flags, and
+agent request budgets must all agree. A changed request model is denied before health or route
+selection.
+
+Health is a bounded typed trust input. Records cannot contain remote error text, duplicate
+profiles, unbounded lifetimes, or open-ended retry state. Missing and non-healthy evidence both
+exclude a profile, preventing deletion from turning failure into health. Attempt history is
+bounded, unique, and exact-catalog-only. Authority and relevant health are read twice; changed
+authority conflicts, while changed health or eligibility asks the caller to retry. Plans expire
+within five seconds and bind prepared-input, policy/version, route, and health hashes without
+returning endpoints, references, request content, or credentials.
+
+Serializable reads and double checking do not make a plan authorization. A profile or network
+destination can still change after planning; health observations are deterministic/configured
+fixtures rather than a durable circuit breaker. The production catalogs remain empty and no
+provider is resolved. Durable run/attempt idempotency, cumulative budget reservation, audit,
+destination DNS/IP revalidation, health recording, and exact adapter resolution remain required
+before egress.
