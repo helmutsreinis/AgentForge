@@ -117,10 +117,12 @@ learning. Keep unavailable live hardware/container gates open and every device w
 - Provider metadata and credential entry are staged separately. The server reads the bounded credential as strict UTF-8 into a clearable character buffer, uses the same credential/profile validator as CLI, and clears it after the call. Agent preview/create uses the CLI's conservative defaults and the end-to-end test verifies the persisted policy is equivalent.
 - Milestone 7 passes locked Release build, format, migration drift, vulnerability scan, 345/345 product tests and 2/2 framework-spike tests on both Windows and Ubuntu. Release checkpoint `0.4 Integration Beta` is ready on the stacked branch.
 - M8 slice 1 added the independent Devices module, passive Windows registry and Linux sysfs inventory, stable physical identity separate from COM/tty paths, deterministic attach/detach/re-enumeration/readiness changes, conservative DTR/RTS-off profiles, and distinct exact grants for inventory, capture, read, write, command, calibration, firmware, and privilege. Production discovery contains no port-open, write, or process primitive.
+- M8 slice 2 added an exact-grant serial session boundary and an empty production transport catalog. Capture, read, and write gates are independently enforced; missing adapters fail typed, partial writes fail retryably, and no public/device transport is enabled by default.
+- Captures enforce byte, frame, duration, timing, and memory bounds; account dropped bytes, truncation, and disconnects; store a versioned little-endian content-addressed artifact; persist only metadata/hash evidence in SQLite; validate every replay; audit terminal evidence; and replay idempotently after restart. Migration 0021 adds exact installation/agent/artifact foreign keys and installation-scoped idempotency.
 
 ## Latest gate
 
-`artifacts/gates/M8-01-20260812.md`: Pass. Passive serial discovery and capability separation are complete.
+`artifacts/gates/M8-02-20260812.md`: Pass. Bounded immutable serial capture/replay and exact session gates are complete.
 
 ## Known constraints and risks
 

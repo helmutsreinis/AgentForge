@@ -10,8 +10,11 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IPassiveSerialInventorySource, SystemPassiveSerialInventorySource>();
+        services.TryAddSingleton<ISerialTransportCatalog>(_ => new SerialTransportCatalog([]));
         services.AddSingleton<ISerialDiscoveryService, PassiveSerialDiscoveryService>();
         services.AddSingleton<IDeviceCapabilityAuthorizer, DeviceCapabilityAuthorizer>();
+        services.AddScoped<ISerialCaptureService, SerialCaptureService>();
+        services.AddScoped<ISerialSessionService, SerialSessionService>();
         return services;
     }
 }

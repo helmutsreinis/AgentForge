@@ -500,6 +500,16 @@ progress, and hash-chain evidence. It fabricates no loops for existing state. It
 deletes recovery and completion evidence. Restore the full pre-0013 backup rather than applying
 down; never edit or resequence snapshots to force resume.
 
+Migration 0021 creates immutable serial-capture metadata with exact installation, agent, physical-device,
+idempotency, stream-hash, and content-addressed artifact bindings. Stop the host and back up the database,
+WAL/SHM, and artifact directory together before upgrade. Verify restart replay and audit integrity after
+upgrade. Its down migration destroys capture provenance; restore the full pre-0021 backup instead.
+
+Serial discovery is passive and may run without an I/O grant. Capture, read, and write are distinct. The
+production transport catalog is intentionally empty; install a platform adapter only through its live hardware
+gate. Never treat a capture grant as read/write authority, enable DTR/RTS implicitly, retry an uncertain write,
+or edit capture totals/hashes to bypass replay validation.
+
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
 SHA-256 for every file, compares the restored set, initializes migrations, verifies

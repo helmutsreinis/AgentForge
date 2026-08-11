@@ -755,3 +755,12 @@ toggle DTR/RTS or transmit bytes. Stable identity is hashed from hardware eviden
 `/dev/tty*` endpoint; re-enumeration is an explicit event rather than a new authority. Profiles default DTR and RTS off.
 Inventory, capture, read, write, command, calibration, firmware, and privileged access are separate expiring grants;
 having any one does not imply another. Unknown readiness remains explicit and never silently becomes permission.
+
+Serial transport is a separate explicit boundary. The production catalog is empty, so discovery cannot become I/O and
+all real hardware remains gated. Capture, one-shot read, and write each rebind the grant to the physical device and exact
+operation; a capture grant cannot read or write. Profiles and byte limits are validated before an adapter call, partial
+write confirmation fails retryably, and unsupported platforms fail typed. Captures accept only monotonic bounded frames,
+account zero-byte drop/disconnect evidence, stop at byte/time bounds, and store raw bytes only in a versioned little-endian
+content-addressed artifact. SQLite and audit retain hashes/counts rather than payload bytes. Replay validates artifact
+length, magic/version, physical-device binding, frame bounds/order, byte/drop totals, and a canonical stream hash before
+yielding data. Artifact tampering is a hard integrity failure.
