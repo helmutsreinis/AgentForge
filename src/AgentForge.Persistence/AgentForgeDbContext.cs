@@ -29,6 +29,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ModelRunAttemptEntity> ModelRunAttempts => Set<ModelRunAttemptEntity>();
 
+    internal DbSet<ModelBudgetLedgerEntity> ModelBudgetLedgers => Set<ModelBudgetLedgerEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -267,6 +269,7 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.CreatedAtUtcTicks });
             entity.Property(item => item.ProviderType).HasMaxLength(64).IsRequired();
             entity.Property(item => item.Model).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.AttemptedProfileIdsJson).HasMaxLength(512).IsRequired();
             entity.Property(item => item.RequiredCapabilitiesJson).HasMaxLength(1024).IsRequired();
             entity.Property(item => item.SelectionEvidenceHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.PlanEvidenceHash).HasMaxLength(71).IsRequired();
@@ -274,6 +277,9 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.HealthEvidenceHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.ContextPreparationPolicy).HasMaxLength(128).IsRequired();
             entity.Property(item => item.AdmissionRequestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.LeaseOwner).HasMaxLength(256);
+            entity.Property(item => item.LeaseTokenHash).HasMaxLength(71);
+            entity.Property(item => item.EventStreamHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.Currency).HasMaxLength(3);
             entity.Property(item => item.State).HasMaxLength(64).IsRequired();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
@@ -303,10 +309,27 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.RequiredCapabilitiesJson).HasMaxLength(1024).IsRequired();
             entity.Property(item => item.SelectionEvidenceHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.PlanEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.EventStreamHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.State).HasMaxLength(64).IsRequired();
             entity.Property(item => item.Currency).HasMaxLength(3);
             entity.Property(item => item.FinishReason).HasMaxLength(64);
             entity.Property(item => item.FailureCode).HasMaxLength(64);
+            entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ModelBudgetLedgerEntity>(entity =>
+        {
+            entity.ToTable("model_budget_ledgers");
+            entity.HasKey(item => item.AgentId);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId }).IsUnique();
             entity.Property(item => item.Version).IsConcurrencyToken();
         });
     }

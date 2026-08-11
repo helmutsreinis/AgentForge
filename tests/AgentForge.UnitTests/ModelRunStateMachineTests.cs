@@ -12,6 +12,8 @@ public sealed class ModelRunStateMachineTests
     private static readonly string HashB = "sha256:" + new string('b', 64);
     private static readonly string HashC = "sha256:" + new string('c', 64);
     private static readonly string HashD = "sha256:" + new string('d', 64);
+    private static readonly string LeaseToken = new('L', 43);
+    private static readonly ModelRunStreamEvidence StreamEvidence = new(2, 1, HashA);
 
     [Fact]
     public void Reservation_snapshots_route_and_budget_evidence()
@@ -27,6 +29,7 @@ public sealed class ModelRunStateMachineTests
         Assert.Equal(ModelRunAttemptState.Planned, result.Value.Attempt.State);
         Assert.Equal(1, result.Value.Attempt.Sequence);
         Assert.Equal(4096, result.Value.Run.Reservation.OutputTokens);
+        Assert.Equal(32, result.Value.Run.Reservation.Events);
         Assert.DoesNotContain(ModelCapability.ToolCalls, result.Value.Run.Route.RequiredCapabilities);
         Assert.Equal(plan.PlanEvidenceHash, result.Value.Attempt.PlanEvidenceHash);
     }
@@ -61,7 +64,9 @@ public sealed class ModelRunStateMachineTests
 
         var completed = ModelRunStateMachine.Complete(
             started,
+            LeaseToken,
             usage,
+            StreamEvidence,
             ModelFinishReason.Stop,
             Now.AddSeconds(2));
 
@@ -79,7 +84,7 @@ public sealed class ModelRunStateMachineTests
     [InlineData(1001, 0, 0, 1)]
     [InlineData(0, 4097, 0, 1)]
     [InlineData(0, 0, 5, 1)]
-    [InlineData(0, 0, 0, 31)]
+    [InlineData(0, 0, 0, 30)]
     public void Budget_exceeded_is_a_distinct_terminal_state(
         long inputTokens,
         long outputTokens,
@@ -91,13 +96,17 @@ public sealed class ModelRunStateMachineTests
 
         Assert.False(ModelRunStateMachine.Complete(
             started,
+            LeaseToken,
             usage,
+            StreamEvidence,
             ModelFinishReason.Length,
             Now.AddSeconds(elapsedSeconds)).IsSuccess);
 
         var exceeded = ModelRunStateMachine.RecordBudgetExceeded(
             started,
+            LeaseToken,
             usage,
+            StreamEvidence,
             Now.AddSeconds(elapsedSeconds));
 
         Assert.True(exceeded.IsSuccess, exceeded.Failure?.Message);
@@ -106,12 +115,40 @@ public sealed class ModelRunStateMachineTests
     }
 
     [Fact]
+    public void Event_overflow_cannot_be_recorded_as_success()
+    {
+        var started = Start();
+        var overflow = new ModelRunStreamEvidence(33, 32, HashA);
+        var usage = new ModelUsage(1, 2, 0, null, null);
+
+        var completed = ModelRunStateMachine.Complete(
+            started,
+            LeaseToken,
+            usage,
+            overflow,
+            ModelFinishReason.Stop,
+            Now.AddSeconds(1));
+        var exceeded = ModelRunStateMachine.RecordBudgetExceeded(
+            started,
+            LeaseToken,
+            usage,
+            overflow,
+            Now.AddSeconds(1));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, completed.Failure?.Code);
+        Assert.True(exceeded.IsSuccess, exceeded.Failure?.Message);
+        Assert.Equal(ModelRunState.BudgetExceeded, exceeded.Value.Run.State);
+    }
+
+    [Fact]
     public void Failure_preserves_retry_classification_with_bounded_usage()
     {
         var failed = ModelRunStateMachine.Fail(
             Start(),
+            LeaseToken,
             new DomainFailure(FailureCode.RecoverableExternalFailure, "fixture", true),
             new ModelUsage(1, 2, 0, null, null),
+            StreamEvidence,
             Now.AddSeconds(2));
 
         Assert.True(failed.IsSuccess, failed.Failure?.Message);
@@ -125,11 +162,75 @@ public sealed class ModelRunStateMachineTests
     {
         var failed = ModelRunStateMachine.Fail(
             Start(),
+            LeaseToken,
             new DomainFailure(FailureCode.BudgetExceeded, "fixture"),
             new ModelUsage(1, 2, 0, null, null),
+            StreamEvidence,
             Now.AddSeconds(2));
 
         Assert.Equal(FailureCode.InvalidStateTransition, failed.Failure?.Code);
+    }
+
+    [Fact]
+    public void Terminal_transition_requires_the_exact_unpersisted_lease_token()
+    {
+        var started = Start();
+
+        var result = ModelRunStateMachine.Complete(
+            started,
+            new string('X', 43),
+            new ModelUsage(1, 2, 0, null, null),
+            StreamEvidence,
+            ModelFinishReason.Stop,
+            Now.AddSeconds(2));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, result.Failure?.Code);
+        Assert.NotEqual(LeaseToken, started.Run.Lease?.TokenHash);
+        Assert.StartsWith("sha256:", started.Run.Lease?.TokenHash, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Start_rejects_oversized_or_malformed_leases()
+    {
+        var reserved = Reserve(CreatePlan()).Value;
+
+        var oversized = ModelRunStateMachine.Start(
+            reserved,
+            "model-worker",
+            LeaseToken,
+            Now,
+            Now.AddSeconds(91));
+        var malformed = ModelRunStateMachine.Start(
+            reserved,
+            "model-worker",
+            new string('!', 43),
+            Now,
+            Now.AddSeconds(45));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, oversized.Failure?.Code);
+        Assert.Equal(FailureCode.InvalidStateTransition, malformed.Failure?.Code);
+    }
+
+    [Fact]
+    public void Expired_lease_cannot_authorize_a_terminal_transition()
+    {
+        var reserved = Reserve(CreatePlan()).Value;
+        var started = ModelRunStateMachine.Start(
+            reserved,
+            "model-worker",
+            LeaseToken,
+            Now,
+            Now.AddSeconds(1)).Value;
+
+        var result = ModelRunStateMachine.Complete(
+            started,
+            LeaseToken,
+            new ModelUsage(1, 2, 0, null, null),
+            StreamEvidence,
+            ModelFinishReason.Stop,
+            Now.AddSeconds(2));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, result.Failure?.Code);
     }
 
     [Fact]
@@ -137,17 +238,32 @@ public sealed class ModelRunStateMachineTests
     {
         var reserved = Reserve(CreatePlan()).Value;
         var canceledReservation = ModelRunStateMachine.Cancel(reserved, Now.AddSeconds(1));
-        var canceledRunning = ModelRunStateMachine.Cancel(Start(), Now.AddSeconds(1));
+        var canceledRunning = ModelRunStateMachine.CancelRunning(
+            Start(),
+            LeaseToken,
+            new ModelUsage(0, 0, 0, null, null),
+            StreamEvidence,
+            Now.AddSeconds(1));
 
         Assert.Equal(ModelRunState.Canceled, canceledReservation.Value.Run.State);
         Assert.Equal(ModelRunAttemptState.Canceled, canceledRunning.Value.Attempt.State);
-        Assert.False(ModelRunStateMachine.Start(canceledReservation.Value, Now.AddSeconds(2)).IsSuccess);
+        Assert.False(ModelRunStateMachine.Start(
+            canceledReservation.Value,
+            "model-worker",
+            LeaseToken,
+            Now.AddSeconds(2),
+            Now.AddSeconds(10)).IsSuccess);
     }
 
     private static ModelRunAggregate Start()
     {
         var reserved = Reserve(CreatePlan()).Value;
-        var started = ModelRunStateMachine.Start(reserved, Now);
+        var started = ModelRunStateMachine.Start(
+            reserved,
+            "model-worker",
+            LeaseToken,
+            Now,
+            Now.AddSeconds(45));
         Assert.True(started.IsSuccess, started.Failure?.Message);
         return started.Value;
     }
@@ -173,6 +289,7 @@ public sealed class ModelRunStateMachineTests
         new AgentIdentityId(Guid.Parse("23e09ddb-1c4c-449c-984e-c1fe8df4cce9")),
         3,
         4,
+        [],
         new ModelRouteSelection(
             new ProviderProfileId(Guid.Parse("e95a077c-e068-472c-9581-70391aeb03d1")),
             "fake",
@@ -187,6 +304,7 @@ public sealed class ModelRunStateMachineTests
         1000,
         4096,
         4,
+        32,
         30,
         Now,
         Now.AddSeconds(5),

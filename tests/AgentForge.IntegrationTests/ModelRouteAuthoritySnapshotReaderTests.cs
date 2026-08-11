@@ -5,6 +5,7 @@ using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Time;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
@@ -35,6 +36,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Path.GetTempPath(),
         $"agentforge-route-authority-{Guid.NewGuid():N}");
     private ServiceProvider? _services;
+    private RecordingProvider? _provider;
 
     [Fact]
     public async Task Reads_installation_agent_and_provider_profiles_in_one_durable_snapshot()
@@ -251,7 +253,10 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             runId = admitted.Value.Aggregate.Run.Id;
             var started = ModelRunStateMachine.Start(
                 admitted.Value.Aggregate,
-                admitted.Value.Aggregate.Run.CreatedAt);
+                "integration-worker",
+                new string('I', 43),
+                admitted.Value.Aggregate.Run.CreatedAt,
+                admitted.Value.Aggregate.Run.CreatedAt.AddSeconds(45));
             Assert.True(started.IsSuccess, started.Failure?.Message);
             await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
                 .UpdateAsync(started.Value, 0, 0, CancellationToken.None);
@@ -267,7 +272,12 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             Assert.Equal(ModelRunState.Running, persisted.Run.State);
             var completed = ModelRunStateMachine.Complete(
                 persisted,
+                new string('I', 43),
                 new ModelUsage(120, 60, 0, 0.125m, "usd"),
+                new ModelRunStreamEvidence(
+                    2,
+                    1,
+                    "sha256:" + new string('a', 64)),
                 ModelFinishReason.Stop,
                 persisted.Run.StartedAt!.Value.AddSeconds(1));
             Assert.True(completed.IsSuccess, completed.Failure?.Message);
@@ -289,6 +299,186 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Assert.Equal(2, final.Run.Version);
     }
 
+    [Fact]
+    public async Task Execution_starts_and_reconciles_atomically_without_persisting_model_content()
+    {
+        await SeedAsync();
+        const string prompt = "execution prompt that must remain outside durable storage";
+        const string output = "execution output that must remain outside durable storage";
+        var admission = Admission(prompt, "execution-001");
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            var result = await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            admitted = result.Value;
+        }
+
+        ModelRunExecutionResult executed;
+        await using (var executionScope = Services.CreateAsyncScope())
+        {
+            var result = await executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+                .ExecuteAsync(new ModelRunExecutionRequest(
+                    admitted.Aggregate.Run.Id,
+                    admitted.Aggregate.Run.Version,
+                    admission.PlanningRequest.Request,
+                    admission.ActorId,
+                    "integration-worker",
+                    admission.CorrelationId,
+                    admission.CausationId), null, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            executed = result.Value;
+            Assert.Equal(ModelRunState.Succeeded, executed.Aggregate.Run.State);
+            Assert.Equal(ModelRunAttemptState.Succeeded, executed.Aggregate.Attempt.State);
+            Assert.Equal(120, executed.Aggregate.Run.Usage.InputTokens);
+            Assert.Equal(60, executed.Aggregate.Run.Usage.OutputTokens);
+            Assert.Equal(4, executed.Aggregate.Run.StreamEvidence.EventCount);
+            Assert.NotNull(executed.Aggregate.Run.Lease);
+            Assert.StartsWith(
+                "sha256:",
+                executed.Aggregate.Run.Lease!.TokenHash,
+                StringComparison.Ordinal);
+        }
+
+        await using (var verificationScope = Services.CreateAsyncScope())
+        {
+            var ledger = await verificationScope.ServiceProvider
+                .GetRequiredService<IModelBudgetLedgerRepository>()
+                .FindAsync(AgentId, CancellationToken.None);
+            Assert.NotNull(ledger);
+            Assert.Equal(0, ledger.ActiveRuns);
+            Assert.Equal(1, ledger.Consumption.CompletedRuns);
+            Assert.Equal(120, ledger.Consumption.InputTokens);
+            Assert.Equal(60, ledger.Consumption.OutputTokens);
+            Assert.Equal(4, ledger.Consumption.Events);
+
+            var audit = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(InstallationId, 0, 10, CancellationToken.None);
+            Assert.Equal(
+                ["model.run-reserved", "model.run-started", "model.run-completed"],
+                audit.Select(item => item.OperationType));
+            Assert.True((await verificationScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+
+            var replay = await verificationScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+                .ExecuteAsync(new ModelRunExecutionRequest(
+                    admitted.Aggregate.Run.Id,
+                    admitted.Aggregate.Run.Version,
+                    admission.PlanningRequest.Request,
+                    admission.ActorId,
+                    "integration-worker",
+                    admission.CorrelationId,
+                    admission.CausationId), null, CancellationToken.None);
+            Assert.Equal(FailureCode.ConcurrencyConflict, replay.Failure?.Code);
+        }
+
+        Assert.Equal(1, _provider?.InvocationCount);
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(prompt)));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(output)));
+    }
+
+    [Fact]
+    public async Task Malformed_provider_stream_fails_attempt_and_releases_shared_reservation()
+    {
+        await SeedAsync();
+        _provider!.CorruptSecondSequence = true;
+        var admission = Admission("malformed stream fixture", "execution-malformed");
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            admitted = (await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value;
+        }
+
+        await using (var executionScope = Services.CreateAsyncScope())
+        {
+            var result = await executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+                .ExecuteAsync(Execution(admitted, admission), null, CancellationToken.None);
+
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            Assert.Equal(ModelRunState.Failed, result.Value.Aggregate.Run.State);
+            Assert.Equal(FailureCode.RecoverableExternalFailure, result.Value.Aggregate.Run.FailureCode);
+            Assert.Equal(1, result.Value.Aggregate.Run.StreamEvidence.EventCount);
+            Assert.True(result.Value.Aggregate.Attempt.IsRetryable);
+        }
+
+        await using var verificationScope = Services.CreateAsyncScope();
+        var ledger = await verificationScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+            .FindAsync(AgentId, CancellationToken.None);
+        Assert.NotNull(ledger);
+        Assert.Equal(0, ledger.ActiveRuns);
+        Assert.Equal(1, ledger.Consumption.CompletedRuns);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_persists_canceled_terminal_evidence_and_releases_reservation()
+    {
+        await SeedAsync();
+        var admission = Admission("cancellation fixture", "execution-canceled");
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            admitted = (await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        await using (var executionScope = Services.CreateAsyncScope())
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+                    .ExecuteAsync(
+                        Execution(admitted, admission),
+                        new CancelingObserver(cancellation),
+                        cancellation.Token));
+        }
+
+        await using var verificationScope = Services.CreateAsyncScope();
+        var persisted = await verificationScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdAsync(admitted.Aggregate.Run.Id, CancellationToken.None);
+        Assert.NotNull(persisted);
+        Assert.Equal(ModelRunState.Canceled, persisted.Run.State);
+        Assert.Equal(ModelRunAttemptState.Canceled, persisted.Attempt.State);
+        Assert.Equal(1, persisted.Run.StreamEvidence.EventCount);
+        var ledger = await verificationScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+            .FindAsync(AgentId, CancellationToken.None);
+        Assert.NotNull(ledger);
+        Assert.Equal(0, ledger.ActiveRuns);
+    }
+
+    [Fact]
+    public async Task Sensitive_execution_metadata_is_rejected_before_lease_ledger_or_provider()
+    {
+        await SeedAsync();
+        var admission = Admission("safe execution fixture", "execution-sensitive-metadata");
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            admitted = (await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value;
+        }
+
+        await using var executionScope = Services.CreateAsyncScope();
+        var result = await executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+            .ExecuteAsync(Execution(admitted, admission) with
+            {
+                WorkerId = "password=must-not-be-execution-metadata",
+            }, null, CancellationToken.None);
+
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+        var persisted = await executionScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdAsync(admitted.Aggregate.Run.Id, CancellationToken.None);
+        Assert.NotNull(persisted);
+        Assert.Equal(ModelRunState.Reserved, persisted.Run.State);
+        Assert.Null(await executionScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+            .FindAsync(AgentId, CancellationToken.None));
+        Assert.Single(await executionScope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+        Assert.Equal(0, _provider?.InvocationCount);
+    }
+
     public async Task InitializeAsync()
     {
         var configuration = new ConfigurationBuilder()
@@ -307,8 +497,17 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         services.AddAgentForgeSecurity(configuration);
         services.AddAgentForgeAudit();
         services.AddAgentForgeModels();
+        var deterministic = DeterministicModelProvider.Create(
+            Descriptor(runtimeNow),
+            new DeterministicModelScript(
+            [
+                new DeterministicTextStep("execution output that must remain outside durable storage"),
+                new DeterministicUsageStep(new ModelUsage(120, 60, 0, 0.125m, "usd")),
+            ]),
+            new RuntimeClock()).Value;
+        _provider = new RecordingProvider(deterministic);
         services.AddSingleton<IModelProviderCatalog>(_ => ModelProviderCatalog.Create([
-            new FakeProvider(Descriptor(runtimeNow)),
+            _provider,
         ]).Value);
         services.AddSingleton<IModelProviderHealthSource>(_ => ModelProviderHealthCatalog.Create([
             new ModelProviderHealthEvidence(
@@ -471,17 +670,55 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             .AdmitAsync(request, CancellationToken.None);
     }
 
-    private sealed class FakeProvider(ModelProviderDescriptor descriptor) : IModelProvider
+    private static ModelRunExecutionRequest Execution(
+        ModelRunAdmissionResult admitted,
+        ModelRunAdmissionRequest admission) => new(
+        admitted.Aggregate.Run.Id,
+        admitted.Aggregate.Run.Version,
+        admission.PlanningRequest.Request,
+        admission.ActorId,
+        "integration-worker",
+        admission.CorrelationId,
+        admission.CausationId);
+
+    private sealed class RecordingProvider(IModelProvider inner) : IModelProvider
     {
-        public ModelProviderDescriptor Descriptor { get; } = descriptor;
+        private int _invocationCount;
+
+        public ModelProviderDescriptor Descriptor => inner.Descriptor;
+
+        public int InvocationCount => Volatile.Read(ref _invocationCount);
+
+        public bool CorruptSecondSequence { get; set; }
 
         public async IAsyncEnumerable<ModelStreamEvent> StreamAsync(
             ModelRequest request,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
-            await Task.CompletedTask;
-            yield break;
+            Interlocked.Increment(ref _invocationCount);
+            var index = 0;
+            await foreach (var modelEvent in inner.StreamAsync(request, cancellationToken)
+                .WithCancellation(cancellationToken))
+            {
+                yield return CorruptSecondSequence && index++ == 1
+                    ? modelEvent with { Sequence = 99 }
+                    : modelEvent;
+            }
         }
+    }
+
+    private sealed class CancelingObserver(CancellationTokenSource cancellation) : IModelRunEventObserver
+    {
+        public ValueTask ObserveAsync(ModelStreamEvent modelEvent, CancellationToken cancellationToken)
+        {
+            cancellation.Cancel();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RuntimeClock : IClock
+    {
+        public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
     }
 
 }

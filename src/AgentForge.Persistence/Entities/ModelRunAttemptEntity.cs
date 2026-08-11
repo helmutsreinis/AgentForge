@@ -17,6 +17,9 @@ internal sealed class ModelRunAttemptEntity
     public long CreatedAtUtcTicks { get; set; }
     public long? StartedAtUtcTicks { get; set; }
     public long? CompletedAtUtcTicks { get; set; }
+    public int EventCount { get; set; }
+    public long LastEventSequence { get; set; }
+    public required string EventStreamHash { get; set; }
     public long UsedInputTokens { get; set; }
     public long UsedOutputTokens { get; set; }
     public int UsedToolCalls { get; set; }

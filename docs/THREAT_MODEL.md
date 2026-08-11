@@ -497,7 +497,37 @@ credentials, raw responses, or remote error bodies; byte-scan fixtures verify re
 prompt and credential absence. Failed planning, invalid metadata, and pre-cancellation write
 nothing.
 
-Admission is not execution authority. There is no provider resolution, credential
-materialization, network call, public mutation, or reservation-start lease. Cumulative budget
-accounting across concurrent runs, exact destination revalidation, reservation reconciliation,
-retry/attempt expansion, and crash-safe stream checkpoints remain required before egress.
+Admission alone is not execution authority. The internal execution boundary described below is
+the only consumer permitted to resolve a catalog profile from a reserved run; no public mutation
+can reach it. Retry/attempt expansion and crash-safe recovery remain separate gates.
+
+## M3 durable model-attempt execution update
+
+A start race is constrained by three exact optimistic-concurrency resources: the reserved
+run/attempt versions, the current Ready installation/agent authority, and the shared agent ledger.
+The execution service repeats context preparation and routing with persisted attempt exclusions,
+then compares route, input, health, versions, and all reservation dimensions before exact catalog
+resolution. The run, ledger, and redacted start audit share one commit before egress, so a losing
+worker cannot partly reserve or call the adapter. Hosted destination/DNS binding is not yet
+composed in production and remains a required gate.
+
+Lease possession is not inferred from worker identity. A 256-bit base64url token exists only in
+the invocation; SQLite and audit receive its SHA-256. Fixed-time comparison of the exact token is
+required for success, failure, cancellation, or budget exhaustion. Lease timestamps and provider
+event timestamps are bounded, but no heartbeat or expired-lease recovery worker exists yet. A
+crash after committed start can deliberately leave `Running` and an active reservation; deleting
+or zeroing that evidence would create duplicate-call risk.
+
+Provider streams are untrusted. Exact request/profile/type/model/prepared-input evidence must
+start the stream, sequences must be contiguous, timestamps monotonic and within the lease, usage
+may appear once, and one terminal event ends the stream. Text, JSON, errors, counts, and time are
+bounded; tool calls are rejected at this gate. Truncation, reordering, substitution, late events,
+or event overflow becomes typed failure/budget exhaustion. The accumulator hashes canonical
+events in memory and stores only the digest/count/last sequence plus normalized usage and safe
+classification. Raw prompt/output/error text has no database or audit field.
+
+The terminal transition and exact ledger release share one transaction. Duplicate replay sees a
+non-reserved state and cannot invoke the provider again. Caller cancellation is persisted before
+the cancellation exception propagates. Remaining threats are crash reconciliation, health/circuit
+breaker poisoning, bounded retry/failover, cross-attempt cost totals, hosted endpoint DNS/IP
+rebinding, and any future public authentication/rate-limit surface.
