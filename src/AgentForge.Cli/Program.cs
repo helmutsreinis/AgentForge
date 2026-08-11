@@ -1168,6 +1168,7 @@ static async Task<int> ManageCapabilityApprovalAsync(string[] arguments, bool ap
             options.RiskClass,
             options.ToolId,
             options.ToolVersion,
+            options.ToolDescriptorHash,
             parameters.Value,
             options.TargetKind,
             options.Target,
@@ -1978,7 +1979,7 @@ static bool TryParseCapabilityApprovalOptions(
         "--actor", "--agent-id", "--agent-version", "--capability", "--causation",
         "--correlation", "--data-directory", "--disposition", "--expires-at", "--idempotency-key",
         "--invocation-correlation", "--preview-hash", "--request-actor", "--risk", "--target",
-        "--target-kind", "--tool-id", "--tool-version", "--workspace",
+        "--target-kind", "--tool-descriptor-hash", "--tool-id", "--tool-version", "--workspace",
     };
     var readsParameters = false;
     for (var index = 0; index < arguments.Length; index++)
@@ -2061,9 +2062,10 @@ static bool TryParseCapabilityApprovalOptions(
 
     var toolId = values.GetValueOrDefault("--tool-id");
     var toolVersion = values.GetValueOrDefault("--tool-version");
-    if ((toolId is null) != (toolVersion is null))
+    var toolDescriptorHash = values.GetValueOrDefault("--tool-descriptor-hash");
+    if (new[] { toolId, toolVersion, toolDescriptorHash }.Count(item => item is not null) is not 0 and not 3)
     {
-        error = "--tool-id and --tool-version must be supplied together.";
+        error = "--tool-id, --tool-version, and --tool-descriptor-hash must be supplied together.";
         return false;
     }
 
@@ -2098,6 +2100,7 @@ static bool TryParseCapabilityApprovalOptions(
         riskClass,
         toolId,
         toolVersion,
+        toolDescriptorHash,
         targetKind,
         target,
         values.GetValueOrDefault("--workspace"),
@@ -2565,6 +2568,7 @@ internal sealed record CapabilityApprovalCliOptions(
     CapabilityRiskClass RiskClass,
     string? ToolId,
     string? ToolVersion,
+    string? ToolDescriptorHash,
     AuthorizationTargetKind TargetKind,
     string? Target,
     string? Workspace,

@@ -285,3 +285,36 @@ the exact descriptor, validate and canonicalize those values, bind the descripto
 into authorization, consume approval and append start evidence transactionally, then use
 the restricted sandbox. Safe version/help probing must traverse that same boundary with a
 separate inventory/read capability and bounded output; the catalog itself never probes.
+
+## M2 policy-bound invocation update
+
+The invocation boundary accepts no caller-authored executable, arguments, capability,
+risk, target kind, side effects, environment, timeout, output limit, network policy, or
+sandbox selection. It accepts typed values and exact catalog identity, then reconstructs
+all authority and process fields from the immutable descriptor. Unknown, missing, mistyped,
+out-of-range, or control-bearing values fail before policy evaluation. Descriptor-owned
+bindings produce an argument list, never a shell string. Credential-shaped direct values
+or identifiers fail before persistence or execution; future secret-bearing tools must use
+invocation-scoped secret references.
+
+Authorization now binds the normalized descriptor hash. Legacy tool approvals without a
+hash remain readable after migration but cannot match. Current Ready installation, exact
+agent version, network-posture intersection, missing-policy denial, and active exact
+approval are evaluated outside model control. Approval consumption, durable invocation
+idempotency, and redacted authorization audit commit in one transaction before `ISandbox`
+is called; policy/version is read again after commit. A failed or denied post-commit start
+does not restore the consumed grant.
+
+Terminal records contain hashes and lengths rather than raw stdout/stderr. Exact retries
+return the durable record without another process start; request/correlation changes under
+the same key conflict. `Authorized` after interruption is explicitly uncertain and cannot
+be replayed automatically. This chooses possible one-time non-execution over duplicate
+effects. Raw output exists only in the bounded immediate result and must cross the later
+model-context redaction boundary before model use.
+
+No public invocation route exists and the default catalog is empty. The restricted-host
+adapter cannot enforce denied or loopback network policy, so current agent postures cannot
+silently use it. Container/namespace availability remains the gate for descriptors that
+require those controls. A local configuration race can still occur after the final policy
+read and filesystem replacement can occur before process open; high-risk effects remain
+disabled pending stronger isolation and later durable orchestration.

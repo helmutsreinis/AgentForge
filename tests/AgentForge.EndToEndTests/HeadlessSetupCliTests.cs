@@ -657,6 +657,7 @@ public sealed class HeadlessSetupCliTests
             "--risk", "Read",
             "--tool-id", "repo.read",
             "--tool-version", "1.0.0",
+            "--tool-descriptor-hash", "sha256:" + new string('d', 64),
             "--target-kind", "FileSystemPath",
             "--target", Path.Combine(dataDirectory, "workspace", "src"),
             "--workspace", Path.Combine(dataDirectory, "workspace"),

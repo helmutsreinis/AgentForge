@@ -22,6 +22,11 @@ public interface ICapabilityPolicyEvaluator
         CapabilityPolicySnapshot child);
 }
 
+public interface ICapabilityPolicyFactory
+{
+    CapabilityPolicySnapshot Create(AgentIdentity agent, AuthorizationContext context);
+}
+
 public interface ICapabilityApprovalRepository
 {
     ValueTask AddAsync(CapabilityApproval approval, CancellationToken cancellationToken);

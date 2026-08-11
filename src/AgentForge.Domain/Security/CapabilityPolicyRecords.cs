@@ -53,6 +53,7 @@ public sealed record CapabilityInvocationRequest(
     CapabilityRiskClass RiskClass,
     string? ToolId,
     string? ToolVersion,
+    string? ToolDescriptorHash,
     string ParametersJson,
     AuthorizationTargetKind TargetKind,
     string? Target,
@@ -70,6 +71,7 @@ public sealed record AuthorizationContext(
     CapabilityRiskClass RiskClass,
     string? ToolId,
     string? ToolVersion,
+    string? ToolDescriptorHash,
     string CanonicalParametersJson,
     string ParametersHash,
     AuthorizationTargetKind TargetKind,
@@ -112,6 +114,7 @@ public sealed record CapabilityApproval(
     CapabilityRiskClass RiskClass,
     string? ToolId,
     string? ToolVersion,
+    string? ToolDescriptorHash,
     string ParametersHash,
     AuthorizationTargetKind TargetKind,
     string TargetHash,
@@ -175,7 +178,8 @@ public static class CapabilityApprovalStateMachine
             !Enum.IsDefined(context.RiskClass) || !Enum.IsDefined(context.TargetKind) ||
             !Enum.IsDefined(disposition) || !IsBounded(context.ActorId.Value, 256) ||
             !IsCapabilityId(context.CapabilityId) || !IsOptionalBounded(context.ToolId, 256) ||
-            !IsOptionalBounded(context.ToolVersion, 128) || expiresAt <= createdAt ||
+            !IsOptionalBounded(context.ToolVersion, 128) || !IsOptionalSha256(context.ToolDescriptorHash) ||
+            !HasCompleteToolIdentity(context) || expiresAt <= createdAt ||
             !IsSha256(context.RequestHash) || !IsSha256(context.ParametersHash) ||
             !IsSha256(context.TargetHash) || !IsSha256(context.WorkspaceHash) || !IsSha256(previewHash) ||
             !IsBounded(decidedBy.Value, 256) || !IsBounded(correlationId.Value, 128) ||
@@ -195,6 +199,7 @@ public static class CapabilityApprovalStateMachine
             context.RiskClass,
             context.ToolId,
             context.ToolVersion,
+            context.ToolDescriptorHash,
             context.ParametersHash,
             context.TargetKind,
             context.TargetHash,
@@ -273,6 +278,12 @@ public static class CapabilityApprovalStateMachine
 
         return true;
     }
+
+    private static bool IsOptionalSha256(string? value) => value is null || IsSha256(value);
+
+    private static bool HasCompleteToolIdentity(AuthorizationContext context) =>
+        context.ToolId is null && context.ToolVersion is null && context.ToolDescriptorHash is null ||
+        context.ToolId is not null && context.ToolVersion is not null && context.ToolDescriptorHash is not null;
 
     private static bool IsBounded(string? value, int maximumLength) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= maximumLength && !value.Any(char.IsControl);

@@ -3,6 +3,7 @@ using System;
 using AgentForge.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AgentForge.Persistence.Migrations
 {
     [DbContext(typeof(AgentForgeDbContext))]
-    partial class AgentForgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260811070609_ToolDescriptorApprovalBinding")]
+    partial class ToolDescriptorApprovalBinding
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -663,146 +666,6 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("setup_profile_snapshots", (string)null);
                 });
 
-            modelBuilder.Entity("AgentForge.Persistence.Entities.ToolInvocationEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ActorId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("AgentId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("AgentVersion")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid?>("ApprovalId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CapabilityId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CausationId")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long?>("CompletedAtUtcTicks")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("CreatedAtUtcTicks")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("ExitCode")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("FailureCode")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("IdempotencyKey")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("InstallationVersion")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ParametersHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RequestHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RiskClass")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("StandardErrorHash")
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("StandardErrorLength")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("StandardOutputHash")
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("StandardOutputLength")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TargetHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TargetKind")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ToolDescriptorHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ToolId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ToolVersion")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("WorkspaceHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AgentId");
-
-                    b.HasIndex("ApprovalId");
-
-                    b.HasIndex("InstallationId", "IdempotencyKey")
-                        .IsUnique();
-
-                    b.HasIndex("InstallationId", "AgentId", "CreatedAtUtcTicks");
-
-                    b.ToTable("tool_invocations", (string)null);
-                });
-
             modelBuilder.Entity("AgentForge.Persistence.Entities.AgentIdentityEntity", b =>
                 {
                     b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
@@ -858,26 +721,6 @@ namespace AgentForge.Persistence.Migrations
                         .HasForeignKey("ArtifactContentHash")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
-                        .WithMany()
-                        .HasForeignKey("InstallationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("AgentForge.Persistence.Entities.ToolInvocationEntity", b =>
-                {
-                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
-                        .WithMany()
-                        .HasForeignKey("AgentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("AgentForge.Persistence.Entities.CapabilityApprovalEntity", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovalId")
-                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
                         .WithMany()

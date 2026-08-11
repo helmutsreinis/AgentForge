@@ -23,6 +23,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<CapabilityApprovalEntity> CapabilityApprovals => Set<CapabilityApprovalEntity>();
 
+    internal DbSet<ToolInvocationEntity> ToolInvocations => Set<ToolInvocationEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -187,6 +189,7 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.RiskClass).HasMaxLength(64).IsRequired();
             entity.Property(item => item.ToolId).HasMaxLength(256);
             entity.Property(item => item.ToolVersion).HasMaxLength(128);
+            entity.Property(item => item.ToolDescriptorHash).HasMaxLength(71);
             entity.Property(item => item.ParametersHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.TargetKind).HasMaxLength(64).IsRequired();
             entity.Property(item => item.TargetHash).HasMaxLength(71).IsRequired();
@@ -198,6 +201,45 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.PreviewHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ToolInvocationEntity>(entity =>
+        {
+            entity.ToTable("tool_invocations");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<CapabilityApprovalEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ApprovalId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.CreatedAtUtcTicks });
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.ToolId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.ToolVersion).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.ToolDescriptorHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.CapabilityId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.RiskClass).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.ParametersHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.TargetKind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.TargetHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.WorkspaceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.RequestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+            entity.Property(item => item.StandardOutputHash).HasMaxLength(71);
+            entity.Property(item => item.StandardErrorHash).HasMaxLength(71);
+            entity.Property(item => item.FailureCode).HasMaxLength(64);
             entity.Property(item => item.Version).IsConcurrencyToken();
         });
     }

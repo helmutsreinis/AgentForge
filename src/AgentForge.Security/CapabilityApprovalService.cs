@@ -20,6 +20,7 @@ internal sealed class CapabilityApprovalService(
     IAgentIdentityRepository agents,
     ICapabilityApprovalRepository approvals,
     IAuthorizationContextFactory contextFactory,
+    ICapabilityPolicyFactory policyFactory,
     ICapabilityPolicyEvaluator policyEvaluator,
     ILocalAdministratorAuthenticator authenticator,
     ISensitiveDataRedactor redactor,
@@ -73,7 +74,7 @@ internal sealed class CapabilityApprovalService(
             return DeniedPreview("Authorization request does not match a current agent policy version.");
         }
 
-        var policy = BuildPolicy(agent, context.Value);
+        var policy = policyFactory.Create(agent, context.Value);
         var evaluation = policyEvaluator.Evaluate(context.Value, policy, null, clock.UtcNow);
         if (evaluation.Decision is CapabilityDecision.Deny)
         {
@@ -216,6 +217,7 @@ internal sealed class CapabilityApprovalService(
                 RiskClass = created.Value.RiskClass.ToString(),
                 created.Value.ToolId,
                 created.Value.ToolVersion,
+                created.Value.ToolDescriptorHash,
                 created.Value.ParametersHash,
                 TargetKind = created.Value.TargetKind.ToString(),
                 created.Value.TargetHash,
@@ -260,36 +262,6 @@ internal sealed class CapabilityApprovalService(
             : DomainResult.Fail<ActorId>(new DomainFailure(
                 FailureCode.PolicyDenied,
                 "Capability approval authentication failed."));
-    }
-
-    private static CapabilityPolicySnapshot BuildPolicy(
-        AgentIdentity agent,
-        AuthorizationContext context)
-    {
-        var isGranted = agent.CapabilityPolicy.ToolGrants.Contains(context.CapabilityId, StringComparer.Ordinal) ||
-            agent.CapabilityPolicy.SkillGrants.Contains(context.CapabilityId, StringComparer.Ordinal);
-        CapabilityPolicyRule[] rules = isGranted
-            ? [new(
-                context.CapabilityId,
-                context.RiskClass,
-                CapabilityDecision.RequireApproval,
-                "Exact configured grants remain approval-gated.")]
-            : [];
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(new
-        {
-            InstallationId = agent.InstallationId.ToString(),
-            context.InstallationVersion,
-            AgentId = agent.Id.ToString(),
-            AgentVersion = agent.Version,
-            Rules = rules,
-        }, SerializerOptions);
-        return new CapabilityPolicySnapshot(
-            agent.InstallationId,
-            context.InstallationVersion,
-            agent.Id,
-            agent.Version,
-            rules,
-            $"sha256:{Convert.ToHexStringLower(SHA256.HashData(bytes))}");
     }
 
     private static string ComputePreviewHash(

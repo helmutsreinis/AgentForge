@@ -132,6 +132,26 @@ service accepts values for the descriptor's parameters, not caller-authored exec
 risk, capability, or isolation fields, and pins the descriptor hash into authorization,
 audit, and run evidence.
 
+## Policy-bound tool invocation
+
+`IToolInvocationService` is the only application contract permitted to connect a catalog
+descriptor to `ISandbox`. Its request contains exact catalog identity, typed parameter
+values, current installation/agent versions, workspace, correlation, and idempotency. It
+derives every capability and process field from the descriptor, canonicalizes the values,
+builds authorization identity including the descriptor hash, intersects current agent
+network policy, and evaluates policy plus exact approval.
+
+The first EF unit of work consumes a single-use grant, inserts an `Authorized` invocation,
+and appends authorization audit. The sandbox is called only after that commit and a second
+policy/version read. A second unit of work persists terminal state and completion audit.
+Durable rows retain output SHA-256/length evidence, not raw bytes. An exact terminal retry
+returns recorded status without execution; an uncertain `Authorized` row or changed input
+under the same idempotency key fails closed.
+
+The service has no control-plane or CLI mutation surface in this slice. Production
+composition has an empty catalog, and unavailable network/container isolation remains a
+typed `UnsupportedCapability` instead of falling back to restricted host.
+
 ## Durability strategy
 
 SQLite with WAL is the zero-dependency store. Aggregate version columns provide

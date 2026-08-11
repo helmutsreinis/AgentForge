@@ -7,6 +7,7 @@ using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,6 +54,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILocalAdministratorRepository, SqliteLocalAdministratorRepository>();
         services.AddScoped<ISetupProfileSnapshotRepository, SqliteSetupProfileSnapshotRepository>();
         services.AddScoped<ICapabilityApprovalRepository, SqliteCapabilityApprovalRepository>();
+        services.AddScoped<IToolInvocationRepository, SqliteToolInvocationRepository>();
         return services;
     }
 
