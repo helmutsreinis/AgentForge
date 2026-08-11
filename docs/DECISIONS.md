@@ -34,5 +34,6 @@
 | D-030 | Represent the agent loop as six pure typed phases with append-only hash-chained snapshots; resume only exact idempotency/authority matches, require progress evidence at Persist, and stop on bounded repair, no-progress, cancellation, or total-budget outcomes. | Accepted |
 | D-031 | Enforce provider data location inside the HTTP socket connect callback: resolve once, reject every mixed/disallowed DNS answer, connect directly to an approved IP, and retain TLS authentication for the exact configured hostname. | Accepted |
 | D-032 | Preserve OpenAI, DeepSeek, vLLM, and generic-compatible provider identities over the common hardened wire adapter; validate their secret and transport during shared host/CLI setup without guessing unprobed tool or media capabilities. | Accepted |
+| D-033 | Translate Anthropic Messages as a distinct bounded protocol; require exact HTTPS/cloud destination policy, prepared context, invocation-scoped API-key materialization, listed tools, usage, and terminal message evidence. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

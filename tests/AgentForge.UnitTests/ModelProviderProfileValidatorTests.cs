@@ -13,6 +13,7 @@ public sealed class ModelProviderProfileValidatorTests
     [InlineData("deepseek", "https://api.deepseek.example/v1/chat/completions")]
     [InlineData("vllm", "http://192.168.1.89:8000/v1/chat/completions")]
     [InlineData("openai-compatible", "http://127.0.0.1:8000/v1/chat/completions")]
+    [InlineData("anthropic", "https://api.anthropic.example/v1/messages")]
     public async Task Named_compatible_profiles_validate_secret_reference_and_safe_transport(
         string providerType,
         string endpoint)
