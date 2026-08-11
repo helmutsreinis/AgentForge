@@ -25,3 +25,10 @@ public interface IToolInvocationService
         IProcessOutputObserver? observer,
         CancellationToken cancellationToken);
 }
+
+public interface IToolAvailabilityProbeService
+{
+    Task<DomainResult<ToolAvailabilityProbeResult>> ProbeAsync(
+        ToolAvailabilityProbeRequest request,
+        CancellationToken cancellationToken);
+}

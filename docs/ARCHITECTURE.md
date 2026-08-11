@@ -111,10 +111,10 @@ Capability flags describe only controls the selected OS adapter enforces. Unsupp
 container, network, filesystem, or resource isolation fails typed.
 
 The kernel is deliberately not an authorization service and has no invocation endpoint.
-The later tool application service must build an authorization context from its immutable
-descriptor, re-read current agent policy, atomically consume exact approval evidence and
-append audit/outbox state, then call `ISandbox`. Inventory paths or model-supplied tool
-identity can never cross that boundary directly.
+The tool application service builds an authorization context from its immutable
+descriptor, re-reads current agent policy, atomically consumes exact approval evidence and
+appends audit state, then calls `ISandbox`. Inventory paths or model-supplied tool identity
+can never cross that boundary directly.
 
 ## Authoritative tool catalog
 
@@ -151,6 +151,22 @@ under the same idempotency key fails closed.
 The service has no control-plane or CLI mutation surface in this slice. Production
 composition has an empty catalog, and unavailable network/container isolation remains a
 typed `UnsupportedCapability` instead of falling back to restricted host.
+
+## Safe availability probes
+
+Availability is an explicit descriptor operation, never a side effect of inventory,
+search, catalog admission, or exact description. `AvailabilityProbe` admission requires
+the exact `tool:availability.probe` inventory capability, no target, parameters, side
+effects, inherited environment, or network, and a fixed/literal version or help argument.
+It caps execution at 30 seconds and 64 KiB and requires a sandbox reporting network
+isolation.
+
+`IToolAvailabilityProbeService` delegates the empty typed invocation to the same immutable
+descriptor, current policy, exact approval, durable idempotency, audit, and `ISandbox`
+boundary. A successful immediate result may expose only the first nonempty printable
+strict-UTF-8 line, after full-line credential redaction, capped at 512 characters. Invalid
+encoding, sensitive output, and durable replay expose no observed text. Production still
+has no public probe route and composes an empty catalog.
 
 ## Durability strategy
 

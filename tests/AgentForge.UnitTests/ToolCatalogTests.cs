@@ -167,6 +167,7 @@ public sealed class ToolCatalogTests
             definition with { RiskClass = CapabilityRiskClass.Read },
             definition with { SideEffects = (ToolSideEffectKind)(1 << 20) },
             definition with { OutputSensitivity = (ToolOutputSensitivity)999 },
+            definition with { OperationKind = (ToolOperationKind)999 },
             definition with { TargetParameterName = null },
             definition with
             {
@@ -223,6 +224,88 @@ public sealed class ToolCatalogTests
                     ],
                 },
             },
+        };
+
+        foreach (var candidate in invalid)
+        {
+            var result = ToolCatalog.Create([candidate]);
+            Assert.False(result.IsSuccess);
+            Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Catalog_admits_only_strict_inventory_only_availability_probes()
+    {
+        var definition = ValidProbeDefinition();
+
+        var result = ToolCatalog.Create([definition]);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        var descriptor = await result.Value.DescribeAsync(
+            definition.Id,
+            definition.Version,
+            CancellationToken.None);
+        var summaries = await result.Value.SearchAsync(
+            new ToolSearchRequest("availability", null, CapabilityRiskClass.Inventory),
+            CancellationToken.None);
+        Assert.True(descriptor.IsSuccess, descriptor.Failure?.Message);
+        Assert.Equal(ToolOperationKind.AvailabilityProbe, descriptor.Value.Definition.OperationKind);
+        Assert.Single(summaries.Value);
+        Assert.Equal(ToolOperationKind.AvailabilityProbe, summaries.Value[0].OperationKind);
+    }
+
+    [Fact]
+    public void Catalog_rejects_availability_probes_that_can_expand_authority_or_bounds()
+    {
+        var definition = ValidProbeDefinition();
+        var pathParameter = TextParameter("path");
+        var invalid = new ToolDescriptorDefinition[]
+        {
+            definition with { CapabilityId = "tool:repo.read" },
+            definition with { RiskClass = CapabilityRiskClass.Read },
+            definition with
+            {
+                TargetKind = AuthorizationTargetKind.FileSystemPath,
+                TargetParameterName = "path",
+                Parameters = [pathParameter],
+                Process = definition.Process with
+                {
+                    ArgumentBindings =
+                    [
+                        new ToolArgumentBinding(ToolArgumentBindingKind.NamedValue, "path", "--path"),
+                    ],
+                },
+            },
+            definition with
+            {
+                RiskClass = CapabilityRiskClass.Read,
+                SideEffects = ToolSideEffectKind.ReadsFileSystem,
+            },
+            definition with { OutputSensitivity = ToolOutputSensitivity.PotentiallySensitive },
+            definition with
+            {
+                Process = definition.Process with { AllowedEnvironmentVariables = ["PATH"] },
+            },
+            definition with
+            {
+                Process = definition.Process with { NetworkPolicy = ProcessNetworkPolicy.LoopbackOnly },
+            },
+            definition with
+            {
+                Process = definition.Process with { RequiredSandbox = ProcessSandboxKind.RestrictedHost },
+            },
+            definition with { Process = definition.Process with { TimeoutSeconds = 31 } },
+            definition with { Process = definition.Process with { MaximumOutputBytes = 65_537 } },
+            definition with
+            {
+                Process = definition.Process with
+                {
+                    RequiredFeatures = ProcessIsolationFeature.DirectExecutable |
+                        ProcessIsolationFeature.ArgumentArray,
+                },
+            },
+            definition with { Process = definition.Process with { FixedArguments = [] } },
         };
 
         foreach (var candidate in invalid)
@@ -342,6 +425,39 @@ public sealed class ToolCatalogTests
         RiskClass = CapabilityRiskClass.Read,
         SideEffects = ToolSideEffectKind.ReadsFileSystem,
     };
+
+    private static ToolDescriptorDefinition ValidProbeDefinition() => new(
+        "tool:fixture.availability",
+        "1.0.0",
+        "Fixture availability",
+        "Checks whether the fixture tool is available.",
+        "Runs one bounded and isolated version probe without parameters.",
+        "tool:availability.probe",
+        CapabilityRiskClass.Inventory,
+        AuthorizationTargetKind.None,
+        null,
+        ToolSideEffectKind.None,
+        ToolOutputSensitivity.LocalMetadata,
+        [],
+        new ToolProcessDefinition(
+            Path.Combine(Path.GetTempPath(), "agentforge-probe-tool"),
+            ["--version"],
+            [],
+            [],
+            ProcessSandboxKind.Container,
+            ProcessNetworkPolicy.Denied,
+            ProcessIsolationFeature.DirectExecutable |
+                ProcessIsolationFeature.ArgumentArray |
+                ProcessIsolationFeature.NetworkIsolation,
+            5,
+            4096),
+        new ToolProvenance(
+            ToolCatalogSourceKind.BuiltIn,
+            ToolTrustLevel.BuiltIn,
+            "agentforge.tools",
+            "1.0.0",
+            EvidenceHash),
+        ToolOperationKind.AvailabilityProbe);
 
     private static ToolParameterDescriptor TextParameter(string name) => new(
         name,

@@ -21,5 +21,6 @@
 | D-017 | Expose a restricted-host process kernel only behind `ISandbox`; report enforceable controls exactly, reject unsupported isolation without fallback, and keep generic invocation private until authoritative descriptors, current policy, approval consumption, and audit are one service boundary. | Accepted |
 | D-018 | Admit callable tools only as immutable typed exact versions; hash normalized descriptors, progressively disclose summaries before exact descriptions, and never treat catalog admission or inventory as execution or availability proof. | Accepted |
 | D-019 | Accept only typed tool parameter values at invocation; derive authority and process settings from the exact descriptor hash; atomically consume approval, persist idempotency, and audit before sandbox start; never replay an uncertain authorized record. | Accepted |
+| D-020 | Represent availability checks as explicit inventory-only catalog operations; require denied networking and reported network isolation, exact approval, bounded literal version/help arguments, and full-line redaction before exposing a small observed summary. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

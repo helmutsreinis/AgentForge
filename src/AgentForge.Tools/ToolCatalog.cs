@@ -125,7 +125,7 @@ public sealed class ToolCatalog : IToolCatalog
             !IsBoundedText(definition.Name, 128) || !IsBoundedText(definition.Summary, 512) ||
             !IsBoundedText(definition.Description, 4096) || !IsCatalogId(definition.CapabilityId) ||
             !Enum.IsDefined(definition.RiskClass) || !Enum.IsDefined(definition.TargetKind) ||
-            !Enum.IsDefined(definition.OutputSensitivity) ||
+            !Enum.IsDefined(definition.OutputSensitivity) || !Enum.IsDefined(definition.OperationKind) ||
             (definition.SideEffects & ~KnownSideEffects) != 0 ||
             definition.RiskClass < MinimumRisk(definition.SideEffects) ||
             !ValidateProvenance(definition.Provenance) || definition.Parameters is null ||
@@ -170,6 +170,13 @@ public sealed class ToolCatalog : IToolCatalog
         if (!process.IsSuccess)
         {
             return DomainResult.Fail<ToolDescriptor>(process.Failure!);
+        }
+
+        if (definition.OperationKind is ToolOperationKind.AvailabilityProbe &&
+            !ValidateAvailabilityProbe(definition, process.Value))
+        {
+            return Invalid<ToolDescriptor>(
+                "Availability probes require inventory-only authority and strict isolated bounds.");
         }
 
         var normalized = definition with
@@ -271,6 +278,21 @@ public sealed class ToolCatalog : IToolCatalog
             _ => false,
         };
     }
+
+    private static bool ValidateAvailabilityProbe(
+        ToolDescriptorDefinition definition,
+        ToolProcessDefinition process) =>
+        string.Equals(definition.CapabilityId, "tool:availability.probe", StringComparison.Ordinal) &&
+        definition.RiskClass is CapabilityRiskClass.Inventory &&
+        definition.TargetKind is AuthorizationTargetKind.None && definition.TargetParameterName is null &&
+        definition.SideEffects is ToolSideEffectKind.None &&
+        definition.OutputSensitivity is not ToolOutputSensitivity.PotentiallySensitive &&
+        definition.Parameters.Count == 0 && process.AllowedEnvironmentVariables.Count == 0 &&
+        process.RequiredSandbox is ProcessSandboxKind.Container &&
+        process.NetworkPolicy is ProcessNetworkPolicy.Denied && process.TimeoutSeconds <= 30 &&
+        process.MaximumOutputBytes <= 65_536 &&
+        process.RequiredFeatures.HasFlag(ProcessIsolationFeature.NetworkIsolation) &&
+        process.FixedArguments.Count + process.ArgumentBindings.Count > 0;
 
     private static bool ValidateBinding(
         ToolArgumentBinding binding,
@@ -378,6 +400,7 @@ public sealed class ToolCatalog : IToolCatalog
         descriptor.Definition.SideEffects,
         descriptor.Definition.Provenance.SourceKind,
         descriptor.Definition.Provenance.TrustLevel,
+        descriptor.Definition.OperationKind,
         descriptor.DescriptorHash);
 
     private static bool ValidateProvenance(ToolProvenance provenance) =>

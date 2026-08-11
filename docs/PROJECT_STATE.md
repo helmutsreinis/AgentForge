@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Milestone 2 slice 5: add bounded version/help availability probes through the same
-policy-bound invocation boundary, then implement the container/namespace adapter when a
-runtime is available. Keep generic process execution and high-risk fallback disabled.
+Close the live Milestone 2 container/namespace gate when a runtime is available, while
+starting Milestone 3 with provider-neutral contracts and deterministic providers. Keep
+generic process execution and high-risk fallback disabled.
 
 ## Completed
 
@@ -53,10 +53,13 @@ runtime is available. Keep generic process execution and high-risk fallback disa
 - M2 slice 3c added descriptor-hash-bound approval identity and a durable policy-bound invocation service. Callers provide typed parameter values only; capability/risk/target, executable, argument mapping, network/sandbox requirements, time, and output bounds come from the exact immutable descriptor.
 - Approval consumption, an `Authorized` invocation with installation-scoped idempotency, and redacted authorization audit commit atomically before sandbox start. Current installation/agent policy is re-read before execution. Completion stores exit/failure plus output hashes and lengths without raw bytes. Exact terminal retries never execute; conflicting or uncertain retries fail closed.
 - Migrations 0007/0008 preserve prior state, make legacy hashless tool approvals non-authorizing, and add durable invocation records. Unit and integration fixtures cover descriptor substitution, typed transitions, missing approval, invalid values, network escalation, exact arguments, single-use grants, idempotent/conflicting retries, raw-output absence, audit integrity, and upgrade behavior.
+- M2 slice 4 added an explicit `AvailabilityProbe` catalog operation rather than inferring probes from inventory or arbitrary descriptors. Admission permits only the exact `tool:availability.probe` inventory capability with no target, parameters, side effects, environment, or network; it requires container/network-isolation evidence, a literal version/help argument, a 30-second timeout ceiling, and a 64 KiB output ceiling.
+- `IToolAvailabilityProbeService` traverses the existing descriptor-hash policy, exact approval, durable idempotency, audit, and sandbox boundary. It exposes at most one printable strict-UTF-8 line capped at 512 characters after full-line credential redaction. Invalid encoding and redacted output expose no text; durable replay exposes status only and never reconstructs output.
+- Adversarial catalog and summary tests plus the deterministic container-capable integration fixture prove no execution before approval, exact `--version` arguments, denied networking, empty environment, single execution, redacted raw-output absence from SQLite, and audit integrity. The live container/namespace adapter remains a named gate because Docker is unavailable locally.
 
 ## Latest gate
 
-`artifacts/gates/M2-03C-20260811.md`: Pass.
+`artifacts/gates/M2-04-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -68,10 +71,11 @@ runtime is available. Keep generic process execution and high-risk fallback disa
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 - Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
-- The policy-bound invocation service is registered but has no public endpoint and the default catalog is empty. Exact approvals, passive inventory, and catalog membership alone still make nothing callable. Restricted host cannot satisfy the configured denied/loopback agent network postures, so it fails typed rather than weakening isolation; a deterministic container-capable fake verifies the complete boundary until the live adapter exists.
+- The policy-bound invocation and availability-probe services are registered but have no public endpoint and the default catalog is empty. Exact approvals, passive inventory, and catalog membership alone still make nothing callable. Restricted host cannot satisfy the configured denied/loopback agent network postures, so it fails typed rather than weakening isolation; a deterministic container-capable fake verifies the complete boundary until the live adapter exists.
 - Restricted-host working-path verification is vulnerable to local filesystem replacement after validation, and process attachment/descendant discovery has OS timing limits. It is not filesystem, network, credential, privilege, CPU, memory, or process-count isolation; high-risk requests must require a later container/namespace adapter.
 
 ## Exact next action
 
-Continue Milestone 2 with safe availability probing and the container/namespace adapter.
-Do not expose generic process execution or weaken network/isolation requests.
+Keep the container/namespace adapter as the remaining live Milestone 2 gate, and begin
+Milestone 3 provider-neutral model contracts plus deterministic providers. Do not expose
+generic process execution or weaken network/isolation requests.
