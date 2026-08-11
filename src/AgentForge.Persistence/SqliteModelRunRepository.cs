@@ -33,6 +33,16 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         await ValueTask.CompletedTask;
     }
 
+    public async ValueTask AppendAttemptAsync(
+        ModelRunAggregate aggregate,
+        long expectedRunVersion,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(aggregate);
+        UpdateEntity(Map(aggregate.Run), expectedRunVersion);
+        await dbContext.ModelRunAttempts.AddAsync(Map(aggregate.Attempt), cancellationToken);
+    }
+
     public async ValueTask<ModelRunAggregate?> FindByIdAsync(
         ModelRunId runId,
         CancellationToken cancellationToken)
@@ -54,12 +64,25 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         return run is null ? null : await ReadAggregateAsync(run, cancellationToken);
     }
 
+    public async ValueTask<IReadOnlyList<ModelRunAttemptRecord>> ListAttemptsAsync(
+        ModelRunId runId,
+        CancellationToken cancellationToken)
+    {
+        var attempts = await dbContext.ModelRunAttempts.AsNoTracking()
+            .Where(item => item.RunId == runId.Value)
+            .OrderBy(item => item.Sequence)
+            .ToArrayAsync(cancellationToken);
+        return attempts.Select(Map).ToArray();
+    }
+
     private async ValueTask<ModelRunAggregate> ReadAggregateAsync(
         ModelRunEntity run,
         CancellationToken cancellationToken)
     {
         var attempt = await dbContext.ModelRunAttempts.AsNoTracking()
-            .SingleAsync(item => item.RunId == run.Id && item.Sequence == 1, cancellationToken);
+            .Where(item => item.RunId == run.Id)
+            .OrderByDescending(item => item.Sequence)
+            .FirstAsync(cancellationToken);
         return new ModelRunAggregate(Map(run), Map(attempt));
     }
 
@@ -112,6 +135,8 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         ReservedToolCalls = run.Reservation.ToolCalls,
         ReservedEvents = run.Reservation.Events,
         ReservedWallClockSeconds = run.Reservation.WallClockSeconds,
+        MaximumAttempts = run.MaximumAttempts,
+        ConsumedWallClockSeconds = run.ConsumedWallClockSeconds,
         LeaseOwner = run.Lease?.Owner,
         LeaseTokenHash = run.Lease?.TokenHash,
         LeaseAcquiredAtUtcTicks = run.Lease?.AcquiredAt.UtcTicks,
@@ -151,6 +176,11 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         RequiredCapabilitiesJson = SerializeCapabilities(attempt.Route.RequiredCapabilities),
         SelectionEvidenceHash = attempt.Route.SelectionEvidenceHash,
         PlanEvidenceHash = attempt.PlanEvidenceHash,
+        ReservedInputTokens = attempt.Reservation.InputTokens,
+        ReservedOutputTokens = attempt.Reservation.OutputTokens,
+        ReservedToolCalls = attempt.Reservation.ToolCalls,
+        ReservedEvents = attempt.Reservation.Events,
+        ReservedWallClockSeconds = attempt.Reservation.WallClockSeconds,
         State = attempt.State.ToString(),
         CreatedAtUtcTicks = attempt.CreatedAt.UtcTicks,
         StartedAtUtcTicks = attempt.StartedAt?.UtcTicks,
@@ -201,6 +231,8 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
             run.ReservedToolCalls,
             run.ReservedEvents,
             run.ReservedWallClockSeconds),
+        run.MaximumAttempts,
+        run.ConsumedWallClockSeconds,
         run.LeaseOwner is null
             ? null
             : new ModelRunLease(
@@ -241,6 +273,12 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
             attempt.RequiredCapabilitiesJson,
             attempt.SelectionEvidenceHash),
         attempt.PlanEvidenceHash,
+        new ModelRunBudgetReservation(
+            attempt.ReservedInputTokens,
+            attempt.ReservedOutputTokens,
+            attempt.ReservedToolCalls,
+            attempt.ReservedEvents,
+            attempt.ReservedWallClockSeconds),
         Enum.Parse<ModelRunAttemptState>(attempt.State, ignoreCase: false),
         Timestamp(attempt.CreatedAtUtcTicks),
         Timestamp(attempt.StartedAtUtcTicks),

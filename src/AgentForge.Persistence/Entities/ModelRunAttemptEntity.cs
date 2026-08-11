@@ -13,6 +13,11 @@ internal sealed class ModelRunAttemptEntity
     public required string RequiredCapabilitiesJson { get; set; }
     public required string SelectionEvidenceHash { get; set; }
     public required string PlanEvidenceHash { get; set; }
+    public long ReservedInputTokens { get; set; }
+    public long ReservedOutputTokens { get; set; }
+    public int ReservedToolCalls { get; set; }
+    public int ReservedEvents { get; set; }
+    public int ReservedWallClockSeconds { get; set; }
     public required string State { get; set; }
     public long CreatedAtUtcTicks { get; set; }
     public long? StartedAtUtcTicks { get; set; }

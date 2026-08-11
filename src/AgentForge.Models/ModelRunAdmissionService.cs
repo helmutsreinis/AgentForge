@@ -15,6 +15,7 @@ namespace AgentForge.Models;
 internal sealed class ModelRunAdmissionService(
     IModelRunRepository runs,
     IModelRoutePlanner routePlanner,
+    IModelRouteAuthoritySnapshotReader authorityReader,
     IModelContextPreparer contextPreparer,
     ISensitiveDataRedactor redactor,
     IAuditRecorder auditRecorder,
@@ -75,6 +76,29 @@ internal sealed class ModelRunAdmissionService(
                 "Model route plan does not match the exact admission authority request."));
         }
 
+        var authority = await authorityReader.ReadAsync(
+            request.PlanningRequest.InstallationId,
+            request.PlanningRequest.AgentId,
+            cancellationToken);
+        if (!authority.IsSuccess)
+        {
+            return DomainResult.Fail<ModelRunAdmissionResult>(authority.Failure!);
+        }
+
+        var budget = authority.Value.Agent.Budget;
+        if (authority.Value.Installation.Version != request.PlanningRequest.ExpectedInstallationVersion ||
+            authority.Value.Agent.Version != request.PlanningRequest.ExpectedAgentVersion ||
+            request.MaximumAttempts > budget.MaxTurns ||
+            plan.Value.ReservedInputTokens * request.MaximumAttempts > budget.MaxInputTokens ||
+            plan.Value.ReservedOutputTokens * request.MaximumAttempts > budget.MaxOutputTokens ||
+            plan.Value.ReservedToolCalls * request.MaximumAttempts > budget.MaxToolInvocations ||
+            plan.Value.ReservedWallClockSeconds * request.MaximumAttempts > budget.MaxWallClockSeconds)
+        {
+            return DomainResult.Fail<ModelRunAdmissionResult>(new DomainFailure(
+                FailureCode.BudgetExceeded,
+                "Model retry policy exceeds the current agent's total run budget."));
+        }
+
         var reserved = ModelRunStateMachine.Reserve(
             new ModelRunId(identifiers.NewGuid()),
             new ModelRunAttemptId(identifiers.NewGuid()),
@@ -84,7 +108,8 @@ internal sealed class ModelRunAdmissionService(
             request.IdempotencyKey,
             request.CorrelationId,
             request.CausationId,
-            clock.UtcNow);
+            clock.UtcNow,
+            request.MaximumAttempts);
         if (!reserved.IsSuccess)
         {
             return DomainResult.Fail<ModelRunAdmissionResult>(reserved.Failure!);
@@ -150,11 +175,17 @@ internal sealed class ModelRunAdmissionService(
                 run.ContextRedactionCount,
                 run.ContextPreparationPolicy,
                 run.AdmissionRequestHash,
+                run.MaximumAttempts,
                 run.Reservation.InputTokens,
                 run.Reservation.OutputTokens,
                 run.Reservation.ToolCalls,
                 run.Reservation.Events,
                 run.Reservation.WallClockSeconds,
+                AttemptInputTokens = aggregate.Attempt.Reservation.InputTokens,
+                AttemptOutputTokens = aggregate.Attempt.Reservation.OutputTokens,
+                AttemptToolCalls = aggregate.Attempt.Reservation.ToolCalls,
+                AttemptEvents = aggregate.Attempt.Reservation.Events,
+                AttemptWallClockSeconds = aggregate.Attempt.Reservation.WallClockSeconds,
             },
             new
             {
@@ -186,6 +217,8 @@ internal sealed class ModelRunAdmissionService(
             request.PlanningRequest.EstimatedInputTokens is < 0 or > 10_000_000 ||
             request.PlanningRequest.AttemptedProfileIds is null ||
             request.PlanningRequest.AttemptedProfileIds.Count > 8 ||
+            request.PlanningRequest.AttemptedProfileIds.Count != 0 ||
+            request.MaximumAttempts is < 1 or > 8 ||
             !IsBounded(request.ActorId.Value, 256) ||
             !IsBounded(request.IdempotencyKey, 256) ||
             !IsBounded(request.CorrelationId.Value, 128) ||
@@ -225,6 +258,7 @@ internal sealed class ModelRunAdmissionService(
             RequestId = request.PlanningRequest.Request.Id.ToString(),
             ContextInputHash = contextInputHash,
             request.PlanningRequest.EstimatedInputTokens,
+            request.MaximumAttempts,
             AttemptedProfileIds = request.PlanningRequest.AttemptedProfileIds
                 .OrderBy(item => item.Value)
                 .Select(item => item.ToString())

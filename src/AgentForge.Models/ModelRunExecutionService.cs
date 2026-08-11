@@ -22,7 +22,8 @@ internal sealed class ModelRunExecutionService(
     ISensitiveDataRedactor redactor,
     IAuditRecorder auditRecorder,
     IUnitOfWork unitOfWork,
-    IClock clock) : IModelRunExecutionService
+    IClock clock,
+    IIdentifierGenerator identifiers) : IModelRunExecutionService
 {
     public async Task<DomainResult<ModelRunExecutionResult>> ExecuteAsync(
         ModelRunExecutionRequest request,
@@ -66,20 +67,76 @@ internal sealed class ModelRunExecutionService(
             return Conflict("Model run execution does not match the exact reserved request.");
         }
 
+        return await ExecuteWithRetriesAsync(
+            request,
+            aggregate,
+            prepared.Value.Request,
+            observer,
+            cancellationToken);
+    }
+
+    private async Task<DomainResult<ModelRunExecutionResult>> ExecuteWithRetriesAsync(
+        ModelRunExecutionRequest request,
+        ModelRunAggregate aggregate,
+        ModelRequest preparedRequest,
+        IModelRunEventObserver? observer,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var executed = await ExecuteAttemptAsync(
+                request,
+                aggregate,
+                preparedRequest,
+                observer,
+                cancellationToken);
+            if (!executed.IsSuccess)
+            {
+                return executed;
+            }
+
+            aggregate = executed.Value.Aggregate;
+            if (aggregate.Run.State is not ModelRunState.Failed ||
+                !aggregate.Attempt.IsRetryable ||
+                aggregate.Attempt.Sequence >= aggregate.Run.MaximumAttempts)
+            {
+                return executed;
+            }
+
+            var retry = await PrepareRetryAsync(
+                aggregate,
+                preparedRequest,
+                cancellationToken);
+            if (!retry.IsSuccess)
+            {
+                return DomainResult.Success(new ModelRunExecutionResult(aggregate));
+            }
+
+            aggregate = retry.Value;
+        }
+    }
+
+    private async Task<DomainResult<ModelRunExecutionResult>> ExecuteAttemptAsync(
+        ModelRunExecutionRequest request,
+        ModelRunAggregate aggregate,
+        ModelRequest preparedRequest,
+        IModelRunEventObserver? observer,
+        CancellationToken cancellationToken)
+    {
         var currentPlan = await routePlanner.PlanAsync(new ModelRoutePlanningRequest(
             aggregate.Run.InstallationId,
             aggregate.Run.InstallationVersion,
             aggregate.Run.AgentId,
             aggregate.Run.AgentVersion,
-            request.Request,
-            aggregate.Run.Reservation.InputTokens,
+            preparedRequest,
+            aggregate.Attempt.Reservation.InputTokens,
             aggregate.Run.AttemptedProfileIds), cancellationToken);
         if (!currentPlan.IsSuccess)
         {
             return DomainResult.Fail<ModelRunExecutionResult>(currentPlan.Failure!);
         }
 
-        if (!PlanMatchesRun(currentPlan.Value, aggregate.Run))
+        if (!PlanMatchesRun(currentPlan.Value, aggregate))
         {
             return Conflict("Current model route evidence no longer matches the reserved run.");
         }
@@ -111,7 +168,7 @@ internal sealed class ModelRunExecutionService(
         var currentLedger = await ledgers.FindAsync(aggregate.Run.AgentId, cancellationToken);
         var reservedLedger = ModelBudgetLedgerStateMachine.Reserve(
             currentLedger,
-            aggregate.Run,
+            aggregate,
             authority.Value.Agent.Budget,
             clock.UtcNow);
         if (!reservedLedger.IsSuccess)
@@ -126,7 +183,7 @@ internal sealed class ModelRunExecutionService(
             request.WorkerId,
             leaseToken,
             startedAt,
-            startedAt.AddSeconds(aggregate.Run.Reservation.WallClockSeconds + 30L));
+            startedAt.AddSeconds(aggregate.Attempt.Reservation.WallClockSeconds + 30L));
         if (!started.IsSuccess)
         {
             return DomainResult.Fail<ModelRunExecutionResult>(started.Failure!);
@@ -160,10 +217,49 @@ internal sealed class ModelRunExecutionService(
             started.Value,
             reservedLedger.Value.Ledger,
             leaseToken,
-            prepared.Value.Request,
+            preparedRequest,
             resolved.Value,
             observer,
             cancellationToken);
+    }
+
+    private async Task<DomainResult<ModelRunAggregate>> PrepareRetryAsync(
+        ModelRunAggregate terminal,
+        ModelRequest preparedRequest,
+        CancellationToken cancellationToken)
+    {
+        var attempted = terminal.Run.AttemptedProfileIds
+            .Append(terminal.Attempt.Route.ProfileId)
+            .ToArray();
+        var plan = await routePlanner.PlanAsync(new ModelRoutePlanningRequest(
+            terminal.Run.InstallationId,
+            terminal.Run.InstallationVersion,
+            terminal.Run.AgentId,
+            terminal.Run.AgentVersion,
+            preparedRequest,
+            terminal.Attempt.Reservation.InputTokens,
+            attempted), cancellationToken);
+        if (!plan.IsSuccess)
+        {
+            return DomainResult.Fail<ModelRunAggregate>(plan.Failure!);
+        }
+
+        var retry = ModelRunStateMachine.Retry(
+            terminal,
+            new ModelRunAttemptId(identifiers.NewGuid()),
+            plan.Value,
+            clock.UtcNow);
+        if (!retry.IsSuccess)
+        {
+            return DomainResult.Fail<ModelRunAggregate>(retry.Failure!);
+        }
+
+        await runs.AppendAttemptAsync(retry.Value, terminal.Run.Version, cancellationToken);
+        await RecordRetryAsync(terminal, retry.Value, cancellationToken);
+        var commit = await unitOfWork.CommitAsync(cancellationToken);
+        return commit.Succeeded
+            ? DomainResult.Success(retry.Value)
+            : DomainResult.Fail<ModelRunAggregate>(commit.Failure!);
     }
 
     private async Task<DomainResult<ModelRunExecutionResult>> ExecuteProviderAsync(
@@ -175,9 +271,12 @@ internal sealed class ModelRunExecutionService(
         IModelRunEventObserver? observer,
         CancellationToken cancellationToken)
     {
-        using var accumulator = new ModelRunEventAccumulator(running.Run);
+        using var accumulator = new ModelRunEventAccumulator(
+            running.Run,
+            running.Attempt.Reservation,
+            running.Attempt.StartedAt);
         using var duration = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        duration.CancelAfter(TimeSpan.FromSeconds(running.Run.Reservation.WallClockSeconds));
+        duration.CancelAfter(TimeSpan.FromSeconds(running.Attempt.Reservation.WallClockSeconds));
         DomainFailure? streamFailure = null;
         try
         {
@@ -201,7 +300,7 @@ internal sealed class ModelRunExecutionService(
         {
             var canceledAt = AtLeast(clock.UtcNow, running.Run.StartedAt!.Value);
             var evidence = accumulator.FinalizeEvidence();
-            var canceled = ExceedsReservation(running.Run, accumulator.Usage, evidence, canceledAt)
+            var canceled = ExceedsReservation(running, accumulator.Usage, evidence, canceledAt)
                 ? ModelRunStateMachine.RecordBudgetExceeded(
                     running,
                     leaseToken,
@@ -260,8 +359,8 @@ internal sealed class ModelRunExecutionService(
         var completedAt = streamFailure?.Code is FailureCode.BudgetExceeded
             ? AtLeast(
                 clock.UtcNow,
-                running.Run.StartedAt!.Value.AddSeconds(running.Run.Reservation.WallClockSeconds))
-            : AtLeast(clock.UtcNow, running.Run.StartedAt!.Value);
+                running.Attempt.StartedAt!.Value.AddSeconds(running.Attempt.Reservation.WallClockSeconds))
+            : AtLeast(clock.UtcNow, running.Attempt.StartedAt!.Value);
         ModelRunStreamEvidence streamEvidence;
         if (streamFailure is null)
         {
@@ -284,7 +383,7 @@ internal sealed class ModelRunExecutionService(
         DomainResult<ModelRunAggregate> terminal;
         if (streamFailure?.Code is FailureCode.BudgetExceeded ||
             accumulator.ProviderError?.Code is ModelProviderErrorCode.BudgetExceeded ||
-            ExceedsReservation(running.Run, accumulator.Usage, streamEvidence, completedAt))
+            ExceedsReservation(running, accumulator.Usage, streamEvidence, completedAt))
         {
             terminal = ModelRunStateMachine.RecordBudgetExceeded(
                 running,
@@ -352,7 +451,7 @@ internal sealed class ModelRunExecutionService(
         CancellationToken cancellationToken)
     {
         var currentLedger = await ledgers.FindAsync(terminal.Run.AgentId, cancellationToken) ?? startedLedger;
-        var reconciled = ModelBudgetLedgerStateMachine.Reconcile(currentLedger, terminal.Run, clock.UtcNow);
+        var reconciled = ModelBudgetLedgerStateMachine.Reconcile(currentLedger, terminal, clock.UtcNow);
         if (!reconciled.IsSuccess)
         {
             return DomainResult.Fail<ModelRunAggregate>(reconciled.Failure!);
@@ -423,6 +522,46 @@ internal sealed class ModelRunExecutionService(
             : DomainResult.Fail<ModelRunAggregate>(commit.Failure!);
     }
 
+    private async Task RecordRetryAsync(
+        ModelRunAggregate prior,
+        ModelRunAggregate retry,
+        CancellationToken cancellationToken)
+    {
+        await auditRecorder.RecordAsync(new AuditRecordRequest(
+            retry.Run.InstallationId,
+            retry.Run.ActorId,
+            retry.Run.CorrelationId,
+            retry.Run.CausationId,
+            "model.run-retry-planned",
+            AuditOutcome.Succeeded,
+            new
+            {
+                RunId = retry.Run.Id.ToString(),
+                PriorAttemptId = prior.Attempt.Id.ToString(),
+                PriorAttemptSequence = prior.Attempt.Sequence,
+                PriorProfileId = prior.Attempt.Route.ProfileId.ToString(),
+                PriorFailureCode = prior.Attempt.FailureCode?.ToString(),
+                PriorStreamHash = prior.Attempt.StreamEvidence.EventStreamHash,
+                PriorAttemptVersion = prior.Attempt.Version,
+                PriorRunVersion = prior.Run.Version,
+            },
+            new
+            {
+                AttemptId = retry.Attempt.Id.ToString(),
+                retry.Attempt.Sequence,
+                ProviderProfileId = retry.Attempt.Route.ProfileId.ToString(),
+                retry.Attempt.PlanEvidenceHash,
+                retry.Run.HealthEvidenceHash,
+                AttemptedProfileIds = retry.Run.AttemptedProfileIds
+                    .Select(item => item.ToString())
+                    .ToArray(),
+                RunState = retry.Run.State.ToString(),
+                AttemptState = retry.Attempt.State.ToString(),
+                retry.Run.Version,
+            },
+            null), cancellationToken);
+    }
+
     private async Task RecordStartedAsync(
         ModelRunAggregate aggregate,
         ModelBudgetLedgerRecord ledger,
@@ -439,6 +578,7 @@ internal sealed class ModelRunExecutionService(
             {
                 RunId = aggregate.Run.Id.ToString(),
                 AttemptId = aggregate.Attempt.Id.ToString(),
+                aggregate.Attempt.Sequence,
                 aggregate.Run.PlanEvidenceHash,
                 aggregate.Run.PreparedInputHash,
                 aggregate.Run.HealthEvidenceHash,
@@ -452,6 +592,11 @@ internal sealed class ModelRunExecutionService(
                 aggregate.Run.Reservation.ToolCalls,
                 aggregate.Run.Reservation.Events,
                 aggregate.Run.Reservation.WallClockSeconds,
+                AttemptInputTokens = aggregate.Attempt.Reservation.InputTokens,
+                AttemptOutputTokens = aggregate.Attempt.Reservation.OutputTokens,
+                AttemptToolCalls = aggregate.Attempt.Reservation.ToolCalls,
+                AttemptEvents = aggregate.Attempt.Reservation.Events,
+                AttemptWallClockSeconds = aggregate.Attempt.Reservation.WallClockSeconds,
                 LedgerVersion = ledger.Version,
             },
             new
@@ -483,6 +628,7 @@ internal sealed class ModelRunExecutionService(
             {
                 RunId = aggregate.Run.Id.ToString(),
                 AttemptId = aggregate.Attempt.Id.ToString(),
+                aggregate.Attempt.Sequence,
                 aggregate.Run.PlanEvidenceHash,
                 aggregate.Run.PreparedInputHash,
                 aggregate.Run.StreamEvidence.EventCount,
@@ -498,6 +644,12 @@ internal sealed class ModelRunExecutionService(
                 aggregate.Run.Usage.ToolCalls,
                 aggregate.Run.Usage.Cost,
                 aggregate.Run.Usage.Currency,
+                AttemptInputTokens = aggregate.Attempt.Usage.InputTokens,
+                AttemptOutputTokens = aggregate.Attempt.Usage.OutputTokens,
+                AttemptToolCalls = aggregate.Attempt.Usage.ToolCalls,
+                AttemptCost = aggregate.Attempt.Usage.Cost,
+                AttemptCurrency = aggregate.Attempt.Usage.Currency,
+                aggregate.Run.ConsumedWallClockSeconds,
                 FinishReason = aggregate.Run.FinishReason?.ToString(),
                 FailureCode = aggregate.Run.FailureCode?.ToString(),
                 aggregate.Run.CompletedAt,
@@ -516,7 +668,11 @@ internal sealed class ModelRunExecutionService(
         run.RequestId == request.Request.Id && run.ActorId == request.ActorId &&
         run.CorrelationId == request.CorrelationId && run.CausationId == request.CausationId;
 
-    private static bool PlanMatchesRun(ModelRoutePlan plan, ModelRunRecord run) =>
+    private static bool PlanMatchesRun(ModelRoutePlan plan, ModelRunAggregate aggregate)
+    {
+        var run = aggregate.Run;
+        var reservation = aggregate.Attempt.Reservation;
+        return
         plan.RequestId == run.RequestId && plan.InstallationId == run.InstallationId &&
         plan.InstallationVersion == run.InstallationVersion && plan.AgentId == run.AgentId &&
         plan.AgentVersion == run.AgentVersion && plan.ProviderVersion == run.ProviderVersion &&
@@ -526,12 +682,13 @@ internal sealed class ModelRunExecutionService(
         FixedEquals(plan.HealthEvidenceHash, run.HealthEvidenceHash) &&
         plan.ContextRedactionCount == run.ContextRedactionCount &&
         string.Equals(plan.ContextPreparationPolicy, run.ContextPreparationPolicy, StringComparison.Ordinal) &&
-        plan.ReservedInputTokens == run.Reservation.InputTokens &&
-        plan.ReservedOutputTokens == run.Reservation.OutputTokens &&
-        plan.ReservedToolCalls == run.Reservation.ToolCalls &&
-        plan.ReservedEvents == run.Reservation.Events &&
-        plan.ReservedWallClockSeconds == run.Reservation.WallClockSeconds &&
+        plan.ReservedInputTokens == reservation.InputTokens &&
+        plan.ReservedOutputTokens == reservation.OutputTokens &&
+        plan.ReservedToolCalls == reservation.ToolCalls &&
+        plan.ReservedEvents == reservation.Events &&
+        plan.ReservedWallClockSeconds == reservation.WallClockSeconds &&
         plan.AttemptedProfileIds.SequenceEqual(run.AttemptedProfileIds);
+    }
 
     private static bool DescriptorMatches(IModelProvider? provider, ModelRunRecord run) =>
         provider is not null && provider.Descriptor.ProfileId == run.Route.ProfileId &&
@@ -539,16 +696,27 @@ internal sealed class ModelRunExecutionService(
         string.Equals(provider.Descriptor.Model, run.Route.Model, StringComparison.Ordinal);
 
     private static bool ExceedsReservation(
-        ModelRunRecord run,
+        ModelRunAggregate aggregate,
         ModelUsage usage,
         ModelRunStreamEvidence evidence,
-        DateTimeOffset observedAt) =>
-        usage.InputTokens > run.Reservation.InputTokens ||
-        usage.OutputTokens > run.Reservation.OutputTokens ||
-        usage.ToolCalls > run.Reservation.ToolCalls ||
-        evidence.EventCount > run.Reservation.Events ||
-        run.StartedAt is { } startedAt &&
-            observedAt - startedAt >= TimeSpan.FromSeconds(run.Reservation.WallClockSeconds);
+        DateTimeOffset observedAt)
+    {
+        var run = aggregate.Run;
+        var attempt = aggregate.Attempt;
+        var elapsed = attempt.StartedAt is { } startedAt
+            ? (int)Math.Ceiling((observedAt - startedAt).TotalSeconds)
+            : 0;
+        return usage.InputTokens > attempt.Reservation.InputTokens ||
+            usage.OutputTokens > attempt.Reservation.OutputTokens ||
+            usage.ToolCalls > attempt.Reservation.ToolCalls ||
+            evidence.EventCount > attempt.Reservation.Events ||
+            run.Usage.InputTokens > run.Reservation.InputTokens - usage.InputTokens ||
+            run.Usage.OutputTokens > run.Reservation.OutputTokens - usage.OutputTokens ||
+            run.Usage.ToolCalls > run.Reservation.ToolCalls - usage.ToolCalls ||
+            run.StreamEvidence.EventCount > run.Reservation.Events - evidence.EventCount ||
+            elapsed >= attempt.Reservation.WallClockSeconds ||
+            run.ConsumedWallClockSeconds > run.Reservation.WallClockSeconds - elapsed;
+    }
 
     private static DomainFailure MapProviderError(ModelProviderError error) => error.Code switch
     {

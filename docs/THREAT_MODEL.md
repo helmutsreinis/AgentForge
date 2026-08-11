@@ -499,7 +499,8 @@ nothing.
 
 Admission alone is not execution authority. The internal execution boundary described below is
 the only consumer permitted to resolve a catalog profile from a reserved run; no public mutation
-can reach it. Retry/attempt expansion and crash-safe recovery remain separate gates.
+can reach it. Retry/attempt expansion and exact expired recovery are implemented by the later
+boundaries below; automatic recovery scanning and the typed loop remain separate gates.
 
 ## M3 durable model-attempt execution update
 
@@ -534,5 +535,24 @@ attempt provenance, and timestamps are bounded. Concurrency failure rolls back r
 and audit together. Duplicate replay sees a non-reserved state and cannot invoke the provider again.
 Caller cancellation is persisted before the cancellation exception propagates. Remaining threats
 are health-source poisoning outside the observed adapter boundary, automatic expired-lease scanning,
-bounded retry/failover, cross-attempt cost totals, hosted endpoint DNS/IP rebinding, and any future
-public authentication/rate-limit surface.
+typed loop resumption, hosted endpoint DNS/IP rebinding, and any future public authentication/rate-
+limit surface.
+
+## M3 bounded retry/failover update
+
+Retry count is caller-visible but not caller-authorizing. Admission hashes it, caps it at eight,
+re-reads current agent authority, and rejects multiplied token/tool/wall totals above policy. A
+changed attempt count conflicts with the existing idempotency key. Each attempt has its own durable
+reservation and version; prior terminal attempt rows are never overwritten when a new one is added.
+
+The failed profile ID is appended by trusted application code, not accepted as model output. Route
+planning verifies all IDs belong to the exact-model catalog, excludes every prior profile, and
+reapplies current locality, fallback, capability, and health evidence. The retry transition verifies
+contiguous unique history and a distinct selected profile. Thus a retry budget cannot turn on cloud
+fallback, repeat a provider, substitute history, or exceed remaining total run budget.
+
+Ledger accounting uses current-attempt usage while run accounting adds every attempt's usage, cost,
+event evidence, and wall time. Currency mismatch and arithmetic or evidence overflow fail the
+terminal transaction. Remaining threats are durable loop resumption/no-progress detection,
+structured-output repair bounds, hosted endpoint DNS/IP rebinding, automatic recovery scanning, and
+any future public invocation surface.

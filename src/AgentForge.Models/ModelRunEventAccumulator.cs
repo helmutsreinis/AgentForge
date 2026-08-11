@@ -7,7 +7,10 @@ using AgentForge.Domain.Primitives;
 
 namespace AgentForge.Models;
 
-internal sealed class ModelRunEventAccumulator(ModelRunRecord run) : IDisposable
+internal sealed class ModelRunEventAccumulator(
+    ModelRunRecord run,
+    ModelRunBudgetReservation? attemptReservation = null,
+    DateTimeOffset? attemptStartedAt = null) : IDisposable
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
@@ -30,7 +33,7 @@ internal sealed class ModelRunEventAccumulator(ModelRunRecord run) : IDisposable
         if (modelEvent is null || modelEvent.RequestId != run.RequestId ||
             modelEvent.Sequence != EventCount || modelEvent.Timestamp == default ||
             _lastTimestamp is { } lastTimestamp && modelEvent.Timestamp < lastTimestamp ||
-            run.StartedAt is { } startedAt && modelEvent.Timestamp < startedAt ||
+            (attemptStartedAt ?? run.StartedAt) is { } startedAt && modelEvent.Timestamp < startedAt ||
             run.Lease is { } lease && modelEvent.Timestamp > lease.ExpiresAt || _terminal)
         {
             return Invalid("Model provider stream identity, sequence, or terminal ordering is invalid.");
@@ -45,7 +48,7 @@ internal sealed class ModelRunEventAccumulator(ModelRunRecord run) : IDisposable
         Append(modelEvent);
         EventCount++;
         _lastTimestamp = modelEvent.Timestamp;
-        if (EventCount > run.Reservation.Events)
+        if (EventCount > (attemptReservation ?? run.Reservation).Events)
         {
             return DomainResult.Fail<bool>(new DomainFailure(
                 FailureCode.BudgetExceeded,

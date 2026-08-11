@@ -27,6 +27,8 @@ internal sealed class ModelRunEntity
     public int ReservedToolCalls { get; set; }
     public int ReservedEvents { get; set; }
     public int ReservedWallClockSeconds { get; set; }
+    public int MaximumAttempts { get; set; }
+    public int ConsumedWallClockSeconds { get; set; }
     public string? LeaseOwner { get; set; }
     public string? LeaseTokenHash { get; set; }
     public long? LeaseAcquiredAtUtcTicks { get; set; }

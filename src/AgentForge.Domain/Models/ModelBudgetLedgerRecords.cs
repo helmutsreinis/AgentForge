@@ -30,11 +30,30 @@ public static class ModelBudgetLedgerStateMachine
 {
     public static DomainResult<ModelBudgetLedgerMutation> Reserve(
         ModelBudgetLedgerRecord? current,
+        ModelRunAggregate aggregate,
+        AgentBudget budget,
+        DateTimeOffset reservedAt) =>
+        aggregate is null || aggregate.Attempt.RunId != aggregate.Run.Id ||
+            aggregate.Attempt.State is not ModelRunAttemptState.Planned
+            ? InvalidMutation("Model budget reservation requires a current attempt.")
+            : Reserve(current, aggregate.Run, aggregate.Attempt.Reservation, budget, reservedAt);
+
+    public static DomainResult<ModelBudgetLedgerMutation> Reserve(
+        ModelBudgetLedgerRecord? current,
         ModelRunRecord run,
+        AgentBudget budget,
+        DateTimeOffset reservedAt) =>
+        Reserve(current, run, run.Reservation, budget, reservedAt);
+
+    private static DomainResult<ModelBudgetLedgerMutation> Reserve(
+        ModelBudgetLedgerRecord? current,
+        ModelRunRecord run,
+        ModelRunBudgetReservation reservation,
         AgentBudget budget,
         DateTimeOffset reservedAt)
     {
-        if (!ValidateRun(run) || !ValidateBudget(budget) || reservedAt < run.CreatedAt ||
+        if (!ValidateRun(run) || !ValidateReservation(reservation) ||
+            !ValidateBudget(budget) || reservedAt < run.CreatedAt ||
             current is not null && !ValidateLedger(current))
         {
             return InvalidMutation("Model budget reservation requires valid current run and ledger evidence.");
@@ -66,13 +85,13 @@ public static class ModelBudgetLedgerStateMachine
             ledger = ledger with { AgentVersion = run.AgentVersion };
         }
 
-        if (!TryAdd(ledger.ActiveReservation.InputTokens, run.Reservation.InputTokens, out var input) ||
-            !TryAdd(ledger.ActiveReservation.OutputTokens, run.Reservation.OutputTokens, out var output) ||
-            !TryAdd(ledger.ActiveReservation.ToolCalls, run.Reservation.ToolCalls, out var tools) ||
-            !TryAdd(ledger.ActiveReservation.Events, run.Reservation.Events, out var events) ||
+        if (!TryAdd(ledger.ActiveReservation.InputTokens, reservation.InputTokens, out var input) ||
+            !TryAdd(ledger.ActiveReservation.OutputTokens, reservation.OutputTokens, out var output) ||
+            !TryAdd(ledger.ActiveReservation.ToolCalls, reservation.ToolCalls, out var tools) ||
+            !TryAdd(ledger.ActiveReservation.Events, reservation.Events, out var events) ||
             !TryAdd(
                 ledger.ActiveReservation.WallClockSeconds,
-                run.Reservation.WallClockSeconds,
+                reservation.WallClockSeconds,
                 out var wallClock) ||
             !TryAdd(ledger.ActiveRuns, 1, out var activeRuns))
         {
@@ -110,17 +129,40 @@ public static class ModelBudgetLedgerStateMachine
 
     public static DomainResult<ModelBudgetLedgerMutation> Reconcile(
         ModelBudgetLedgerRecord current,
+        ModelRunAggregate aggregate,
+        DateTimeOffset reconciledAt) =>
+        aggregate is null || aggregate.Attempt.RunId != aggregate.Run.Id ||
+            aggregate.Attempt.State is not (ModelRunAttemptState.Succeeded or
+                ModelRunAttemptState.Failed or ModelRunAttemptState.Canceled)
+            ? InvalidMutation("Model budget reconciliation requires a current attempt.")
+            : Reconcile(current, aggregate.Run, aggregate.Attempt, reconciledAt);
+
+    public static DomainResult<ModelBudgetLedgerMutation> Reconcile(
+        ModelBudgetLedgerRecord current,
         ModelRunRecord terminalRun,
+        DateTimeOffset reconciledAt) =>
+        Reconcile(current, terminalRun, null, reconciledAt);
+
+    private static DomainResult<ModelBudgetLedgerMutation> Reconcile(
+        ModelBudgetLedgerRecord current,
+        ModelRunRecord terminalRun,
+        ModelRunAttemptRecord? terminalAttempt,
         DateTimeOffset reconciledAt)
     {
+        var reservation = terminalAttempt?.Reservation ?? terminalRun.Reservation;
+        var usage = terminalAttempt?.Usage ?? terminalRun.Usage;
+        var streamEvidence = terminalAttempt?.StreamEvidence ?? terminalRun.StreamEvidence;
+        var startedAtValue = terminalAttempt?.StartedAt ?? terminalRun.StartedAt;
+        var completedAtValue = terminalAttempt?.CompletedAt ?? terminalRun.CompletedAt;
         if (!ValidateLedger(current) || !ValidateRun(terminalRun) ||
+            !ValidateReservation(reservation) || usage is null || streamEvidence is null ||
             terminalRun.State is not (ModelRunState.Succeeded or ModelRunState.Failed or
                 ModelRunState.Canceled or ModelRunState.BudgetExceeded) ||
-            terminalRun.StartedAt is not { } startedAt || terminalRun.CompletedAt is not { } completedAt ||
+            startedAtValue is not { } startedAt || completedAtValue is not { } completedAt ||
             completedAt < startedAt || reconciledAt < completedAt ||
             current.InstallationId != terminalRun.InstallationId ||
             current.AgentId != terminalRun.AgentId || current.AgentVersion != terminalRun.AgentVersion ||
-            current.ActiveRuns < 1 || !CanSubtract(current.ActiveReservation, terminalRun.Reservation))
+            current.ActiveRuns < 1 || !CanSubtract(current.ActiveReservation, reservation))
         {
             return InvalidMutation("Model budget reconciliation requires one exact terminal active reservation.");
         }
@@ -131,26 +173,26 @@ public static class ModelBudgetLedgerStateMachine
             return InvalidMutation("Model budget reconciliation wall-clock evidence is invalid.");
         }
 
-        if (!TryAdd(current.Consumption.InputTokens, terminalRun.Usage.InputTokens, out var input) ||
-            !TryAdd(current.Consumption.OutputTokens, terminalRun.Usage.OutputTokens, out var output) ||
-            !TryAdd(current.Consumption.ToolCalls, terminalRun.Usage.ToolCalls, out var tools) ||
-            !TryAdd(current.Consumption.Events, terminalRun.StreamEvidence.EventCount, out var events) ||
+        if (!TryAdd(current.Consumption.InputTokens, usage.InputTokens, out var input) ||
+            !TryAdd(current.Consumption.OutputTokens, usage.OutputTokens, out var output) ||
+            !TryAdd(current.Consumption.ToolCalls, usage.ToolCalls, out var tools) ||
+            !TryAdd(current.Consumption.Events, streamEvidence.EventCount, out var events) ||
             !TryAdd(current.Consumption.WallClockSeconds, elapsedSeconds, out var wallClock) ||
             !TryAdd(current.Consumption.CompletedRuns, 1, out var completedRuns))
         {
             return InvalidMutation("Model budget consumption totals overflow their durable bounds.");
         }
 
-        var reservation = current.ActiveReservation;
-        var runReservation = terminalRun.Reservation;
+        var activeReservation = current.ActiveReservation;
+        var runReservation = reservation;
         var next = current with
         {
             ActiveReservation = new ModelRunBudgetReservation(
-                reservation.InputTokens - runReservation.InputTokens,
-                reservation.OutputTokens - runReservation.OutputTokens,
-                reservation.ToolCalls - runReservation.ToolCalls,
-                reservation.Events - runReservation.Events,
-                reservation.WallClockSeconds - runReservation.WallClockSeconds),
+                activeReservation.InputTokens - runReservation.InputTokens,
+                activeReservation.OutputTokens - runReservation.OutputTokens,
+                activeReservation.ToolCalls - runReservation.ToolCalls,
+                activeReservation.Events - runReservation.Events,
+                activeReservation.WallClockSeconds - runReservation.WallClockSeconds),
             ActiveRuns = current.ActiveRuns - 1,
             Consumption = new ModelBudgetConsumption(
                 input,
@@ -175,6 +217,10 @@ public static class ModelBudgetLedgerStateMachine
     private static bool ValidateBudget(AgentBudget budget) =>
         budget is not null && budget.MaxInputTokens >= 0 && budget.MaxOutputTokens >= 1 &&
         budget.MaxToolInvocations >= 0 && budget.MaxWallClockSeconds >= 1;
+
+    private static bool ValidateReservation(ModelRunBudgetReservation reservation) =>
+        reservation is not null && reservation.InputTokens >= 0 && reservation.OutputTokens >= 1 &&
+        reservation.ToolCalls >= 0 && reservation.Events >= 2 && reservation.WallClockSeconds >= 1;
 
     private static bool ValidateLedger(ModelBudgetLedgerRecord ledger) =>
         ledger is not null && ledger.InstallationId.Value != Guid.Empty && ledger.AgentId.Value != Guid.Empty &&
