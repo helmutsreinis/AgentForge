@@ -6,11 +6,13 @@ using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
+using AgentForge.Abstractions.Time;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
@@ -18,6 +20,7 @@ using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Environments;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Models;
+using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Runtime;
@@ -25,6 +28,7 @@ using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Domain.Tools;
 using AgentForge.Environment;
+using AgentForge.Orchestration;
 using AgentForge.Persistence;
 using AgentForge.Runtime;
 using AgentForge.Security;
@@ -72,6 +76,7 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddAgentForgeEnvironment(configuration);
         services.AddAgentForgeTools(configuration);
         services.AddAgentForgeRuntime();
+        services.AddAgentForgeOrchestration();
         configure?.Invoke(services);
         return services.BuildServiceProvider(validateScopes: true);
     }
@@ -188,6 +193,191 @@ public sealed class PersistenceFoundationTests : IDisposable
             Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
             Assert.Equal(callsBeforeReplay, executor.Calls);
         }
+    }
+
+    [Fact]
+    public async Task Durable_task_dag_recovers_expired_worker_and_resumes_without_repeating_completion()
+    {
+        var clock = new MutableClock(new DateTimeOffset(2026, 8, 12, 1, 0, 0, TimeSpan.Zero));
+        await using var services = BuildServices(
+            _directory,
+            "orchestration.db",
+            collection =>
+            {
+                collection.AddSingleton<IClock>(clock);
+                collection.AddSingleton<IIdentifierGenerator>(clock);
+            });
+        await using (var initializationScope = services.CreateAsyncScope())
+        {
+            await initializationScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                .InitializeAsync(CancellationToken.None);
+        }
+
+        var installationId = new InstallationId(Guid.Parse("11234567-0000-0000-0000-000000000001"));
+        var providerId = new ProviderProfileId(Guid.Parse("11234567-0000-0000-0000-000000000002"));
+        var agentId = new AgentIdentityId(Guid.Parse("11234567-0000-0000-0000-000000000003"));
+        await using (var seedScope = services.CreateAsyncScope())
+        {
+            await seedScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    clock.UtcNow,
+                    new ActorId("orchestration-operator"),
+                    new CorrelationId("orchestration-seed")), CancellationToken.None);
+            await seedScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "orchestration"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await seedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    clock.UtcNow,
+                    clock.UtcNow,
+                    new ActorId("orchestration-operator"),
+                    new CorrelationId("orchestration-seed")), CancellationToken.None);
+            Assert.True((await seedScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        const string hash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var taskId = new OrchestrationTaskId(Guid.Parse("11234567-0000-0000-0000-000000000004"));
+        var definition = new OrchestrationTaskDefinition(
+            taskId,
+            installationId,
+            agentId,
+            0,
+            OrchestrationPattern.Sequential,
+            [
+                OrchestrationNode("prepare", []),
+                OrchestrationNode("verify", [new TaskNodeId("prepare")]),
+            ],
+            1,
+            2,
+            2,
+            hash,
+            hash,
+            hash);
+
+        string abandonedToken;
+        await using (var firstWorker = services.CreateAsyncScope())
+        {
+            var orchestrator = firstWorker.ServiceProvider.GetRequiredService<ITaskOrchestrator>();
+            var created = await orchestrator.CreateAsync(
+                definition,
+                new ActorId("orchestration-worker"),
+                "orchestration-task-001",
+                new CorrelationId("orchestration-run"),
+                null,
+                CancellationToken.None);
+            Assert.True(created.IsSuccess, created.Failure?.Message);
+
+            var replay = await orchestrator.CreateAsync(
+                definition,
+                new ActorId("orchestration-worker"),
+                "orchestration-task-001",
+                new CorrelationId("orchestration-run"),
+                null,
+                CancellationToken.None);
+            Assert.True(replay.IsSuccess);
+            Assert.True(replay.Value.WasReplay);
+
+            var claim = await orchestrator.ClaimAsync(
+                taskId,
+                0,
+                new TaskNodeId("prepare"),
+                "worker-one",
+                TimeSpan.FromSeconds(30),
+                CancellationToken.None);
+            Assert.True(claim.IsSuccess, claim.Failure?.Message);
+            abandonedToken = claim.Value.LeaseToken;
+        }
+
+        clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        await using (var resumedWorker = services.CreateAsyncScope())
+        {
+            var orchestrator = resumedWorker.ServiceProvider.GetRequiredService<ITaskOrchestrator>();
+            var recovered = await orchestrator.RecoverExpiredAsync(taskId, 1, CancellationToken.None);
+            Assert.True(recovered.IsSuccess, recovered.Failure?.Message);
+            Assert.Equal(TaskNodeState.Ready, recovered.Value.Snapshot.Nodes[0].State);
+
+            var claim = await orchestrator.ClaimAsync(
+                taskId,
+                2,
+                new TaskNodeId("prepare"),
+                "worker-two",
+                TimeSpan.FromMinutes(1),
+                CancellationToken.None);
+            Assert.True(claim.IsSuccess, claim.Failure?.Message);
+            var completed = await orchestrator.CompleteAsync(
+                taskId,
+                3,
+                new TaskNodeId("prepare"),
+                "worker-two",
+                claim.Value.LeaseToken,
+                hash,
+                CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            Assert.Equal(TaskNodeState.Ready, completed.Value.Snapshot.Nodes[1].State);
+
+            var staleCompletion = await orchestrator.CompleteAsync(
+                taskId,
+                4,
+                new TaskNodeId("prepare"),
+                "worker-one",
+                abandonedToken,
+                hash,
+                CancellationToken.None);
+            Assert.False(staleCompletion.IsSuccess);
+        }
+
+        await using (var finalWorker = services.CreateAsyncScope())
+        {
+            var orchestrator = finalWorker.ServiceProvider.GetRequiredService<ITaskOrchestrator>();
+            var claim = await orchestrator.ClaimAsync(
+                taskId,
+                4,
+                new TaskNodeId("verify"),
+                "worker-three",
+                TimeSpan.FromMinutes(1),
+                CancellationToken.None);
+            Assert.True(claim.IsSuccess, claim.Failure?.Message);
+            var completed = await orchestrator.CompleteAsync(
+                taskId,
+                5,
+                new TaskNodeId("verify"),
+                "worker-three",
+                claim.Value.LeaseToken,
+                hash,
+                CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            Assert.Equal(OrchestrationTaskState.Completed, completed.Value.Snapshot.State);
+
+            var history = await finalWorker.ServiceProvider.GetRequiredService<ITaskSnapshotStore>()
+                .ListAsync(taskId, CancellationToken.None);
+            Assert.Equal(7, history.Count);
+            Assert.Equal(Enumerable.Range(0, 7).Select(value => (long)value), history.Select(item => item.Version));
+            Assert.All(history, item => Assert.True(OrchestrationTaskStateMachine.IsConsistent(item)));
+            Assert.Equal(
+                history.Take(6).Select(item => item.SnapshotHash),
+                history.Skip(1).Select(item => item.PreviousSnapshotHash));
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "orchestration.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(abandonedToken)));
     }
 
     [Fact]
@@ -2345,6 +2535,17 @@ public sealed class PersistenceFoundationTests : IDisposable
         new ChildAgentLimits(2, 4, 2, 10_000),
         new AgentLearningPolicy(LearningMode.Propose, MutableSkillScope.ProposalWorkspaceOnly));
 
+    private static TaskNodeDefinition OrchestrationNode(
+        string id,
+        IReadOnlyList<TaskNodeId> dependencies) => new(
+        new TaskNodeId(id),
+        id,
+        dependencies,
+        ["tool:repo.read"],
+        ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+        new TaskExecutionBudget(4, 1_000, 1_000, 60),
+        new TaskRetryPolicy(2, 0));
+
     private static EnvironmentProfile CreateEnvironmentProfile(string executableName) => new(
         1,
         Now,
@@ -2500,5 +2701,12 @@ public sealed class PersistenceFoundationTests : IDisposable
                 TimeSpan.Zero,
                 Capabilities)));
         }
+    }
+
+    private sealed class MutableClock(DateTimeOffset utcNow) : IClock, IIdentifierGenerator
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+
+        public Guid NewGuid() => Guid.NewGuid();
     }
 }
