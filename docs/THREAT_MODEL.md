@@ -728,3 +728,21 @@ Official adapters accept text only at this gate; media payloads fail instead of 
 Credentials are invocation-scoped. Telegram's protocol requires its token in the request path, so the
 adapter uses a private direct `HttpClient`, emits no URI/error body evidence, and never registers live
 accounts by default. Remote-mode webhook exposure remains disabled until Milestone 10 hardening.
+
+## M7 loopback web-setup update
+
+Browser origins, cookies, nonces, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
+requests are untrusted. Every web-setup endpoint verifies loopback remote address and, when present, exact
+same-origin scheme/authority. A random 256-bit nonce is consumed atomically into a 20-minute HttpOnly,
+SameSite=Strict cookie session with an independent CSRF token. Mutation keys bind operation and request hash;
+conflicting reuse denies and exact success replays do not repeat durable work.
+
+Provider metadata is staged before a separate bounded `text/plain` credential body. Strict UTF-8 decoding
+targets a clearable character array, the existing setup service stores only its OS-secret reference, and the
+buffers are cleared in all outcomes. The browser necessarily owns its input string until submission and
+clears the field immediately. CSP, anti-frame, no-sniff, no-referrer, permissions policy, and no-store headers
+remain active. Completion makes the session exact-replay-only; the nonce cannot create another session.
+
+The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
+provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
+wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.

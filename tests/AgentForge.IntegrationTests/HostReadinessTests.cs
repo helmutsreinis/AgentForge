@@ -55,7 +55,7 @@ public sealed class HostReadinessTests : IDisposable
     }
 
     [Fact]
-    public async Task Root_serves_read_only_local_control_plane_preview_with_security_headers()
+    public async Task Root_serves_loopback_setup_wizard_with_security_headers()
     {
         using var client = _factory.CreateClient();
         using var response = await client.GetAsync("/", CancellationToken.None);
@@ -64,9 +64,9 @@ public sealed class HostReadinessTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("AgentForge · Local control plane", body, StringComparison.Ordinal);
-        Assert.Contains("The web surface is read-only", body, StringComparison.Ordinal);
-        Assert.DoesNotContain("<form", body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("type=\"password\"", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Secure first-run setup", body, StringComparison.Ordinal);
+        Assert.Contains("<form", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("type=\"password\"", body, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal("DENY", response.Headers.GetValues("X-Frame-Options").Single());
         Assert.Contains("frame-ancestors 'none'", response.Headers.GetValues("Content-Security-Policy").Single(), StringComparison.Ordinal);

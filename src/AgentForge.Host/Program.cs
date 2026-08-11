@@ -9,6 +9,7 @@ using AgentForge.Domain.Installations;
 using AgentForge.Environment;
 using AgentForge.Host.Health;
 using AgentForge.Host.Http;
+using AgentForge.Host.Setup;
 using AgentForge.Memory;
 using AgentForge.Models;
 using AgentForge.Orchestration;
@@ -48,6 +49,7 @@ builder.Services.AddAgentForgeRuntime();
 builder.Services.AddAgentForgeSearch();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
+builder.Services.AddSingleton<WebSetupSessionManager>();
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 
@@ -63,6 +65,11 @@ app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.Use(async (context, next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/api/v1/setup/web"))
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers.Pragma = "no-cache";
+    }
     context.Response.Headers.ContentSecurityPolicy =
         "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; " +
         "form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; " +
@@ -188,6 +195,8 @@ app.MapGet("/api/v1/runtime/ping", async (
         Array.Clear(credential);
     }
 });
+
+app.MapAgentForgeWebSetup();
 
 static bool TryGetBearerCredential(HttpRequest request, out char[] credential)
 {

@@ -114,10 +114,13 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Migration 0019 adds durable memory with installation/agent foreign keys and scoped lookup indexes. SQLite secure deletion is enabled; a restart test proves scope isolation, citation attribution, raw-secret absence, audit integrity, and exact deletion.
 - M7 channels added authenticated Telegram and WhatsApp webhook adapters, deterministic equivalents, exact external-sender bindings, bounded normalized inbox records, attachment scanning, replay/content conflict detection, deterministic ordering, and durable SQLite inbox evidence.
 - Outbound sends bind recipient/body/account/channel to the existing exact capability-approval boundary, consume the approval before transport, enforce quiet hours and hourly limits, retry only definite non-delivery, and dead-letter uncertain outcomes. Official text sends materialize credentials for one invocation; unsupported media fails rather than being omitted. Migration 0020 persists bindings, inbox, delivery state, retries, and dead letters.
+- M7 web setup replaced the diagnostic-only setup card with a loopback wizard over the existing application service. A random one-time nonce creates a 20-minute HttpOnly SameSite session; mutations require the session-bound CSRF token and request-hash-bound idempotency key, sensitive responses are no-store, and completion leaves the session exact-replay-only.
+- Provider metadata and credential entry are staged separately. The server reads the bounded credential as strict UTF-8 into a clearable character buffer, uses the same credential/profile validator as CLI, and clears it after the call. Agent preview/create uses the CLI's conservative defaults and the end-to-end test verifies the persisted policy is equivalent.
+- Milestone 7 passes locked Release build, format, migration drift, vulnerability scan, 345/345 product tests and 2/2 framework-spike tests on both Windows and Ubuntu. Release checkpoint `0.4 Integration Beta` is ready on the stacked branch.
 
 ## Latest gate
 
-`artifacts/gates/M7-03-20260812.md`: Pass. Governed messaging is complete; Milestone 7 continues.
+`artifacts/gates/M7-04-20260812.md`: Pass. Milestone 7 and release checkpoint `0.4 Integration Beta` are complete.
 
 ## Known constraints and risks
 
@@ -125,7 +128,7 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
-- The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
+- Web setup is complete for first-run loopback installation. General authenticated administration and remote-mode browser access remain disabled until Milestone 10.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. There is no background lease scanner, takeover worker, or operator recovery command; inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
@@ -135,4 +138,4 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Complete Milestone 7 with the nonce/session/CSRF-protected loopback web setup wizard over shared setup services.
+Begin Milestone 8 with passive serial discovery and separately authorized inventory/capture/read/write controls.

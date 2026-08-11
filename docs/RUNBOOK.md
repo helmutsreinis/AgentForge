@@ -40,22 +40,24 @@ Run `pwsh -File scripts/verify-windows-smoke.ps1` after the Windows Release buil
 Both smoke scripts use validated temporary data directories and disable SQLite
 connection pooling only for deterministic cleanup.
 
-Windows and WSL builds share this checkout and therefore share generated `obj`
-assets. After switching operating systems, run that platform's locked restore before
-build, format, package inspection, or design-time tooling; package-cache paths are
-platform-specific even when lock files are identical.
+Windows and WSL builds share this checkout and therefore share generated `obj` and
+static-web-asset manifests. After switching operating systems, run that platform's
+locked restore and Release build before execution, format, package inspection, or
+design-time tooling; package-cache paths and generated asset roots are platform-specific
+even when lock files are identical.
 
 ## Local smoke
 
 Start `dotnet run --project src/AgentForge.Host` and open `http://127.0.0.1:5047/`.
-The read-only preview shows installation, host, runtime-readiness, and sandbox evidence
-from same-origin GET endpoints. Confirm `/health/live` is 200, `/health/ready` is 503
-on a clean installation, `/api/v1/setup/status` is available, and
-`/api/v1/runtime/ping` is 503. The CLI returns exit code 2 for setup-required.
+The local control plane shows installation, host, runtime-readiness, sandbox evidence, and
+the secure first-run wizard. Confirm `/health/live` is 200, `/health/ready` is 503 on a
+clean installation, `/api/v1/setup/status` is available, and `/api/v1/runtime/ping` is
+503. The CLI returns exit code 2 for setup-required.
 
-The preview intentionally has no form or mutation route. Complete setup through the CLI;
-do not add browser credential entry until the one-time nonce, authenticated session, CSRF,
-rate-limit, audit, and exact-idempotency controls pass their web-wizard gate.
+The page obtains a one-time setup nonce from the loopback origin. All subsequent mutations
+require its short-lived HttpOnly session, a session-bound CSRF token, and an idempotency key.
+Credential text is submitted only to the same loopback origin and cleared from the form. The
+CLI remains the recovery surface when the daemon or wizard is unavailable.
 
 Begin a deterministic offline setup transaction with:
 
