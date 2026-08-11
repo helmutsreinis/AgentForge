@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\AgentForge.Environment\AgentForge.Environment.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Security\AgentForge.Security.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Setup\AgentForge.Setup.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Tools\AgentForge.Tools.csproj" />
   </ItemGroup>
 
   <ItemGroup>

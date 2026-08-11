@@ -17,3 +17,15 @@ public interface ISandbox
         IProcessOutputObserver? observer,
         CancellationToken cancellationToken);
 }
+
+public interface IToolCatalog
+{
+    ValueTask<DomainResult<IReadOnlyList<ToolSummary>>> SearchAsync(
+        ToolSearchRequest request,
+        CancellationToken cancellationToken);
+
+    ValueTask<DomainResult<ToolDescriptor>> DescribeAsync(
+        string toolId,
+        string version,
+        CancellationToken cancellationToken);
+}
