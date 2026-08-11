@@ -8,12 +8,13 @@ namespace AgentForge.Models;
 
 internal sealed class ModelProviderProfileValidator(ISecretStore secretStore) : IProviderProfileValidator
 {
-    private static readonly HashSet<string> CompatibleTypes = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> InstalledTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "openai",
         "deepseek",
         "vllm",
         "openai-compatible",
+        "anthropic",
     };
 
     public async Task<DomainResult<ProviderCapabilitySummary>> ValidateAsync(
@@ -28,7 +29,7 @@ internal sealed class ModelProviderProfileValidator(ISecretStore secretStore) : 
 
         var providerType = candidate.ProviderType.Trim().ToLowerInvariant();
         if (!string.Equals(providerType, "deterministic", StringComparison.Ordinal) &&
-            !CompatibleTypes.Contains(providerType))
+            !InstalledTypes.Contains(providerType))
         {
             return DomainResult.Fail<ProviderCapabilitySummary>(new DomainFailure(
                 FailureCode.UnsupportedCapability,

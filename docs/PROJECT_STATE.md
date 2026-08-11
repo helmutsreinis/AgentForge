@@ -91,10 +91,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Conservative IPv4/IPv6 classification rejects loopback/private/link-local/carrier-NAT/multicast/benchmark/documentation rebinding shapes for cloud routes and rejects mixed answers for every route class. Hosted construction exact-matches policy-approved routing evidence before secret materialization. The private-LAN `qwen3.6` live gate passes through the policy-bound handler.
 - M3 slice 12A added exact `openai`, `deepseek`, `vllm`, and `openai-compatible` profile identities over the common hardened chat-completions adapter. Provider type remains visible to catalog, started events, routing, and health rather than being collapsed into the generic identity.
 - Host and CLI setup now compose the Models profile validator. Exact secret-store binding, bounded header-safe materialization, HTTPS requirements for cloud OpenAI/DeepSeek, local/private-only plaintext for vLLM/generic profiles, buffer clearing, and unsupported-type denial pass deterministically. Configuration exposes conservative text/streaming evidence only; model-specific tool/media support remains unavailable until probed.
+- M3 slice 12B added a distinct bounded Anthropic Messages adapter. It translates exact system/message/tool request blocks and ordered SSE text/tool/usage/completion evidence into harness-owned records; malformed, substituted, oversized, truncated, or remote-error streams fail typed without false completion.
+- Hosted Anthropic calls require a cloud-approved HTTPS profile, socket destination enforcement, prepared context, exact API version, and an invocation-scoped clearable API-key lease. The full Milestone 3 provider, routing, durable execution, failover, and typed-loop gate passes with production catalogs and public invocation still closed.
 
 ## Latest gate
 
-`artifacts/gates/M3-12A-20260811.md`: Pass.
+`artifacts/gates/M3-12B-20260811.md`: Pass. Milestone 3 and release checkpoint `0.2 Agent Runtime Alpha` are complete.
 
 ## Known constraints and risks
 
@@ -112,6 +114,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Implement the bounded Anthropic Messages request/stream adapter behind the same context, secret,
-destination, event, and catalog contracts. Keep live Anthropic credential-gated. Then create
-Milestone 4 task/DAG/checkpoint/lease state machines and deterministic kill-and-resume orchestration.
+Create Milestone 4 task/DAG/checkpoint/lease state machines and deterministic kill-and-resume
+orchestration. Follow with minimum-context delegation and restart-safe scheduling.
