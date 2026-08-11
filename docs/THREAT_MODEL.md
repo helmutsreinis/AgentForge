@@ -746,3 +746,12 @@ remain active. Completion makes the session exact-replay-only; the nonce cannot 
 The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
 provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
 wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.
+
+## M8 passive serial discovery boundary
+
+Device discovery reads Windows serial registry metadata or Linux sysfs/device-node existence only. The inventory
+implementation contains no serial-open, write, shell, or process-execution primitive, so candidate enumeration cannot
+toggle DTR/RTS or transmit bytes. Stable identity is hashed from hardware evidence independently from a transient COM or
+`/dev/tty*` endpoint; re-enumeration is an explicit event rather than a new authority. Profiles default DTR and RTS off.
+Inventory, capture, read, write, command, calibration, firmware, and privileged access are separate expiring grants;
+having any one does not imply another. Unknown readiness remains explicit and never silently becomes permission.

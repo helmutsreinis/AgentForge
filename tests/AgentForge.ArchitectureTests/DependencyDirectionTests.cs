@@ -78,6 +78,22 @@ public sealed class DependencyDirectionTests
         Assert.DoesNotContain("ProcessStartInfo", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SerialInventoryContainsNoPortOpenWriteOrProcessPrimitive()
+    {
+        var root = FindRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root,
+            "src",
+            "AgentForge.Devices",
+            "SystemPassiveSerialInventorySource.cs"));
+
+        Assert.DoesNotContain("SerialPort", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("FileStream", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ProcessStartInfo", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("WriteAll", source, StringComparison.Ordinal);
+    }
+
     private static XDocument LoadProject(params string[] relativeSegments) =>
         XDocument.Load(Path.Combine([FindRepositoryRoot(), .. relativeSegments]));
 
