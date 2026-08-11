@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Connect bounded provider health and failover to current durable profile/policy reads, then add
-model audit, cumulative budgets, and immutable run snapshots. Keep the unavailable live
-container gate open and all public model/tool invocation disabled.
+Add durable model run/attempt state with redacted audit, cumulative budget reservation,
+immutable snapshots, and typed stop/cancellation behavior. Keep the unavailable live container
+gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -68,17 +68,19 @@ container gate open and all public model/tool invocation disabled.
 - Hosted compatible construction exact-binds provider/profile/model/HTTPS endpoint/capability evidence and the configured store/reference. The secret is materialized only after the started event and immediately before `SendAsync`; visible-ASCII bearer bounds block header injection, and the header plus clearable lease are removed in `finally` before response events. Failed profile binding or materialization performs no transport call. Production DI still has an empty catalog and no model route.
 - M3 slice 4 added immutable provider routing evidence and a pure exact-model router. It filters current modality evidence, data locality, policy-approved route evidence, context/output bounds, and tool support in fixed order; a viable primary wins before deterministic reliability/cost/latency/profile-ID fallback.
 - Local-only content cannot fall back to cloud, media remains a required capability rather than being omitted, expired/unapproved evidence fails typed, and each selection hash binds policy, context requirements, exclusions, required capabilities, fallback state, and provider evidence. Production composition still has an empty catalog and no model invocation route.
+- M3 slice 5 added bounded immutable provider-health evidence and a scoped route planner. It prepares/redacts context, serializably reads Ready installation/agent/provider authority, exact-binds durable versions and the agent's primary model, enforces request budgets, and merges current health with at most eight exact attempted profiles.
+- Missing/future/expired/unknown/unavailable health excludes rather than authorizes. A second authority/health read detects concurrent changes; successful plans bind prepared input, context policy, authority versions, route, and health into SHA-256 evidence and expire within five seconds. Both production catalogs remain empty, plans are non-authorizing, and no egress or public route exists.
 
 ## Latest gate
 
-`artifacts/gates/M3-04-20260811.md`: Pass.
+`artifacts/gates/M3-05-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, and pure policy/locality routing are implemented. Provider setup/live validation beyond deterministic profiles, health-aware failover, current durable policy/profile binding, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, and short-lived health/current-authority route planning are implemented. Provider setup/live validation beyond deterministic profiles, durable health observation, audit/run state, cumulative reservation, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -89,6 +91,6 @@ container gate open and all public model/tool invocation disabled.
 
 ## Exact next action
 
-Continue Milestone 3 with bounded provider health and retry/failover over current durable
-profile and policy reads. Then add model audit, cumulative budgets, and immutable run
-snapshots. Do not expose public model invocation before those boundaries are connected.
+Continue Milestone 3 with durable model run/attempt state, redacted audit, cumulative budget
+reservation, immutable snapshots, and typed cancellation/stop behavior. Do not expose public
+model invocation before those boundaries and exact plan consumption are connected.

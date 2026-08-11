@@ -1,4 +1,5 @@
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Installations;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 
@@ -189,6 +190,60 @@ public sealed record ModelRouteSelection(
     bool IsFallback,
     IReadOnlySet<ModelCapability> RequiredCapabilities,
     string SelectionEvidenceHash);
+
+public enum ModelProviderHealthStatus
+{
+    Healthy,
+    TemporarilyUnavailable,
+    Unknown,
+}
+
+public enum ModelHealthEvidenceSource
+{
+    Probed,
+    Observed,
+    OperatorOverride,
+}
+
+public sealed record ModelProviderHealthEvidence(
+    ProviderProfileId ProfileId,
+    ModelProviderHealthStatus Status,
+    ModelHealthEvidenceSource Source,
+    int ConsecutiveFailures,
+    string EvidenceCode,
+    DateTimeOffset ObservedAt,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset? RetryAfter = null);
+
+public sealed record ModelRouteAuthoritySnapshot(
+    InstallationSnapshot Installation,
+    AgentIdentity Agent,
+    IReadOnlyList<ProviderProfile> ProviderProfiles);
+
+public sealed record ModelRoutePlanningRequest(
+    InstallationId InstallationId,
+    long ExpectedInstallationVersion,
+    AgentIdentityId AgentId,
+    long ExpectedAgentVersion,
+    ModelRequest Request,
+    long EstimatedInputTokens,
+    IReadOnlyList<ProviderProfileId> AttemptedProfileIds);
+
+public sealed record ModelRoutePlan(
+    ModelRequestId RequestId,
+    InstallationId InstallationId,
+    long InstallationVersion,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    long ProviderVersion,
+    ModelRouteSelection Route,
+    string PreparedInputHash,
+    int ContextRedactionCount,
+    string ContextPreparationPolicy,
+    string HealthEvidenceHash,
+    DateTimeOffset PlannedAt,
+    DateTimeOffset ValidUntil,
+    string PlanEvidenceHash);
 
 public sealed record ModelUsage(
     long InputTokens,

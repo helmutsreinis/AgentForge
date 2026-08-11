@@ -261,6 +261,32 @@ registers an empty catalog and exposes no invocation route. The later boundary m
 the durable agent/profile and current health, enforce destination policy, audit the selection,
 reserve cumulative budget, persist a run snapshot, then resolve the exact adapter.
 
+## Health-aware route planning
+
+`IModelRoutePlanner` is the scoped bridge from durable authority to pure routing. It first
+uses the versioned context preparer, so route/request hashes never bind the caller's raw
+secret-shaped payload. Persistence implements `IModelRouteAuthoritySnapshotReader` with a
+serializable read of the one installation, exact agent, and installation provider profiles.
+The planner requires caller versions, `Ready`, the exact model named by the agent's durable
+primary provider, and per-request limits within the current agent budget.
+
+`IModelProviderHealthSource` supplies bounded immutable evidence rather than remote error
+bodies. Each exact profile has at most one normalized record with typed status/source,
+consecutive-failure count, safe evidence code, observation/expiry, and optional retry time.
+Evidence lifetime is at most 15 minutes. Missing, future, expired, unknown, temporarily
+unavailable, or already-attempted profiles become exact exclusions; attempt history is unique
+and capped at eight.
+
+After selection, the planner re-reads authority and health and repeats eligibility. Route-
+relevant durable changes fail with `ConcurrencyConflict`; health changes fail retryably. The
+result contains no endpoint, secret, or request content. It pins prepared input, context policy,
+installation/agent/provider versions, route/health evidence, and expires after at most five
+seconds. It is diagnostic planning evidence, not permission to call a provider.
+
+Production provider and health catalogs are both empty. The next service must atomically
+create durable run/attempt state, reserve cumulative budget, append redacted audit, revalidate
+the short-lived plan, and only then resolve a provider. No public model route exists.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,

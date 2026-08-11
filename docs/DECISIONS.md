@@ -26,5 +26,6 @@
 | D-022 | Expose an early loopback-only, read-only status preview using same-origin diagnostics and local static assets; keep all web setup mutations and credential entry disabled until the authenticated wizard gate. | Accepted |
 | D-023 | Require a versioned immutable context-redaction snapshot for every external model adapter call; bind hosted bearer authorization to an exact HTTPS provider profile and secret reference, and materialize/clear it only around the HTTP send. | Accepted |
 | D-024 | Route exact model profiles through a fixed capability/locality/policy/context/tool sequence; prefer a viable primary, rank approved fallbacks deterministically, and bind each selection to immutable evidence without exposing an invocation surface. | Accepted |
+| D-025 | Issue only short-lived model route plans after prepared context, serializable durable authority reads, bounded current health, agent-budget checks, and a second race-detection read; keep plans non-authorizing until durable run/audit reservation. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

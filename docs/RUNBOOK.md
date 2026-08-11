@@ -331,6 +331,20 @@ evidence, reserve cumulative budget, append redacted audit, persist the run snap
 resolve the exact selected profile. On retry, pass only stable profile IDs that failed this
 attempt as exclusions and preserve the original request and policy.
 
+The internal route planner now performs the read-only portion of that sequence. It prepares
+context, reads serializable installation/agent/provider authority, requires exact versions and
+agent budgets, filters against current bounded health, and repeats both authority and health
+reads before returning a plan. Plans expire in at most five seconds. Missing health is not
+healthy; do not fabricate `Healthy`, extend evidence beyond 15 minutes, clear attempt history,
+or reuse an expired plan to force a route.
+
+Route plans contain hashes and versions but are not bearer capabilities or invocation receipts.
+There is intentionally no CLI/API command to create or consume one. Until durable run/audit and
+budget reservation are implemented, leave both production catalogs empty and do not resolve the
+selected adapter. A retry may add only the exact profile that produced a typed retryable failure,
+up to eight unique attempts, while retaining the original prepared request and expected policy
+versions.
+
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
 
