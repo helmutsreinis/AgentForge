@@ -45,6 +45,21 @@ must mediate every significant effect.
 | Hostile media/attachments | Content-type verification, size/decompression bounds, isolated parsing | M3/M7 |
 | Hostile device bytes/physical effects | Passive discovery, separate read/write grants, bounded capture, no device text as instructions | M8 |
 
+## Read-only web-preview update
+
+The loopback root is a diagnostic display, not a setup authority. It can read only the
+already-public installation status, liveness/readiness, and sandbox-capability endpoints.
+It contains no form, password field, cookie, session, credential material, mutation route,
+or model-controlled content. Static JavaScript assigns API values through `textContent`,
+all assets are same-origin, and responses deny framing, MIME sniffing, external scripts,
+forms, ambient device APIs, caching, and referrers through explicit headers.
+
+This does not close the web setup trust boundary. Remote binding remains opt-in and unsafe
+without the later TLS/authentication/network-policy gate. The Milestone 7 wizard must add a
+one-time setup nonce, authenticated session, CSRF and origin controls, rate limits, exact
+idempotency, audit, and shared-service profile equivalence before any browser mutation or
+credential entry is enabled.
+
 ## M0 controls and limitations
 
 Implemented now: loopback default, constrained correlation IDs, fail-closed startup,

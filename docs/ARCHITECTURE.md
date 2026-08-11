@@ -7,6 +7,13 @@ feature modules, background workers, health, and the control plane. A separate C
 uses the control plane and may compose setup/recovery services in-process when the
 normal host is unavailable.
 
+The root loopback page is currently a read-only diagnostic adapter over existing
+same-origin health, setup-status, and sandbox-capability GET endpoints. It contains no
+form, secret input, session, or mutation path. This gives operators an early visual
+first-run surface without claiming the Milestone 7 authenticated setup wizard; the full
+wizard must reuse setup application services after its nonce/session/CSRF/idempotency
+gate passes.
+
 ```mermaid
 flowchart LR
   Operator["Local operator"] --> CLI["agentforge CLI/TUI"]

@@ -23,5 +23,6 @@
 | D-019 | Accept only typed tool parameter values at invocation; derive authority and process settings from the exact descriptor hash; atomically consume approval, persist idempotency, and audit before sandbox start; never replay an uncertain authorized record. | Accepted |
 | D-020 | Represent availability checks as explicit inventory-only catalog operations; require denied networking and reported network isolation, exact approval, bounded literal version/help arguments, and full-line redaction before exposing a small observed summary. | Accepted |
 | D-021 | Own provider-neutral model requests, artifact-backed content, capability evidence, usage/errors, and sequenced events in Domain/Abstractions; keep vendor SDKs behind adapters and require deterministic providers before live integrations. | Accepted |
+| D-022 | Expose an early loopback-only, read-only status preview using same-origin diagnostics and local static assets; keep all web setup mutations and credential entry disabled until the authenticated wizard gate. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.
