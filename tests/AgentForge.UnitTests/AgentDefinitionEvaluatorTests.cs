@@ -24,14 +24,15 @@ public sealed class AgentDefinitionEvaluatorTests
             Name = "  Architect  ",
             CapabilityPolicy = new AgentCapabilityPolicy(
                 NetworkPosture.LoopbackOnly,
-                ["tool:repo.read", "tool:repo.read"],
-                ["skill:csharp.review"]),
+                ["tool:Repo.Read", "tool:repo.read"],
+                ["skill:CSharp.Review"]),
         };
 
         var normalized = evaluator.NormalizeAndValidate(candidate);
         Assert.True(normalized.IsSuccess);
         Assert.Equal("Architect", normalized.Value.Name);
         Assert.Equal(["tool:repo.read"], normalized.Value.CapabilityPolicy.ToolGrants);
+        Assert.Equal(["skill:csharp.review"], normalized.Value.CapabilityPolicy.SkillGrants);
 
         var effective = evaluator.Evaluate(normalized.Value, CreateProvider());
         Assert.True(effective.IsSuccess);

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using AgentForge.Domain.Agents;
 using AgentForge.Domain.Environments;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Environment;
 using AgentForge.Persistence;
@@ -105,6 +107,16 @@ if (args is ["setup", "restore", "apply", .. var restoreApplyArguments])
 if (args is ["environment", "inspect", .. var environmentArguments])
 {
     return await InspectEnvironmentAsync(environmentArguments);
+}
+
+if (args is ["policy", "approval", "preview", .. var approvalPreviewArguments])
+{
+    return await ManageCapabilityApprovalAsync(approvalPreviewArguments, apply: false);
+}
+
+if (args is ["policy", "approval", "apply", .. var approvalApplyArguments])
+{
+    return await ManageCapabilityApprovalAsync(approvalApplyArguments, apply: true);
 }
 
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
@@ -634,7 +646,10 @@ static AgentIdentityCandidate CreateAgentCandidate(SetupAgentOptions options) =>
     options.Workspace,
     new AgentModelPolicy(options.ProviderId, options.DataLocality, options.AllowFallback),
     new AgentMemoryPolicy(options.MemoryScope, options.MemoryRetentionDays),
-    new AgentCapabilityPolicy(options.NetworkPosture, [], []),
+    new AgentCapabilityPolicy(
+        options.NetworkPosture,
+        options.ToolGrant is null ? [] : [options.ToolGrant],
+        options.SkillGrant is null ? [] : [options.SkillGrant]),
     new AgentBudget(
         options.MaxTurns,
         options.MaxToolInvocations,
@@ -1104,6 +1119,123 @@ static async Task<int> InspectEnvironmentAsync(string[] arguments)
     });
 }
 
+static async Task<int> ManageCapabilityApprovalAsync(string[] arguments, bool apply)
+{
+    if (!TryParseCapabilityApprovalOptions(arguments, apply, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    return await RunCancellableMaintenanceAsync("Capability approval", async cancellationToken =>
+    {
+        var parameters = await ReadCapabilityParametersAsync(cancellationToken);
+        if (!parameters.IsSuccess)
+        {
+            return await WriteFailureAsync(parameters.Failure!);
+        }
+
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider,
+            installation.Id,
+            cancellationToken);
+        if (!materialized.IsSuccess)
+        {
+            return await WriteFailureAsync(materialized.Failure!);
+        }
+
+        await using var credential = materialized.Value;
+        var invocation = new CapabilityInvocationRequest(
+            installation.Id,
+            installation.Version,
+            options.AgentId,
+            options.AgentVersion,
+            new ActorId(options.RequestActorId),
+            options.CapabilityId,
+            options.RiskClass,
+            options.ToolId,
+            options.ToolVersion,
+            parameters.Value,
+            options.TargetKind,
+            options.Target,
+            options.Workspace,
+            new CorrelationId(options.InvocationCorrelationId),
+            options.CausationId is null ? null : new CorrelationId(options.CausationId));
+        var service = scope.ServiceProvider.GetRequiredService<ICapabilityApprovalService>();
+        if (!apply)
+        {
+            var preview = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation,
+                options.Disposition,
+                options.ExpiresAt,
+                new ActorId(options.ApproverActorId),
+                new CorrelationId(options.ApprovalCorrelationId),
+                credential.Value), cancellationToken);
+            if (!preview.IsSuccess)
+            {
+                return await WriteFailureAsync(preview.Failure!);
+            }
+
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                applied = false,
+                disposition = preview.Value.Disposition.ToString(),
+                preview.Value.ExpiresAt,
+                preview.Value.RequestHash,
+                preview.Value.PreviewHash,
+                parameters = JsonSerializer.Deserialize<JsonElement>(preview.Value.Parameters.Json),
+                target = JsonSerializer.Deserialize<JsonElement>(preview.Value.Target.Json),
+                workspace = JsonSerializer.Deserialize<JsonElement>(preview.Value.Workspace.Json),
+                policyDecision = preview.Value.PolicyEvaluation.Decision.ToString(),
+                preview.Value.PolicyEvaluation.Reason,
+            });
+            return 0;
+        }
+
+        var result = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+            invocation,
+            options.Disposition,
+            options.ExpiresAt,
+            options.PreviewHash!,
+            options.IdempotencyKey!,
+            new ActorId(options.ApproverActorId),
+            new CorrelationId(options.ApprovalCorrelationId),
+            credential.Value), cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return await WriteFailureAsync(result.Failure!);
+        }
+
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            applied = true,
+            approvalId = result.Value.Id.ToString(),
+            disposition = result.Value.Disposition.ToString(),
+            state = result.Value.State.ToString(),
+            result.Value.RequestHash,
+            result.Value.PreviewHash,
+            result.Value.CreatedAt,
+            result.Value.ExpiresAt,
+            result.Value.Version,
+        });
+        return 0;
+    });
+}
+
 static ServiceProvider BuildSetupProvider(string dataDirectory)
 {
     var configuration = new ConfigurationBuilder()
@@ -1245,6 +1377,51 @@ static async Task<DomainResult<char[]>> ReadProviderCredentialAsync(
         {
             await Console.Error.WriteLineAsync();
         }
+    }
+}
+
+static async Task<DomainResult<string>> ReadCapabilityParametersAsync(CancellationToken cancellationToken)
+{
+    const int maximumCharacters = 65_536;
+    if (!Console.IsInputRedirected)
+    {
+        return DomainResult.Fail<string>(new DomainFailure(
+            FailureCode.ValidationFailure,
+            "--parameters-stdin requires redirected standard input."));
+    }
+
+    var buffer = new char[maximumCharacters + 1];
+    var count = 0;
+    try
+    {
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var read = await Console.In.ReadAsync(buffer.AsMemory(count, 1), cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (count == maximumCharacters)
+            {
+                return DomainResult.Fail<string>(new DomainFailure(
+                    FailureCode.ValidationFailure,
+                    "Capability parameters exceed 64 KiB."));
+            }
+
+            count++;
+        }
+
+        return count == 0
+            ? DomainResult.Fail<string>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Capability parameters cannot be empty."))
+            : DomainResult.Success(new string(buffer, 0, count));
+    }
+    finally
+    {
+        Array.Clear(buffer);
     }
 }
 
@@ -1676,7 +1853,7 @@ static bool TryParseAgentOptions(
         "--max-child-tokens", "--max-children", "--max-input-tokens", "--max-output-tokens",
         "--max-tool-invocations", "--max-turns", "--max-wall-seconds", "--memory-retention-days",
         "--memory-scope", "--mission", "--mutable-skill-scope", "--name", "--network-posture",
-        "--provider-id", "--style", "--timezone", "--workspace",
+        "--provider-id", "--skill-grant", "--style", "--timezone", "--tool-grant", "--workspace",
     };
     for (var index = 0; index < arguments.Length; index += 2)
     {
@@ -1779,8 +1956,158 @@ static bool TryParseAgentOptions(
         maxChildTokens,
         learningMode,
         mutableSkillScope,
+        values.GetValueOrDefault("--tool-grant"),
+        values.GetValueOrDefault("--skill-grant"),
         actorId,
         correlationId);
+    return true;
+}
+
+static bool TryParseCapabilityApprovalOptions(
+    string[] arguments,
+    bool apply,
+    out CapabilityApprovalCliOptions? options,
+    out string? error)
+{
+    options = null;
+    error = null;
+    var values = new Dictionary<string, string>(StringComparer.Ordinal);
+    var allowed = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "--actor", "--agent-id", "--agent-version", "--capability", "--causation",
+        "--correlation", "--data-directory", "--disposition", "--expires-at", "--idempotency-key",
+        "--invocation-correlation", "--preview-hash", "--request-actor", "--risk", "--target",
+        "--target-kind", "--tool-id", "--tool-version", "--workspace",
+    };
+    var readsParameters = false;
+    for (var index = 0; index < arguments.Length; index++)
+    {
+        var name = arguments[index];
+        if (name == "--parameters-stdin")
+        {
+            if (readsParameters)
+            {
+                error = "--parameters-stdin may be specified only once.";
+                return false;
+            }
+
+            readsParameters = true;
+            continue;
+        }
+
+        if (!allowed.Contains(name))
+        {
+            error = $"Unknown capability approval option '{name}'.";
+            return false;
+        }
+
+        if (++index >= arguments.Length)
+        {
+            error = $"Option '{name}' requires a value.";
+            return false;
+        }
+
+        if (!values.TryAdd(name, arguments[index]))
+        {
+            error = $"Option '{name}' may be specified only once.";
+            return false;
+        }
+    }
+
+    if (!readsParameters)
+    {
+        error = "Specify --parameters-stdin; capability parameters are never accepted as arguments.";
+        return false;
+    }
+
+    if (!Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--agent-id", out var agentIdText, out error) ||
+        !Require(values, "--agent-version", out var agentVersionText, out error) ||
+        !Require(values, "--request-actor", out var requestActorId, out error) ||
+        !Require(values, "--capability", out var capabilityId, out error) ||
+        !Require(values, "--risk", out _, out error) ||
+        !Require(values, "--disposition", out _, out error) ||
+        !Require(values, "--expires-at", out var expiresAtText, out error) ||
+        !Require(values, "--actor", out var approverActorId, out error) ||
+        !Require(values, "--correlation", out var approvalCorrelationId, out error))
+    {
+        return false;
+    }
+
+    if (!Guid.TryParseExact(agentIdText, "D", out var agentId) || agentId == Guid.Empty)
+    {
+        error = "--agent-id must be a non-empty GUID in D format.";
+        return false;
+    }
+
+    if (!TryNonNegativeVersion(agentVersionText, "--agent-version", out var agentVersion, out error) ||
+        !TryEnum(values, "--risk", CapabilityRiskClass.Read, out var riskClass, out error) ||
+        !TryEnum(values, "--target-kind", AuthorizationTargetKind.None, out var targetKind, out error) ||
+        !TryEnum(values, "--disposition", CapabilityApprovalDisposition.Grant, out var disposition, out error))
+    {
+        return false;
+    }
+
+    if (!DateTimeOffset.TryParse(
+            expiresAtText,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal,
+            out var expiresAt))
+    {
+        error = "--expires-at must be an ISO 8601 timestamp with an offset.";
+        return false;
+    }
+
+    var toolId = values.GetValueOrDefault("--tool-id");
+    var toolVersion = values.GetValueOrDefault("--tool-version");
+    if ((toolId is null) != (toolVersion is null))
+    {
+        error = "--tool-id and --tool-version must be supplied together.";
+        return false;
+    }
+
+    var target = values.GetValueOrDefault("--target");
+    if (targetKind is AuthorizationTargetKind.None && target is not null ||
+        targetKind is not AuthorizationTargetKind.None && string.IsNullOrWhiteSpace(target))
+    {
+        error = "--target is required for a non-None target kind and forbidden for None.";
+        return false;
+    }
+
+    var previewHash = values.GetValueOrDefault("--preview-hash");
+    var idempotencyKey = values.GetValueOrDefault("--idempotency-key");
+    if (apply && (string.IsNullOrWhiteSpace(previewHash) || string.IsNullOrWhiteSpace(idempotencyKey)))
+    {
+        error = "Apply requires --preview-hash and --idempotency-key.";
+        return false;
+    }
+
+    if (!apply && (previewHash is not null || idempotencyKey is not null))
+    {
+        error = "--preview-hash and --idempotency-key are valid only when applying an approval.";
+        return false;
+    }
+
+    options = new CapabilityApprovalCliOptions(
+        dataDirectory,
+        new AgentIdentityId(agentId),
+        agentVersion,
+        requestActorId,
+        capabilityId,
+        riskClass,
+        toolId,
+        toolVersion,
+        targetKind,
+        target,
+        values.GetValueOrDefault("--workspace"),
+        disposition,
+        expiresAt.ToUniversalTime(),
+        approverActorId,
+        approvalCorrelationId,
+        values.GetValueOrDefault("--invocation-correlation", approvalCorrelationId),
+        values.GetValueOrDefault("--causation"),
+        previewHash,
+        idempotencyKey);
     return true;
 }
 
@@ -2163,6 +2490,8 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup restore preview --data-directory <path> --snapshot-id <guid> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup restore apply <same-options> --preview-hash <sha256>");
     Console.WriteLine("  agentforge environment inspect --data-directory <path> --actor <id> --correlation <id> [--include-executables true|false]");
+    Console.WriteLine("  agentforge policy approval preview --data-directory <path> --agent-id <guid> --agent-version <n> --request-actor <id> --capability <id> --risk <class> --disposition <Grant|Deny> --expires-at <ISO-8601> --actor <admin> --correlation <id> --parameters-stdin [target/tool options]");
+    Console.WriteLine("  agentforge policy approval apply <same-options> --preview-hash <sha256> --idempotency-key <key>");
 }
 
 internal sealed record SetupBeginOptions(
@@ -2220,8 +2549,31 @@ internal sealed record SetupAgentOptions(
     long MaxChildTotalTokens,
     LearningMode LearningMode,
     MutableSkillScope MutableSkillScope,
+    string? ToolGrant,
+    string? SkillGrant,
     string ActorId,
     string CorrelationId);
+
+internal sealed record CapabilityApprovalCliOptions(
+    string DataDirectory,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    string RequestActorId,
+    string CapabilityId,
+    CapabilityRiskClass RiskClass,
+    string? ToolId,
+    string? ToolVersion,
+    AuthorizationTargetKind TargetKind,
+    string? Target,
+    string? Workspace,
+    CapabilityApprovalDisposition Disposition,
+    DateTimeOffset ExpiresAt,
+    string ApproverActorId,
+    string ApprovalCorrelationId,
+    string InvocationCorrelationId,
+    string? CausationId,
+    string? PreviewHash,
+    string? IdempotencyKey);
 
 internal sealed record SetupAgentEditOptions(
     SetupAgentOptions Agent,

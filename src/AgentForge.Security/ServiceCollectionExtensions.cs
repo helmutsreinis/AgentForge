@@ -23,10 +23,15 @@ public static class ServiceCollectionExtensions
                 "MaximumRedactionDepth must be between 4 and 64")
             .Validate(options => options.MaximumSecretCharacters is >= 16 and <= 1_048_576,
                 "MaximumSecretCharacters must be between 16 and 1 MiB")
+            .Validate(options => options.MaximumApprovalLifetimeMinutes is >= 1 and <= 10_080,
+                "MaximumApprovalLifetimeMinutes must be between one minute and seven days")
             .Validate(options => IsDirectoryName(options.SecretDirectoryName),
                 "SecretDirectoryName must be a relative directory name")
             .ValidateOnStart();
         services.AddSingleton<ISensitiveDataRedactor, StructuredSensitiveDataRedactor>();
+        services.AddSingleton<IAuthorizationContextFactory, AuthorizationContextFactory>();
+        services.AddSingleton<ICapabilityPolicyEvaluator, CapabilityPolicyEvaluator>();
+        services.AddScoped<ICapabilityApprovalService, CapabilityApprovalService>();
         services.AddScoped<ILocalAdministratorCredentialService, LocalAdministratorCredentialService>();
         services.AddScoped<ILocalAdministratorAuthenticator, LocalAdministratorAuthenticator>();
         services.AddSingleton<ISecretStore>(provider =>

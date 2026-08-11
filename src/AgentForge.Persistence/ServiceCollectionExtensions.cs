@@ -52,6 +52,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAgentIdentityRepository, SqliteAgentIdentityRepository>();
         services.AddScoped<ILocalAdministratorRepository, SqliteLocalAdministratorRepository>();
         services.AddScoped<ISetupProfileSnapshotRepository, SqliteSetupProfileSnapshotRepository>();
+        services.AddScoped<ICapabilityApprovalRepository, SqliteCapabilityApprovalRepository>();
         return services;
     }
 

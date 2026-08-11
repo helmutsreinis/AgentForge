@@ -17,5 +17,6 @@
 | D-013 | Require profile edit preview hashes to bind installation, actor, correlation, target, entity versions, normalized effective parameters, and provider evidence; apply always re-evaluates before an atomic commit. | Accepted |
 | D-014 | Restore only hash- and audit-proven rollback artifacts in `Configuring`; require identical entity topology, current secret/capability/policy validation, and a second hash-bound preview before atomic apply. | Accepted |
 | D-015 | Keep environment discovery passive: read bounded native/registry/proc/sysfs/PATH metadata only, classify unknowns conservatively, and defer all candidate execution to the restricted executor. | Accepted |
+| D-016 | Build canonical authorization contexts outside model control; deny missing or ambiguous rules; bind administrator decisions to exact hashed invocation identity; persist only hashes/redacted audit evidence; and scope idempotency to one installation. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

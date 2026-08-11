@@ -10,5 +10,7 @@ public sealed class SecurityOptions
 
     public int MaximumSecretCharacters { get; set; } = 16_384;
 
+    public int MaximumApprovalLifetimeMinutes { get; set; } = 1_440;
+
     public string SecretDirectoryName { get; set; } = "secrets";
 }

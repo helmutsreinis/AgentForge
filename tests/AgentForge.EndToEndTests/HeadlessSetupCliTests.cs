@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
@@ -18,6 +19,90 @@ namespace AgentForge.EndToEndTests;
 public sealed class HeadlessSetupCliTests
 {
     private static readonly JsonSerializerOptions ProfileSerializerOptions = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public async Task Windows_cli_previews_and_applies_exact_redacted_capability_approval()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+        var dataDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataDirectory);
+        try
+        {
+            Assert.Equal(0, (await RunCliAsync(dataDirectory)).ExitCode);
+            var configuredProvider = await RunProviderCliAsync(dataDirectory, "approval-provider-credential");
+            Assert.Equal(0, configuredProvider.ExitCode);
+            using var providerDocument = JsonDocument.Parse(configuredProvider.StandardOutput);
+            var providerId = new ProviderProfileId(Guid.Parse(
+                providerDocument.RootElement.GetProperty("providerId").GetString()!));
+            var createdAgent = await RunAgentCliAsync(
+                dataDirectory,
+                providerId,
+                create: true,
+                toolGrant: "tool:repo.read");
+            Assert.Equal(0, createdAgent.ExitCode);
+            using var agentDocument = JsonDocument.Parse(createdAgent.StandardOutput);
+            var agentId = Guid.Parse(agentDocument.RootElement.GetProperty("agentId").GetString()!);
+            Assert.Equal(0, (await RunCompleteCliAsync(dataDirectory)).ExitCode);
+
+            var sensitiveParameter = "sk-" + "abcdefghijklmnopqrstuvwx";
+            var parameters = $"{{\"token\":\"{sensitiveParameter}\",\"path\":\"src\"}}";
+            var expiresAt = DateTimeOffset.UtcNow.AddMinutes(10).ToString("O", CultureInfo.InvariantCulture);
+            var preview = await RunCapabilityApprovalCliAsync(
+                dataDirectory,
+                agentId,
+                expiresAt,
+                parameters,
+                apply: false);
+            Assert.Equal(0, preview.ExitCode);
+            Assert.DoesNotContain(sensitiveParameter, preview.StandardOutput, StringComparison.Ordinal);
+            Assert.Contains("[REDACTED]", preview.StandardOutput, StringComparison.Ordinal);
+            using var previewDocument = JsonDocument.Parse(preview.StandardOutput);
+            Assert.Equal("RequireApproval", previewDocument.RootElement.GetProperty("policyDecision").GetString());
+            var previewHash = previewDocument.RootElement.GetProperty("previewHash").GetString()!;
+
+            var applied = await RunCapabilityApprovalCliAsync(
+                dataDirectory,
+                agentId,
+                expiresAt,
+                parameters,
+                apply: true,
+                previewHash);
+            Assert.Equal(0, applied.ExitCode);
+            Assert.DoesNotContain(sensitiveParameter, applied.StandardOutput, StringComparison.Ordinal);
+            using var appliedDocument = JsonDocument.Parse(applied.StandardOutput);
+            Assert.Equal("Active", appliedDocument.RootElement.GetProperty("state").GetString());
+            var approvalId = appliedDocument.RootElement.GetProperty("approvalId").GetString();
+
+            var replay = await RunCapabilityApprovalCliAsync(
+                dataDirectory,
+                agentId,
+                expiresAt,
+                parameters,
+                apply: true,
+                previewHash);
+            Assert.Equal(0, replay.ExitCode);
+            using var replayDocument = JsonDocument.Parse(replay.StandardOutput);
+            Assert.Equal(approvalId, replayDocument.RootElement.GetProperty("approvalId").GetString());
+
+            var conflictingReplay = await RunCapabilityApprovalCliAsync(
+                dataDirectory,
+                agentId,
+                expiresAt,
+                "{\"path\":\"different\"}",
+                apply: true,
+                previewHash);
+            Assert.Equal(3, conflictingReplay.ExitCode);
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
+        }
+    }
 
     [Fact]
     public async Task Deterministic_headless_begin_persists_and_rejects_duplicate_transition()
@@ -489,7 +574,8 @@ public sealed class HeadlessSetupCliTests
     private static async Task<CliResult> RunAgentCliAsync(
         string dataDirectory,
         ProviderProfileId providerId,
-        bool create)
+        bool create,
+        string? toolGrant = null)
     {
         var root = FindRepositoryRoot();
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
@@ -521,11 +607,85 @@ public sealed class HeadlessSetupCliTests
             startInfo.ArgumentList.Add(argument);
         }
 
+        if (toolGrant is not null)
+        {
+            startInfo.ArgumentList.Add("--tool-grant");
+            startInfo.ArgumentList.Add(toolGrant);
+            startInfo.ArgumentList.Add("--max-tool-invocations");
+            startInfo.ArgumentList.Add("4");
+        }
+
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
         var standardOutput = process.StandardOutput.ReadToEndAsync();
         var standardError = process.StandardError.ReadToEndAsync();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync(timeout.Token);
+        return new CliResult(process.ExitCode, await standardOutput, await standardError);
+    }
+
+    private static async Task<CliResult> RunCapabilityApprovalCliAsync(
+        string dataDirectory,
+        Guid agentId,
+        string expiresAt,
+        string parametersJson,
+        bool apply,
+        string? previewHash = null)
+    {
+        var root = FindRepositoryRoot();
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name
+            ?? throw new InvalidOperationException("Could not determine the test build configuration.");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = global::System.Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[]
+        {
+            Path.Combine(root, "src", "AgentForge.Cli", "bin", configuration, "net10.0", "agentforge.dll"),
+            "policy", "approval", apply ? "apply" : "preview",
+            "--data-directory", dataDirectory,
+            "--agent-id", agentId.ToString("D"),
+            "--agent-version", "0",
+            "--request-actor", "coding-worker",
+            "--capability", "tool:repo.read",
+            "--risk", "Read",
+            "--tool-id", "repo.read",
+            "--tool-version", "1.0.0",
+            "--target-kind", "FileSystemPath",
+            "--target", Path.Combine(dataDirectory, "workspace", "src"),
+            "--workspace", Path.Combine(dataDirectory, "workspace"),
+            "--disposition", "Grant",
+            "--expires-at", expiresAt,
+            "--actor", "local-operator",
+            "--correlation", "approval-cli-e2e",
+            "--invocation-correlation", "approval-invocation-e2e",
+            "--parameters-stdin",
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        if (apply)
+        {
+            startInfo.ArgumentList.Add("--preview-hash");
+            startInfo.ArgumentList.Add(previewHash!);
+            startInfo.ArgumentList.Add("--idempotency-key");
+            startInfo.ArgumentList.Add("approval-cli-e2e-001");
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the AgentForge CLI process.");
+        await process.StandardInput.WriteAsync(parametersJson);
+        process.StandardInput.Close();
+        var standardOutput = process.StandardOutput.ReadToEndAsync();
+        var standardError = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         await process.WaitForExitAsync(timeout.Token);
         return new CliResult(process.ExitCode, await standardOutput, await standardError);
     }
