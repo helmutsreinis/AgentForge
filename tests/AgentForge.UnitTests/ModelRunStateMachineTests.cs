@@ -234,6 +234,63 @@ public sealed class ModelRunStateMachineTests
     }
 
     [Fact]
+    public void Exact_lease_holder_can_advance_a_monotonic_heartbeat_without_extending_expiry()
+    {
+        var started = Start();
+
+        var heartbeat = ModelRunStateMachine.Heartbeat(
+            started,
+            "model-worker",
+            LeaseToken,
+            Now.AddSeconds(10));
+
+        Assert.True(heartbeat.IsSuccess, heartbeat.Failure?.Message);
+        Assert.Equal(Now.AddSeconds(10), heartbeat.Value.Run.Lease?.HeartbeatAt);
+        Assert.Equal(started.Run.Lease?.ExpiresAt, heartbeat.Value.Run.Lease?.ExpiresAt);
+        Assert.Equal(2, heartbeat.Value.Run.Version);
+        Assert.Equal(1, heartbeat.Value.Attempt.Version);
+        Assert.Same(started.Attempt, heartbeat.Value.Attempt);
+    }
+
+    [Theory]
+    [InlineData("other-worker", "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", 10)]
+    [InlineData("model-worker", "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", 10)]
+    [InlineData("model-worker", "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", 0)]
+    [InlineData("model-worker", "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL", 46)]
+    public void Heartbeat_rejects_wrong_or_non_monotonic_lease_evidence(
+        string owner,
+        string token,
+        int seconds)
+    {
+        var result = ModelRunStateMachine.Heartbeat(Start(), owner, token, Now.AddSeconds(seconds));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, result.Failure?.Code);
+    }
+
+    [Fact]
+    public void Expired_lease_recovery_is_retryable_and_uses_the_persisted_expiry_boundary()
+    {
+        var started = ModelRunStateMachine.Start(
+            Reserve(CreatePlan()).Value,
+            "model-worker",
+            LeaseToken,
+            Now,
+            Now.AddSeconds(5)).Value;
+
+        var early = ModelRunStateMachine.RecoverExpiredLease(started, Now.AddSeconds(4));
+        var recovered = ModelRunStateMachine.RecoverExpiredLease(started, Now.AddSeconds(20));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, early.Failure?.Code);
+        Assert.True(recovered.IsSuccess, recovered.Failure?.Message);
+        Assert.Equal(ModelRunState.Failed, recovered.Value.Run.State);
+        Assert.Equal(ModelRunAttemptState.Failed, recovered.Value.Attempt.State);
+        Assert.Equal(FailureCode.RecoverableExternalFailure, recovered.Value.Run.FailureCode);
+        Assert.True(recovered.Value.Attempt.IsRetryable);
+        Assert.Equal(Now.AddSeconds(5), recovered.Value.Run.CompletedAt);
+        Assert.Equal(ModelRunStreamEvidence.Empty, recovered.Value.Run.StreamEvidence);
+    }
+
+    [Fact]
     public void Reserved_and_running_runs_can_be_canceled_but_terminal_runs_cannot()
     {
         var reserved = Reserve(CreatePlan()).Value;

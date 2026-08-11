@@ -513,10 +513,11 @@ composed in production and remains a required gate.
 
 Lease possession is not inferred from worker identity. A 256-bit base64url token exists only in
 the invocation; SQLite and audit receive its SHA-256. Fixed-time comparison of the exact token is
-required for success, failure, cancellation, or budget exhaustion. Lease timestamps and provider
-event timestamps are bounded, but no heartbeat or expired-lease recovery worker exists yet. A
-crash after committed start can deliberately leave `Running` and an active reservation; deleting
-or zeroing that evidence would create duplicate-call risk.
+required for success, failure, cancellation, budget exhaustion, or heartbeat. Heartbeats must
+advance monotonically and cannot extend expiry. At or after persisted expiry, exact-version
+recovery deterministically records retryable failure at the expiry boundary and releases the
+ledger in the same transaction. There is no background scanner or operator command yet; deleting
+or zeroing evidence would still create duplicate-call risk.
 
 Provider streams are untrusted. Exact request/profile/type/model/prepared-input evidence must
 start the stream, sequences must be contiguous, timestamps monotonic and within the lease, usage
@@ -526,8 +527,12 @@ or event overflow becomes typed failure/budget exhaustion. The accumulator hashe
 events in memory and stores only the digest/count/last sequence plus normalized usage and safe
 classification. Raw prompt/output/error text has no database or audit field.
 
-The terminal transition and exact ledger release share one transaction. Duplicate replay sees a
-non-reserved state and cannot invoke the provider again. Caller cancellation is persisted before
-the cancellation exception propagates. Remaining threats are crash reconciliation, health/circuit
-breaker poisoning, bounded retry/failover, cross-attempt cost totals, hosted endpoint DNS/IP
-rebinding, and any future public authentication/rate-limit surface.
+The terminal transition and exact ledger release share one transaction. Successful or retryable
+provider outcomes also update one versioned provider-health row; cancellation, policy, unsupported,
+and budget outcomes do not. Health lifetime, failure count, retry window, evidence codes, run/
+attempt provenance, and timestamps are bounded. Concurrency failure rolls back run, ledger, health,
+and audit together. Duplicate replay sees a non-reserved state and cannot invoke the provider again.
+Caller cancellation is persisted before the cancellation exception propagates. Remaining threats
+are health-source poisoning outside the observed adapter boundary, automatic expired-lease scanning,
+bounded retry/failover, cross-attempt cost totals, hosted endpoint DNS/IP rebinding, and any future
+public authentication/rate-limit surface.

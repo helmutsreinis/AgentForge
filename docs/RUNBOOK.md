@@ -325,12 +325,12 @@ must never select a cloud descriptor; do not work around a typed routing failure
 an attachment, changing the requested model, or enabling fallback. Selection hashes are
 diagnostic evidence, not authorization tokens.
 
-Do not populate the production catalog or add a CLI/API model call yet. The internal execution
-service now re-reads durable authority and bounded health, reserves shared budget, commits a start
-lease plus redacted audit, and resolves the exact selected profile. Production composition still
-requires hosted destination/DNS controls and the expired-lease recovery gate. On a later retry,
-pass only stable profile IDs that failed this attempt as exclusions and preserve the original
-request and policy.
+Do not populate the production provider catalog or add a CLI/API model call yet. The internal
+execution service re-reads durable authority and bounded health, reserves shared budget, commits a
+start lease plus redacted audit, and resolves the exact selected profile. Provider health is now a
+scoped durable source, initially empty. Production composition still requires hosted destination/
+DNS controls and bounded retry/failover. On a later retry, pass only stable profile IDs that failed
+this attempt as exclusions and preserve the original request and policy.
 
 The internal route planner now performs the read-only portion of that sequence. It prepares
 context, reads serializable installation/agent/provider authority, requires exact versions and
@@ -361,10 +361,15 @@ not call the adapter again.
 
 If a process exits after `model.run-started` without terminal audit, preserve the database, WAL,
 audit chain, lease timestamps, run/attempt versions, and ledger. Do not delete the run, reset it to
-`Reserved`, clear the lease, decrement the ledger, or reuse its idempotency key. There is not yet
-an operator recovery command; keep invocation disabled until the expired-lease reconciliation
-gate can determine safe failure/takeover semantics. Caller cancellation during a live in-process
+`Reserved`, clear the lease, decrement the ledger, or reuse its idempotency key. The internal
+recovery service may act only at/after exact expiry with exact versions; it records retryable failure,
+releases the reservation, writes temporary provider-health evidence, and audits atomically. There
+is no background scanner or operator command yet. Caller cancellation during a live in-process
 attempt should produce durable `Canceled` evidence and release the ledger before propagating.
+
+An embedding worker may heartbeat only with the exact raw token it received in memory at start.
+Heartbeats must move forward, cannot pass or extend expiry, and do not change attempt version. Never
+store the raw token in worker state, logs, audit, exports, or an operator script.
 
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
@@ -378,8 +383,8 @@ dotnet test tests/AgentForge.IntegrationTests --filter FullyQualifiedName~OpenAi
 The test is skipped when either variable is absent. These variables are endpoint/model
 metadata only; this credential-free gate accepts no API key or authorization header.
 
-Before public runtime enablement, add hosted destination DNS/IP controls, expired-lease recovery,
-durable health/circuit-breaker writes, retry/failover, and cross-attempt usage/cost accounting.
+Before public runtime enablement, add hosted destination DNS/IP controls, automatic expired-lease
+scanning, retry/failover, and cross-attempt usage/cost accounting.
 Setup profile acceptance alone does not compose an adapter.
 
 ## SQLite migration and cold backup
@@ -431,6 +436,11 @@ Migration 0010 adds model start leases, attempted-profile history, stream eviden
 reservations, and the shared agent budget ledger. Its down migration destroys execution and
 accounting evidence. Restore the full pre-0010 backup rather than applying down. Never clear a
 running lease or ledger reservation manually; preserve it for typed expired-lease recovery.
+
+Migration 0011 creates the versioned provider-health table with exact installation/profile/run/
+attempt provenance and bounded circuit-breaker timestamps. It fabricates no evidence for existing
+runs. Its down migration destroys health provenance. Restore the full pre-0011 backup rather than
+applying down; never edit health rows to force routing.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

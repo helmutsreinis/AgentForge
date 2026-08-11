@@ -55,6 +55,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IModelRouteAuthoritySnapshotReader, SqliteModelRouteAuthoritySnapshotReader>();
         services.AddScoped<IModelRunRepository, SqliteModelRunRepository>();
         services.AddScoped<IModelBudgetLedgerRepository, SqliteModelBudgetLedgerRepository>();
+        services.AddScoped<SqliteModelProviderHealthRepository>();
+        services.AddScoped<IModelProviderHealthRepository>(provider =>
+            provider.GetRequiredService<SqliteModelProviderHealthRepository>());
+        services.AddScoped<IModelProviderHealthSource>(provider =>
+            provider.GetRequiredService<SqliteModelProviderHealthRepository>());
         services.AddScoped<ILocalAdministratorRepository, SqliteLocalAdministratorRepository>();
         services.AddScoped<ISetupProfileSnapshotRepository, SqliteSetupProfileSnapshotRepository>();
         services.AddScoped<ICapabilityApprovalRepository, SqliteCapabilityApprovalRepository>();

@@ -268,6 +268,58 @@ public static class ModelRunStateMachine
             }));
     }
 
+    public static DomainResult<ModelRunAggregate> Heartbeat(
+        ModelRunAggregate aggregate,
+        string leaseOwner,
+        string leaseToken,
+        DateTimeOffset heartbeatAt)
+    {
+        if (!IsConsistent(aggregate) || aggregate.Run.State is not ModelRunState.Running ||
+            aggregate.Attempt.State is not ModelRunAttemptState.Started ||
+            aggregate.Run.Lease is not { } lease ||
+            !string.Equals(lease.Owner, leaseOwner, StringComparison.Ordinal) ||
+            !IsLeaseToken(leaseToken) || !FixedEquals(lease.TokenHash, HashLeaseToken(leaseToken)) ||
+            heartbeatAt <= lease.HeartbeatAt || heartbeatAt > lease.ExpiresAt ||
+            aggregate.Run.StartedAt is not { } startedAt || heartbeatAt < startedAt)
+        {
+            return Invalid("Only the exact running lease holder can advance a bounded heartbeat.");
+        }
+
+        return DomainResult.Success(new ModelRunAggregate(
+            aggregate.Run with
+            {
+                Lease = lease with { HeartbeatAt = heartbeatAt },
+                Version = checked(aggregate.Run.Version + 1),
+            },
+            aggregate.Attempt));
+    }
+
+    public static DomainResult<ModelRunAggregate> RecoverExpiredLease(
+        ModelRunAggregate aggregate,
+        DateTimeOffset recoveredAt)
+    {
+        if (!IsConsistent(aggregate) || aggregate.Run.State is not ModelRunState.Running ||
+            aggregate.Attempt.State is not ModelRunAttemptState.Started ||
+            aggregate.Run.Lease is not { } lease || recoveredAt < lease.ExpiresAt ||
+            aggregate.Run.StartedAt is not { } startedAt || lease.ExpiresAt < startedAt ||
+            !ValidateUsage(aggregate.Attempt.Usage) ||
+            !ValidateStreamEvidence(aggregate.Attempt.StreamEvidence))
+        {
+            return Invalid("Only an expired running lease can be recovered deterministically.");
+        }
+
+        return Finish(
+            aggregate,
+            aggregate.Attempt.Usage,
+            aggregate.Attempt.StreamEvidence,
+            lease.ExpiresAt,
+            ModelRunState.Failed,
+            ModelRunAttemptState.Failed,
+            null,
+            FailureCode.RecoverableExternalFailure,
+            true);
+    }
+
     public static DomainResult<ModelRunAggregate> Complete(
         ModelRunAggregate aggregate,
         string leaseToken,

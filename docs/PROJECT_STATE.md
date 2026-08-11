@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Continue Milestone 3 with crash reconciliation for expired model leases, durable provider-health
-observation, bounded retry/failover attempts, and cross-attempt usage/cost accounting. Keep the
-unavailable live container gate open and all public model/tool invocation disabled.
+Continue Milestone 3 with bounded retry/failover attempts, exact attempted-profile history, and
+cross-attempt usage/cost accounting. Keep the unavailable live container gate open and all public
+model/tool invocation disabled.
 
 ## Completed
 
@@ -77,27 +77,30 @@ unavailable live container gate open and all public model/tool invocation disabl
 - A versioned agent ledger atomically accounts for concurrent input/output/tool/event/time reservations and reconciles terminal usage exactly once. Idle ledgers may advance to a new agent version without dropping lifetime consumption; active reservations pin their authority version.
 - Provider events now require exact request, route, prepared-input, contiguous sequence, monotonic bounded timestamps, typed terminal ordering, and fixed content bounds. Canonical event hashes and counts persist without prompt/output bodies. Tool-call events remain denied, cancellation persists terminal evidence before propagating, and malformed or over-budget streams cannot become success.
 - Migration 0010 preserves legacy reservations with safe empty-stream/event defaults and adds lease, stream-evidence, attempted-profile, and shared-ledger state. Database-backed tests prove success, malformed-stream failure, caller cancellation, terminal reconciliation, exact replay non-execution, audit integrity, and raw prompt/output absence.
+- M3 slice 8 added exact-owner/token monotonic heartbeats that never extend expiry and deterministic exact-version expired-lease recovery. Recovery records retryable failure at the persisted expiry while atomically releasing the shared agent reservation, writing bounded temporary provider-health evidence, and appending redacted audit.
+- Successful execution now writes five-minute observed healthy evidence; retryable external failure writes 15-minute temporary unavailability with capped exponential retry time; cancellation, policy, unsupported, and budget outcomes write no health judgment. The scoped SQLite repository is the default route-planning health source while the production provider catalog and public model surfaces remain closed.
+- Migration 0011 fabricates no health for prior runs. Pure and SQLite fixtures cover heartbeat ownership/token/time, raw-token absence, health reset/backoff/provenance, success/failure/cancellation classification, atomic crash recovery and duplicate denial, ledger release, audit integrity, DI lifetime, and prior-schema upgrade.
 
 ## Latest gate
 
-`artifacts/gates/M3-07-20260811.md`: Pass.
+`artifacts/gates/M3-08-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases, shared reservation accounting, and internal adapter execution are implemented. Expired-lease recovery, durable health observation, retries/failover, cross-attempt cost accounting, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, shared reservation accounting, observed provider health, and internal adapter execution are implemented. Retries/failover, cross-attempt cost accounting, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
-- SQLite now stores model start leases, but no heartbeat/takeover worker reconciles an expired `Running` run; inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
+- SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. There is no background lease scanner, takeover worker, or operator recovery command; inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 - Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
 - The policy-bound invocation and availability-probe services are registered but have no public endpoint and the default catalog is empty. Exact approvals, passive inventory, and catalog membership alone still make nothing callable. Restricted host cannot satisfy the configured denied/loopback agent network postures, so it fails typed rather than weakening isolation; a deterministic container-capable fake verifies the complete boundary until the live adapter exists.
 - Restricted-host working-path verification is vulnerable to local filesystem replacement after validation, and process attachment/descendant discovery has OS timing limits. It is not filesystem, network, credential, privilege, CPU, memory, or process-count isolation; high-risk requests must require a later container/namespace adapter.
 
 ## Exact next action
 
-Add expired-lease recovery and durable health observations, then create bounded retry/failover
-attempts that retain exact attempted-profile history and reconcile cross-attempt usage/cost. Do
-not expose public model invocation before crash recovery and destination/DNS gates pass.
+Create bounded retry/failover attempts that retain exact attempted-profile history and reconcile
+cross-attempt usage/cost. Do not expose public model invocation before automatic crash scanning,
+retry accounting, and destination/DNS gates pass.
