@@ -38,6 +38,9 @@ fi
 
 setup_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:5047/api/v1/setup/status)"
 runtime_status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:5047/api/v1/runtime/ping)"
+sandbox_kind="$(curl --silent http://127.0.0.1:5047/api/v1/sandbox/capabilities | grep -o '"kind":"[^"]*"' | cut -d '"' -f 4)"
+cli_sandbox_kind="$(AGENTFORGE_ENDPOINT=http://127.0.0.1:5047 "${dotnet_bin}" src/AgentForge.Cli/bin/Release/net10.0/agentforge.dll sandbox capabilities | grep -o '"kind":"[^"]*"' | cut -d '"' -f 4)"
 
-echo "live=${live_status} setup=${setup_status} runtime=${runtime_status}"
-[[ "${setup_status}" == "200" && "${runtime_status}" == "503" ]]
+echo "live=${live_status} setup=${setup_status} runtime=${runtime_status} sandbox=${sandbox_kind} cliSandbox=${cli_sandbox_kind}"
+[[ "${setup_status}" == "200" && "${runtime_status}" == "503" &&
+   "${sandbox_kind}" == "RestrictedHost" && "${cli_sandbox_kind}" == "RestrictedHost" ]]

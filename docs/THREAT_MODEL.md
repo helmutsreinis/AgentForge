@@ -232,3 +232,32 @@ to the contract, but cannot invoke anything. The restricted executor must source
 fields from an authoritative immutable tool descriptor, enforce workspace and isolation
 policy, fetch the current exact decision, and atomically consume a grant before process
 start. Inventory presence and an approval row alone never authorize execution.
+
+## M2 restricted-host execution update
+
+The restricted executor treats executable paths, arguments, environment, workspace, and
+output as hostile. It refuses relative, missing, linked, reparse-point, or parent-link
+executable paths and refuses working directories outside the exact existing non-link
+workspace. Child launch uses `ProcessStartInfo.ArgumentList`, never a constructed shell
+string or `UseShellExecute`. The child environment is cleared, then rebuilt from bounded
+administrator-configured inheritance and invocation allowlists; standard input is closed.
+
+Standard output and error share one byte budget and one ordered observer boundary. A wall-
+clock timeout, caller cancellation, output overflow, or observer failure terminates the
+process tree and drains boundedly. Windows attaches the child to a kill-on-close Job
+Object, enumerates the native process snapshot, and adds descendants that started before
+the parent attachment; later children inherit the Job. Linux uses managed descendant termination. Tests use hostile shell metacharacters,
+output floods, stalled observers, path escapes, symlinks, and delayed child sentinels.
+
+Capability flags are security claims. The restricted-host adapter does not claim or
+silently emulate filesystem, network, CPU, memory, process-count, credential, privilege,
+or container isolation. A request for any unavailable control returns
+`UnsupportedCapability` before start. The control plane exposes only read-only capability
+diagnostics; it exposes no generic invocation surface.
+
+Residual risks remain explicit. Local filesystem entries can be replaced between path
+validation and process start, Windows descendant capture is a bounded snapshot/recheck,
+and managed descendant discovery has OS timing limits. Therefore restricted-host execution is not a
+high-risk sandbox. Immutable authoritative descriptors, policy reconstruction, atomic
+approval consumption, invocation audit, and the container/namespace adapter remain closed
+gates before model-selected or high-risk tools can run.

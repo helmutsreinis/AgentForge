@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Milestone 2 slice 3: implement restricted process execution with argument arrays,
-workspace containment, environment allowlists, output/time bounds, cancellation,
-process-tree cleanup, and explicit isolation capability reporting.
+Milestone 2 slice 4: build authoritative immutable tool descriptors and progressive
+search/description, then require current policy and exact approval consumption before
+the restricted executor may start a process.
 
 ## Completed
 
@@ -46,10 +46,12 @@ process-tree cleanup, and explicit isolation capability reporting.
 - Candidate discovery uses no process-start primitive and never invokes version/help. Normalized Windows, Ubuntu, and Kali fixtures; live cross-platform capture; redacted content-addressed evidence; audit-chain integrity; and default-hidden executable details pass across the 72-test Windows/Ubuntu product suite.
 - M2 slice 2 added canonical authorization contexts, a fail-closed `Allow`/`Deny`/`RequireApproval` evaluator, parent/child policy intersection, and durable exact grants/denials bound to installation/version, current agent/version, request actor, capability/risk, tool/version, normalized parameters, target, workspace, expiry, approver, correlation, and request/preview hashes.
 - Approval preview/apply requires the local administrator, accepts parameter JSON only through bounded redirected stdin in the CLI, emits redacted previews, persists hashes rather than raw request material, appends hash-chain audit evidence atomically, and enforces installation-scoped idempotency. Unit, upgrade, persistence, redaction, negative-policy, and Windows live-DPAPI CLI tests cover exact matching and conflicting replay.
+- M2 slice 3a added a restricted-host execution kernel behind `ISandbox`: fully qualified non-link executables, `ProcessStartInfo.ArgumentList`, cleared/allowlisted environments, non-link workspace containment, combined output and wall-clock bounds, cancellation-aware ordered observation, and process-tree cleanup. Windows uses a kill-on-close Job Object and recaptures descendants created before parent attachment; Linux uses managed process-tree termination.
+- Isolation capability reporting is explicit through the host and `agentforge sandbox capabilities`. Restricted-host execution rejects container, denied/loopback-network, filesystem-isolation, and resource-isolation requests with `UnsupportedCapability` instead of degrading. Hostile fixtures cover shell metacharacters, environment leakage, output floods, observer stalls, timeout/cancellation child cleanup, path escape/symlinks, unsupported isolation, and shell fallback on both supported platforms.
 
 ## Latest gate
 
-`artifacts/gates/M2-02-20260811.md`: Pass.
+`artifacts/gates/M2-03A-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -61,9 +63,10 @@ process-tree cleanup, and explicit isolation capability reporting.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 - Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
-- Exact approval records do not make inventory callable and no process invocation consumes a grant yet. The restricted executor must construct authorization context from its authoritative tool descriptor, re-evaluate current policy, atomically consume a matching grant, and reject unsupported isolation without degradation.
+- The restricted kernel has no public invocation endpoint. Exact approval records and passive inventory still make nothing callable. The next tool service must source every field from an authoritative descriptor, re-evaluate current policy, atomically consume a matching grant and append audit evidence before using `ISandbox`.
+- Restricted-host working-path verification is vulnerable to local filesystem replacement after validation, and process attachment/descendant discovery has OS timing limits. It is not filesystem, network, credential, privilege, CPU, memory, or process-count isolation; high-risk requests must require a later container/namespace adapter.
 
 ## Exact next action
 
-Continue Milestone 2 with restricted process execution before any discovered tool can
-be probed or invoked.
+Continue Milestone 2 with authoritative tool descriptors, progressive discovery, and
+policy-bound invocation. Do not expose generic process execution through the API or CLI.

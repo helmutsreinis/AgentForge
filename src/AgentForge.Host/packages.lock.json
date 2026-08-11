@@ -118,6 +118,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.tools": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "Microsoft.EntityFrameworkCore.Sqlite": {
         "type": "CentralTransitive",
         "requested": "[10.0.10, )",

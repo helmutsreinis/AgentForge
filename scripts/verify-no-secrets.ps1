@@ -12,12 +12,12 @@ $textExtensions = @(
     '.slnx', '.targets', '.toml', '.xml', '.yaml', '.yml'
 )
 $findings = [Collections.Generic.List[string]]::new()
-$trackedFiles = @(git ls-files)
+$candidateFiles = @(git ls-files --cached --others --exclude-standard)
 if ($LASTEXITCODE -ne 0) {
-    throw 'Could not enumerate tracked files for the secret scan.'
+    throw 'Could not enumerate repository files for the secret scan.'
 }
 
-foreach ($relativePath in $trackedFiles) {
+foreach ($relativePath in $candidateFiles) {
     $extension = [IO.Path]::GetExtension($relativePath)
     if ($extension -notin $textExtensions -or -not (Test-Path -LiteralPath $relativePath -PathType Leaf)) {
         continue
@@ -45,4 +45,4 @@ if ($findings.Count -gt 0) {
     throw "Secret scan found $($findings.Count) potential credential(s)."
 }
 
-Write-Output "Secret scan passed across $($trackedFiles.Count) tracked files."
+Write-Output "Secret scan passed across $($candidateFiles.Count) tracked and untracked repository files."
