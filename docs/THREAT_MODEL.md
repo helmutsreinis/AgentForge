@@ -200,3 +200,35 @@ executable details unless explicitly requested. Remaining risks are local path/p
 exposure, mutable host evidence between captures, missing network/shell/package-
 database detail, symlink races, and lack of invocation authorization; later M2 slices
 must not reinterpret inventory presence as permission or capability proof.
+
+## M2 capability-policy and approval update
+
+Authorization identity is constructed outside model control from typed installation/version,
+agent/version, request actor, capability/risk, tool/version, normalized JSON parameters,
+target kind/value, and workspace. JSON object properties are deterministically ordered,
+duplicates and excessive depth/size are rejected, paths are made fully qualified, URI
+userinfo is forbidden, and only SHA-256 hashes cross the durable approval boundary.
+Changing any bound field produces a different request hash.
+
+The evaluator requires exactly one same-installation, same-agent-version policy rule.
+Missing, ambiguous, cross-scope, or stale policy denies. Parent/child intersection uses
+the union of rule keys and denies every omission; otherwise it selects the most
+restrictive decision. An approval can affect only a `RequireApproval` rule and must be
+active, unexpired, and an exact field-by-field match. Exact active denials take precedence
+within the approval-gated path. Grants have a pure single-consumption transition for the
+restricted executor; no invocation path is enabled in this slice.
+
+Only the authenticated local administrator can preview or apply a decision on the
+current durable agent version. Preview binds disposition, expiry, approver, correlation,
+request hash, and policy fingerprint. Apply repeats validation, compares the preview in
+fixed time, uses an installation-scoped unique idempotency key, atomically stores the
+hash-only record plus redacted chained audit event, and returns an existing record only
+for an authenticated exact retry. Conflicting reuse fails typed. Raw parameter, target,
+and workspace values are neither approval columns nor audit evidence; the CLI accepts
+parameter JSON only through bounded redirected stdin.
+
+The remaining boundary is deliberate: callers currently supply risk and tool identity
+to the contract, but cannot invoke anything. The restricted executor must source those
+fields from an authoritative immutable tool descriptor, enforce workspace and isolation
+policy, fetch the current exact decision, and atomically consume a grant before process
+start. Inventory presence and an approval row alone never authorize execution.

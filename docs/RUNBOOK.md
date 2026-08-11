@@ -92,8 +92,9 @@ posture, budgets, child bounds, learning mode, and mutable-skill scope; `--help`
 lists the command shape. Always run preview first and inspect every capability
 decision. `Deny` is the default for external network, credentials, messages, device
 writes, privileged execution, and learning promotion. Exact tool/skill grants are
-available through the application contract but remain approval-gated until their
-catalogs exist.
+accepted with `--tool-grant` or `--skill-grant` and remain approval-gated. The current
+CLI accepts one grant of each type per profile command; use authenticated profile edit
+for later changes. A configured grant is not permission to invoke a process.
 
 Creation is allowed only while installation state is `Configuring`, requires a same-
 installation provider with observed text capability, and returns JSON. Exit codes are
@@ -118,6 +119,38 @@ credential-free acceptance path in CI.
 Ready runtime calls require `Authorization: Bearer <credential>`. Retrieve the value
 through the OS secret reference for one invocation and clear it immediately. Never
 copy it into shell history, process arguments, configuration, logs, or reports.
+
+## Capability approval preview and apply
+
+An approval is available only for an exact capability listed in the current agent
+profile and only while the installation is `Ready`. First prepare a bounded JSON object
+containing the exact proposed parameters. Pipe it through standard input; never place
+request parameters or credentials in process arguments. Preview with the current agent
+version and the exact tool, target, workspace, expiry, actor, and correlation values:
+
+```text
+<bounded-parameter-source> | agentforge policy approval preview --data-directory <absolute-path> --agent-id <guid> --agent-version <n> --request-actor <actor-id> --capability <capability-id> --risk <risk-class> --tool-id <tool-id> --tool-version <version> --target-kind FileSystemPath --target <absolute-target> --workspace <absolute-workspace> --disposition Grant --expires-at <ISO-8601-with-offset> --actor <administrator-actor> --correlation <approval-correlation> --invocation-correlation <invocation-correlation> --parameters-stdin
+```
+
+The CLI materializes the administrator credential through its OS reference for one
+invocation. Output contains the request/preview hashes plus redacted parameters, target,
+and workspace. It never prints the credential or unredacted credential-shaped values.
+Missing/ambiguous policy, stale agent versions, unconfigured capabilities, wrong
+credentials, and expirations beyond the configured lifetime fail closed.
+
+After reviewing the exact preview, repeat every input and apply its returned hash with a
+new installation-scoped idempotency key:
+
+```text
+<same-bounded-parameter-source> | agentforge policy approval apply <same-exact-options> --preview-hash <returned-sha256> --idempotency-key <unique-key>
+```
+
+An exact authenticated retry returns the original record; reusing the key with changed
+input returns exit code 3. Store neither parameter sources nor preview output in shared
+logs when they contain local path or recipient metadata. A `Deny` disposition creates
+the same exact, expiring durable evidence. This slice does not execute tools: a future
+restricted executor must source risk/tool identity from its catalog, re-evaluate policy,
+enforce isolation and containment, and consume a matching grant atomically.
 
 ## Passive environment inventory
 
@@ -226,6 +259,10 @@ Migration 0005 creates setup-profile snapshot metadata and foreign-key binds eac
 to its installation and content-addressed artifact. Its down migration discards
 recovery evidence; restore the full pre-0005 SQLite/artifact/OS-reference backup set
 instead of applying it to operator state.
+
+Migration 0006 creates exact capability approval/denial evidence. Its down migration
+drops security decisions and is destructive; restore the full pre-0006 SQLite, artifact,
+and OS-reference backup instead of applying down to operator state.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

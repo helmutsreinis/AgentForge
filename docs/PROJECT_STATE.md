@@ -1,12 +1,12 @@
 # Project State
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 ## Current objective
 
-Milestone 2 slice 1: define immutable environment profiles and add passive Windows,
-Linux, WSL, distribution, filesystem, privilege, package/service manager, executable,
-and accelerator inventory without executing discovered tools.
+Milestone 2 slice 3: implement restricted process execution with argument arrays,
+workspace containment, environment allowlists, output/time bounds, cancellation,
+process-tree cleanup, and explicit isolation capability reporting.
 
 ## Completed
 
@@ -44,10 +44,12 @@ and accelerator inventory without executing discovered tools.
 - Milestone 1 exit evidence passes on Windows and Ubuntu with 58 tests, locked Release builds, format, host smoke, migration drift, dependency/secret scans, and no plaintext credential persistence. Release checkpoint `0.1 Foundation Alpha` is ready to merge from the draft PR.
 - M2 slice 1 added immutable, hashed environment profiles and bounded passive inventory for Windows/Linux identity, exact distro metadata (including Kali), WSL, VM/container markers, filesystems, privilege, package/service managers, accelerators, and executable metadata from PATH.
 - Candidate discovery uses no process-start primitive and never invokes version/help. Normalized Windows, Ubuntu, and Kali fixtures; live cross-platform capture; redacted content-addressed evidence; audit-chain integrity; and default-hidden executable details pass across the 72-test Windows/Ubuntu product suite.
+- M2 slice 2 added canonical authorization contexts, a fail-closed `Allow`/`Deny`/`RequireApproval` evaluator, parent/child policy intersection, and durable exact grants/denials bound to installation/version, current agent/version, request actor, capability/risk, tool/version, normalized parameters, target, workspace, expiry, approver, correlation, and request/preview hashes.
+- Approval preview/apply requires the local administrator, accepts parameter JSON only through bounded redirected stdin in the CLI, emits redacted previews, persists hashes rather than raw request material, appends hash-chain audit evidence atomically, and enforces installation-scoped idempotency. Unit, upgrade, persistence, redaction, negative-policy, and Windows live-DPAPI CLI tests cover exact matching and conflicting replay.
 
 ## Latest gate
 
-`artifacts/gates/M2-01-20260810.md`: Pass.
+`artifacts/gates/M2-02-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -58,9 +60,10 @@ and accelerator inventory without executing discovered tools.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
-- Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories; invocation stays disabled until policy, approval, and restricted-executor gates pass.
+- Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
+- Exact approval records do not make inventory callable and no process invocation consumes a grant yet. The restricted executor must construct authorization context from its authoritative tool descriptor, re-evaluate current policy, atomically consume a matching grant, and reject unsupported isolation without degradation.
 
 ## Exact next action
 
-Continue Milestone 2 with the capability policy evaluator, exact approval contracts,
-and restricted process execution before any discovered tool can be probed or invoked.
+Continue Milestone 2 with restricted process execution before any discovered tool can
+be probed or invoked.

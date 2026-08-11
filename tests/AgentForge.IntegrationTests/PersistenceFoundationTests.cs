@@ -1111,6 +1111,278 @@ public sealed class PersistenceFoundationTests : IDisposable
     }
 
     [Fact]
+    public async Task Exact_capability_grants_and_denials_are_authenticated_idempotent_redacted_and_durable()
+    {
+        await InitializeAsync();
+        var installationId = new InstallationId(Guid.Parse("947286d6-2205-4c4e-b59e-a0109f0e331d"));
+        AgentIdentity agent;
+        long installationVersion;
+        await using (var setupScope = _services.CreateAsyncScope())
+        {
+            var setup = setupScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-begin")), CancellationToken.None)).IsSuccess);
+            var secret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("approval-provider", "provider-fixture".AsMemory(), CancellationToken.None);
+            Assert.True(secret.IsSuccess);
+            var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    secret.Value),
+                new ActorId("local-admin"),
+                new CorrelationId("approval-provider")), CancellationToken.None);
+            Assert.True(provider.IsSuccess);
+            var createdAgent = await setup.CreateAgentAsync(new CreateAgentRequest(
+                CreateAgentCandidate(provider.Value.Profile.Id),
+                new ActorId("local-admin"),
+                new CorrelationId("approval-agent")), CancellationToken.None);
+            Assert.True(createdAgent.IsSuccess);
+            agent = createdAgent.Value.Agent;
+        }
+
+        LocalAdministrator administrator;
+        await using (var completionScope = _services.CreateAsyncScope())
+        {
+            var completed = await completionScope.ServiceProvider.GetRequiredService<ISetupApplicationService>()
+                .CompleteAsync(new CompleteSetupRequest(
+                    new ActorId("local-admin"),
+                    new CorrelationId("approval-ready")), CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            administrator = completed.Value.Administrator;
+            installationVersion = completed.Value.Installation.Version;
+        }
+
+        const string sensitiveParameter = "sk-" + "1234567890abcdefghijklmnop";
+        var expiration = DateTimeOffset.UtcNow.AddMinutes(10);
+        var invocation = new CapabilityInvocationRequest(
+            installationId,
+            installationVersion,
+            agent.Id,
+            agent.Version,
+            new ActorId("worker"),
+            "tool:repo.read",
+            CapabilityRiskClass.Read,
+            "repo.read",
+            "1.0.0",
+            $"{{\"token\":\"{sensitiveParameter}\",\"path\":\"src\"}}",
+            AuthorizationTargetKind.FileSystemPath,
+            Path.Combine(_directory, "workspace", "src"),
+            Path.Combine(_directory, "workspace"),
+            new CorrelationId("approval-invocation"));
+        await using (var approvalScope = _services.CreateAsyncScope())
+        {
+            var materialized = await approvalScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .MaterializeAsync(administrator.ClientCredentialReference, CancellationToken.None);
+            Assert.True(materialized.IsSuccess);
+            await using var credential = materialized.Value;
+            var service = approvalScope.ServiceProvider.GetRequiredService<ICapabilityApprovalService>();
+            var unauthenticated = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                "not-the-administrator-credential".AsMemory()), CancellationToken.None);
+            Assert.False(unauthenticated.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, unauthenticated.Failure?.Code);
+
+            var ungranted = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation with { CapabilityId = "tool:repo.write", RiskClass = CapabilityRiskClass.Write },
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.False(ungranted.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, ungranted.Failure?.Code);
+
+            var staleInstallation = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation with { InstallationVersion = installationVersion - 1 },
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.False(staleInstallation.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, staleInstallation.Failure?.Code);
+
+            var excessiveLifetime = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                DateTimeOffset.UtcNow.AddDays(8),
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.False(excessiveLifetime.IsSuccess);
+            Assert.Equal(FailureCode.ValidationFailure, excessiveLifetime.Failure?.Code);
+
+            var preview = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            Assert.DoesNotContain(sensitiveParameter, preview.Value.Parameters.Json, StringComparison.Ordinal);
+            Assert.Contains("[REDACTED]", preview.Value.Parameters.Json, StringComparison.Ordinal);
+
+            var wrongHash = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                "sha256:" + new string('0', 64),
+                "approval-grant-001",
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.False(wrongHash.IsSuccess);
+            Assert.Equal(FailureCode.PolicyDenied, wrongHash.Failure?.Code);
+
+            var applied = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                preview.Value.PreviewHash,
+                "approval-grant-001",
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.True(applied.IsSuccess, applied.Failure?.Message);
+            var replay = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                preview.Value.PreviewHash,
+                "approval-grant-001",
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.True(replay.IsSuccess, replay.Failure?.Message);
+            Assert.Equal(applied.Value.Id, replay.Value.Id);
+
+            var conflictingReplay = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                invocation with { ParametersJson = "{\"path\":\"other\"}" },
+                CapabilityApprovalDisposition.Grant,
+                expiration,
+                preview.Value.PreviewHash,
+                "approval-grant-001",
+                new ActorId("local-admin"),
+                new CorrelationId("approval-grant"),
+                credential.Value), CancellationToken.None);
+            Assert.False(conflictingReplay.IsSuccess);
+            Assert.Equal(FailureCode.ConcurrencyConflict, conflictingReplay.Failure?.Code);
+
+            var denialExpiration = expiration.AddMinutes(1);
+            var denialPreview = await service.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Deny,
+                denialExpiration,
+                new ActorId("local-admin"),
+                new CorrelationId("approval-deny"),
+                credential.Value), CancellationToken.None);
+            Assert.True(denialPreview.IsSuccess, denialPreview.Failure?.Message);
+            var denied = await service.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                invocation,
+                CapabilityApprovalDisposition.Deny,
+                denialExpiration,
+                denialPreview.Value.PreviewHash,
+                "approval-deny-001",
+                new ActorId("local-admin"),
+                new CorrelationId("approval-deny"),
+                credential.Value), CancellationToken.None);
+            Assert.True(denied.IsSuccess, denied.Failure?.Message);
+            Assert.Equal(CapabilityApprovalDisposition.Deny, denied.Value.Disposition);
+
+            var latest = await approvalScope.ServiceProvider.GetRequiredService<ICapabilityApprovalRepository>()
+                .FindLatestAsync(installationId, agent.Id, preview.Value.RequestHash, CancellationToken.None);
+            Assert.NotNull(latest);
+            Assert.Equal(denied.Value.Id, latest.Id);
+        }
+
+        await using (var verificationScope = _services.CreateAsyncScope())
+        {
+            var events = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(installationId, 0, 20, CancellationToken.None);
+            Assert.Equal(6, events.Count);
+            Assert.Contains(events, item => item.OperationType == "capability.approval-granted");
+            Assert.Contains(events, item => item.OperationType == "capability.approval-denied");
+            Assert.DoesNotContain(
+                sensitiveParameter,
+                string.Join(string.Empty, events.Select(item => item.Input.Json + item.Output.Json)),
+                StringComparison.Ordinal);
+            Assert.True((await verificationScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(sensitiveParameter)));
+    }
+
+    [Fact]
+    public async Task Capability_approval_migration_preserves_existing_agent_profiles()
+    {
+        var installationId = new InstallationId(Guid.Parse("334bc4bc-e826-4df4-8535-bba96c369187"));
+        var providerId = new ProviderProfileId(Guid.Parse("216670db-5ce3-45f7-9d7e-27ccf185da74"));
+        var agentId = new AgentIdentityId(Guid.Parse("d59cfe48-7080-48ff-b59e-99922b8f66d5"));
+        await using (var previousSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = previousSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260810180835_SetupProfileSnapshots", CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("approval-upgrade"),
+                    new CorrelationId("approval-upgrade")), CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "approval-upgrade"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("approval-upgrade"),
+                    new CorrelationId("approval-upgrade")), CancellationToken.None);
+            Assert.True((await previousSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.NotNull(await upgradedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .FindByIdAsync(agentId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<ICapabilityApprovalRepository>()
+            .FindLatestAsync(
+                installationId,
+                agentId,
+                "sha256:" + new string('a', 64),
+                CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Environment_inventory_is_redacted_content_addressed_and_audited_atomically()
     {
         const string credentialShapedEvidence = "sk-" + "1234567890abcdefghijklmnop";

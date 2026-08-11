@@ -260,7 +260,7 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
         }
 
         var normalized = grants
-            .Select(item => item?.Trim() ?? string.Empty)
+            .Select(item => item?.Trim().ToLowerInvariant() ?? string.Empty)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
