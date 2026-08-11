@@ -521,6 +521,71 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("capability_approvals", (string)null);
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.CodingSessionSnapshotEntity", b =>
+                {
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CausationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreviousSnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("SessionId", "Version");
+
+                    b.HasIndex("InstallationId", "AgentId", "UpdatedAtUtcTicks");
+
+                    b.HasIndex("InstallationId", "IdempotencyKey", "Version")
+                        .IsUnique();
+
+                    b.ToTable("coding_session_snapshots", (string)null);
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.DelegationGrantEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1841,6 +1906,15 @@ namespace AgentForge.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.CodingSessionSnapshotEntity", b =>
+                {
                     b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
                         .WithMany()
                         .HasForeignKey("InstallationId")

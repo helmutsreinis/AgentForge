@@ -102,10 +102,16 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - M5 added the independent Skills module, strict portable package loading, deterministic SemVer/dependency validation, canonical content-addressed bundles, signature verification boundary, immutable registry versions, descriptor-only discovery, and artifact-only skill bodies.
 - Seed, user, and agent-proposed packages now share one install and governance path. Append-only hash-chained proposals bind exact baseline/candidate hashes, deterministic evaluation and permission diffs, separate approval, canary evidence, quarantine, archive/restore, and atomic active-pointer promotion/rollback.
 - Run snapshots pin exact transitive skill versions, permissions, artifacts, and hashes. Existing sessions retain their original body after promotion; stale promotions fail, regressing canaries quarantine, and raw Markdown is absent from relational rows.
+- M6 slice 1 added the independent Coding module. Bounded passive discovery inventories solutions/projects/languages/build systems/tests/CI/locks/repository instructions, parses MSBuild project references without DTD/network expansion, and hashes the normalized profile.
+- A real MSBuildWorkspace/Roslyn navigator loads the containing project graph and returns bounded symbol, definition, reference, compiler-diagnostic, and evidence records. Git worktree creation requires an exact local commit/tree and clean source, uses argument arrays, isolates a dedicated branch, and refuses to remove dirty or unrecognized targets.
+- M6 slice 2 added canonical hash-bound unified patches with strict path/link/UTF-8/size/hunk validation, whole-set preflight, rollback on write failure, and before/after evidence. Conflicts or a malformed later file leave every target unchanged.
+- Coding backends receive no filesystem path and can only propose immutable patches. The exact-version catalog and read-only language-server contract confer no authority. Harness-owned verification rechecks workspace/authority/plan hashes, stores output hashes, requires denied-network container/filesystem isolation for project execution, and makes publish approval explicit.
+- M6 slice 3 added append-only hash-chained coding sessions with typed plans, content-addressed patch artifacts, before/after receipts, per-command durable verifier checkpoints, failure/recovery evidence, Git exact-diff review reports, idempotency, and redacted audit.
+- The checked faulty Calculator sample is fixed only inside an isolated worktree, actually built and executed, interrupted after the build checkpoint, resumed without repeating build, reviewed against the exact changed path, and completed at version 7. The source checkout stays unchanged and the relational database contains neither objective nor patched source.
 
 ## Latest gate
 
-`artifacts/gates/M5-20260812.md`: Pass. Milestone 5 is complete.
+`artifacts/gates/M6-03-20260812.md`: Pass. Milestone 6 is complete.
 
 ## Known constraints and risks
 
@@ -123,5 +129,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Begin Milestone 6 with isolated Git worktrees, repository and semantic discovery, hash-bound
-patches, policy-bound coding backends, durable plans/checkpoints, and build/test/review verification.
+Begin Milestone 7 with independently gated search, memory, messaging, and authenticated loopback
+web-setup slices over the existing policy, audit, artifact, and setup boundaries.
