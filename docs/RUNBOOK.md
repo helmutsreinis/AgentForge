@@ -1,5 +1,16 @@
 # Development Runbook
 
+## Schedule recovery
+
+Schedules require the exact configured timezone on the host. Use preview before activation and
+after timezone database or OS upgrades. A paused schedule retains its next base/due instant;
+resuming applies configured misfire policy when the dispatcher evaluates it. `Skip`, `FireOnce`,
+and bounded `CatchUp` are deliberately different operator choices.
+
+If a worker exits, its occurrence remains `Running` until the five-minute-or-shorter lease expires.
+Recovery requeues within the attempt bound or increments failure/dead-letter evidence. Never edit
+SQLite due times, occurrence JSON, or hashes. Stop the service and restore the complete SQLite/WAL/
+SHM backup if chain validation fails.
 ## Session start
 
 1. Read `PROJECT_STATE.md`, `REQUIREMENTS.md`, `TRACEABILITY.md`, open threat findings, and the latest gate report.

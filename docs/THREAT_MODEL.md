@@ -620,3 +620,16 @@ Depth, spawned-child count, active concurrency, expiry, identity bounds, duplica
 budget are checked before a canonical grant is issued. Policy and skill hashes are inherited
 unchanged. Remaining threats are incorrect trusted parent accounting and a future public endpoint;
 neither exists in the current closed composition surface.
+
+## M4 scheduling update
+
+Cron/calendar text, timezone IDs, scan horizon, queue size, catch-up, jitter, parallelism, leases,
+attempts, and failure thresholds are bounded before persistence. Unsupported cron extensions and
+missing zones fail typed. DST gaps and ambiguity cannot invoke platform-default guesswork.
+
+Every due and run-now occurrence has a deterministic scoped identity. Latest-version scanning,
+expected versions, and database uniqueness prevent two dispatchers from authorizing the same
+transition. Worker tokens are random and hash-only. Definitions pin agent and policy/capability/
+budget/skill evidence so a later configuration change cannot silently widen a schedule. Remaining
+threats are timezone database changes to future calculations and starvation by an authorized flood;
+stored UTC snapshots preserve evidence and bounded scanning/queues limit the latter.

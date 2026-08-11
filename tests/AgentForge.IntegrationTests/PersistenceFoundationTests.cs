@@ -10,6 +10,7 @@ using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
+using AgentForge.Abstractions.Scheduling;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
@@ -24,6 +25,7 @@ using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Runtime;
+using AgentForge.Domain.Scheduling;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Domain.Tools;
@@ -199,6 +201,7 @@ public sealed class PersistenceFoundationTests : IDisposable
     public async Task Durable_task_dag_recovers_expired_worker_and_resumes_without_repeating_completion()
     {
         var clock = new MutableClock(new DateTimeOffset(2026, 8, 12, 1, 0, 0, TimeSpan.Zero));
+        var timeProvider = new MutableTimeProvider(clock.UtcNow);
         await using var services = BuildServices(
             _directory,
             "orchestration.db",
@@ -206,6 +209,7 @@ public sealed class PersistenceFoundationTests : IDisposable
             {
                 collection.AddSingleton<IClock>(clock);
                 collection.AddSingleton<IIdentifierGenerator>(clock);
+                collection.AddSingleton<TimeProvider>(timeProvider);
             });
         await using (var initializationScope = services.CreateAsyncScope())
         {
@@ -354,6 +358,7 @@ public sealed class PersistenceFoundationTests : IDisposable
         }
 
         clock.UtcNow = clock.UtcNow.AddMinutes(1);
+        timeProvider.UtcNow = clock.UtcNow;
         await using (var resumedWorker = services.CreateAsyncScope())
         {
             var orchestrator = resumedWorker.ServiceProvider.GetRequiredService<ITaskOrchestrator>();
@@ -423,8 +428,125 @@ public sealed class PersistenceFoundationTests : IDisposable
                 history.Skip(1).Select(item => item.PreviousSnapshotHash));
         }
 
+        var scheduleId = new ScheduleId(Guid.Parse("11234567-0000-0000-0000-000000000006"));
+        var scheduleDefinition = new ScheduleDefinition(
+            scheduleId,
+            installationId,
+            agentId,
+            0,
+            new ScheduleTrigger(
+                ScheduleTriggerKind.OneShot,
+                timeProvider.UtcNow.AddMinutes(1),
+                null,
+                null,
+                null,
+                null),
+            TimeZoneInfo.Utc.Id,
+            ScheduleMisfirePolicy.FireOnce,
+            ScheduleOverlapPolicy.Queue,
+            30,
+            4,
+            1,
+            0,
+            2,
+            0,
+            3,
+            null,
+            hash,
+            hash,
+            hash,
+            hash);
+        string scheduleToken;
+        await using (var scheduleScope = services.CreateAsyncScope())
+        {
+            var scheduler = scheduleScope.ServiceProvider.GetRequiredService<IScheduleService>();
+            var preview = scheduler.Preview(scheduleDefinition, timeProvider.UtcNow, 4);
+            Assert.True(preview.IsSuccess, preview.Failure?.Message);
+            Assert.Single(preview.Value);
+            var created = await scheduler.CreateAsync(
+                scheduleDefinition,
+                new ActorId("scheduler"),
+                "schedule-001",
+                new CorrelationId("schedule-run"),
+                null,
+                CancellationToken.None);
+            Assert.True(created.IsSuccess, created.Failure?.Message);
+            var replay = await scheduler.CreateAsync(
+                scheduleDefinition,
+                new ActorId("scheduler"),
+                "schedule-001",
+                new CorrelationId("schedule-run"),
+                null,
+                CancellationToken.None);
+            Assert.True(replay.IsSuccess);
+            Assert.True(replay.Value.WasReplay);
+        }
+
+        timeProvider.UtcNow = timeProvider.UtcNow.AddMinutes(1);
+        await using (var interruptedScheduleWorker = services.CreateAsyncScope())
+        {
+            var scheduler = interruptedScheduleWorker.ServiceProvider.GetRequiredService<IScheduleService>();
+            var dueSchedules = await interruptedScheduleWorker.ServiceProvider
+                .GetRequiredService<IScheduleSnapshotStore>()
+                .ListDueAsync(timeProvider.UtcNow, 10, CancellationToken.None);
+            Assert.Collection(dueSchedules, due => Assert.Equal(scheduleId, due.ScheduleId));
+            var due = await scheduler.EvaluateDueAsync(scheduleId, 0, CancellationToken.None);
+            Assert.True(due.IsSuccess, due.Failure?.Message);
+            Assert.Single(due.Value.Snapshot.Occurrences);
+            var occurrenceId = due.Value.Snapshot.Occurrences[0].IdempotencyKeyHash;
+            var claim = await scheduler.ClaimAsync(
+                scheduleId,
+                1,
+                occurrenceId,
+                "schedule-worker-one",
+                TimeSpan.FromSeconds(30),
+                CancellationToken.None);
+            Assert.True(claim.IsSuccess, claim.Failure?.Message);
+            scheduleToken = claim.Value.LeaseToken;
+        }
+
+        timeProvider.UtcNow = timeProvider.UtcNow.AddMinutes(1);
+        await using (var resumedScheduleWorker = services.CreateAsyncScope())
+        {
+            var scheduler = resumedScheduleWorker.ServiceProvider.GetRequiredService<IScheduleService>();
+            var recovered = await scheduler.RecoverExpiredAsync(scheduleId, 2, CancellationToken.None);
+            Assert.True(recovered.IsSuccess, recovered.Failure?.Message);
+            var occurrenceId = recovered.Value.Snapshot.Occurrences[0].IdempotencyKeyHash;
+            var claim = await scheduler.ClaimAsync(
+                scheduleId,
+                3,
+                occurrenceId,
+                "schedule-worker-two",
+                TimeSpan.FromMinutes(1),
+                CancellationToken.None);
+            Assert.True(claim.IsSuccess, claim.Failure?.Message);
+            var completed = await scheduler.CompleteAsync(
+                scheduleId,
+                4,
+                occurrenceId,
+                "schedule-worker-two",
+                claim.Value.LeaseToken,
+                hash,
+                CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            Assert.Equal(1, completed.Value.Snapshot.CompletedCount);
+
+            var runNow = await scheduler.RunNowAsync(scheduleId, 5, "manual-run-001", CancellationToken.None);
+            Assert.True(runNow.IsSuccess, runNow.Failure?.Message);
+            var runNowReplay = await scheduler.RunNowAsync(scheduleId, 6, "manual-run-001", CancellationToken.None);
+            Assert.True(runNowReplay.IsSuccess);
+            Assert.True(runNowReplay.Value.WasReplay);
+
+            var history = await resumedScheduleWorker.ServiceProvider.GetRequiredService<IScheduleSnapshotStore>()
+                .ListAsync(scheduleId, CancellationToken.None);
+            Assert.Equal(7, history.Count);
+            Assert.Equal(Enumerable.Range(0, 7).Select(value => (long)value), history.Select(item => item.Version));
+            Assert.All(history, item => Assert.True(ScheduleStateMachine.IsConsistent(item)));
+        }
+
         var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "orchestration.db"));
         Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(abandonedToken)));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(scheduleToken)));
     }
 
     [Fact]
@@ -2755,5 +2877,12 @@ public sealed class PersistenceFoundationTests : IDisposable
         public DateTimeOffset UtcNow { get; set; } = utcNow;
 
         public Guid NewGuid() => Guid.NewGuid();
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; } = utcNow;
+
+        public override DateTimeOffset GetUtcNow() => UtcNow;
     }
 }
