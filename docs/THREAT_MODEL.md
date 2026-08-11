@@ -406,6 +406,31 @@ discarded; only bounded status/retry metadata and fixed AgentForge messages cros
 
 The live gate sent one fixed non-secret prompt to the operator-authorized `qwen3.6` LAN
 endpoint and verified text, usage, and typed stop completion through the actual adapter.
-Because model-context redaction and secret materialization are not connected, the adapter
-remains credential-free and unregistered. Media evidence is rejected at adapter creation so
-artifact-backed content cannot be silently omitted.
+The live probe remains credential-free and unregistered. Media evidence is rejected at
+adapter creation so artifact-backed content cannot be silently omitted.
+
+## M3 provider-egress security update
+
+External model requests cross a versioned preparation boundary before provider validation or
+serialization. The preparer creates new read-only message/tool collections and never mutates
+the caller's request. It redacts secret-shaped text, attachment names, tool arguments/results,
+and descriptions with the shared bounded canonical redactor. Identity and correlation fields
+or JSON schemas containing sensitive material fail closed because replacement could change
+tool/routing authority or invalidate a contract. Failures use fixed messages and never echo
+the rejected input. Started evidence records policy plus redaction count, and the input hash
+covers only the prepared request.
+
+Hosted bearer authorization accepts no caller header map. Construction requires an exact
+profile/descriptor ID, provider type, model, HTTPS endpoint, capabilities, version, configured
+store, and secret reference. Materialization occurs only after the consumer advances beyond
+the started event and lasts through the bounded HTTP send. Control, whitespace, non-ASCII,
+oversized, missing, or injected header values fail before transport. `finally` removes the
+header and clears the character lease before any response event; request JSON, events, errors,
+logs, and state never receive credential material. The BCL bearer parameter is transient
+managed text and cannot be zeroed directly, so its header reference is dropped immediately
+after `SendAsync` rather than retained through response streaming.
+
+This is not runtime authorization or routing. Production still has no provider catalog entry,
+public invocation route, hosted setup validation, destination/DNS enforcement, current-profile
+re-read, audit, cumulative budget, or run snapshot. Those gates must pass before a stored
+profile can cause model egress.

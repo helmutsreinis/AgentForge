@@ -2,9 +2,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 
 namespace AgentForge.Models;
 
@@ -13,13 +16,19 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
     private readonly OpenAiCompatibleModelProviderOptions _options;
     private readonly HttpClient _httpClient;
     private readonly IClock _clock;
+    private readonly IModelContextPreparer _contextPreparer;
+    private readonly ISecretStore? _secretStore;
+    private readonly SecretReference? _credentialReference;
     private readonly string _capabilityEvidenceHash;
 
     private OpenAiCompatibleModelProvider(
         ModelProviderDescriptor descriptor,
         OpenAiCompatibleModelProviderOptions options,
         HttpMessageHandler handler,
-        IClock clock)
+        IClock clock,
+        IModelContextPreparer contextPreparer,
+        ISecretStore? secretStore,
+        SecretReference? credentialReference)
     {
         Descriptor = descriptor;
         _options = options;
@@ -28,6 +37,9 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             Timeout = Timeout.InfiniteTimeSpan,
         };
         _clock = clock;
+        _contextPreparer = contextPreparer;
+        _secretStore = secretStore;
+        _credentialReference = credentialReference;
         _capabilityEvidenceHash = ModelContractValidator.ComputeCapabilityEvidenceHash(descriptor);
     }
 
@@ -36,32 +48,104 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
     public static DomainResult<OpenAiCompatibleModelProvider> Create(
         ModelProviderDescriptor descriptor,
         OpenAiCompatibleModelProviderOptions options,
+        IModelContextPreparer contextPreparer,
         IClock clock)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(contextPreparer);
         ArgumentNullException.ThrowIfNull(clock);
-        return CreateCore(descriptor, options, CreateSafeHandler(), clock);
+        return CreateCore(
+            descriptor,
+            options,
+            CreateSafeHandler(),
+            clock,
+            contextPreparer,
+            null,
+            null);
+    }
+
+    public static DomainResult<OpenAiCompatibleModelProvider> CreateHosted(
+        ProviderProfile profile,
+        ModelProviderDescriptor descriptor,
+        OpenAiCompatibleModelProviderOptions options,
+        IModelContextPreparer contextPreparer,
+        ISecretStore secretStore,
+        IClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(contextPreparer);
+        ArgumentNullException.ThrowIfNull(secretStore);
+        ArgumentNullException.ThrowIfNull(clock);
+        if (!ValidateHostedProfile(profile, descriptor, options, secretStore))
+        {
+            return Invalid<OpenAiCompatibleModelProvider>(
+                "Hosted provider profile, endpoint, capabilities, or secret reference are not an exact safe match.");
+        }
+
+        return CreateCore(
+            descriptor,
+            options,
+            CreateSafeHandler(),
+            clock,
+            contextPreparer,
+            secretStore,
+            profile.SecretReference with { });
     }
 
     internal static DomainResult<OpenAiCompatibleModelProvider> CreateForTesting(
         ModelProviderDescriptor descriptor,
         OpenAiCompatibleModelProviderOptions options,
         HttpMessageHandler handler,
+        IModelContextPreparer contextPreparer,
         IClock clock)
     {
         ArgumentNullException.ThrowIfNull(handler);
-        return CreateCore(descriptor, options, handler, clock);
+        ArgumentNullException.ThrowIfNull(contextPreparer);
+        return CreateCore(descriptor, options, handler, clock, contextPreparer, null, null);
+    }
+
+    internal static DomainResult<OpenAiCompatibleModelProvider> CreateHostedForTesting(
+        ProviderProfile profile,
+        ModelProviderDescriptor descriptor,
+        OpenAiCompatibleModelProviderOptions options,
+        HttpMessageHandler handler,
+        IModelContextPreparer contextPreparer,
+        ISecretStore secretStore,
+        IClock clock)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(contextPreparer);
+        ArgumentNullException.ThrowIfNull(secretStore);
+        if (!ValidateHostedProfile(profile, descriptor, options, secretStore))
+        {
+            handler.Dispose();
+            return Invalid<OpenAiCompatibleModelProvider>(
+                "Hosted provider profile, endpoint, capabilities, or secret reference are not an exact safe match.");
+        }
+
+        return CreateCore(
+            descriptor,
+            options,
+            handler,
+            clock,
+            contextPreparer,
+            secretStore,
+            profile.SecretReference with { });
     }
 
     private static DomainResult<OpenAiCompatibleModelProvider> CreateCore(
         ModelProviderDescriptor descriptor,
         OpenAiCompatibleModelProviderOptions options,
         HttpMessageHandler handler,
-        IClock clock)
+        IClock clock,
+        IModelContextPreparer contextPreparer,
+        ISecretStore? secretStore,
+        SecretReference? credentialReference)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(handler);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(contextPreparer);
         var normalized = ModelContractValidator.NormalizeDescriptor(descriptor);
         if (!normalized.IsSuccess)
         {
@@ -71,6 +155,7 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
 
         if (!string.Equals(normalized.Value.ProviderType, "openai-compatible", StringComparison.Ordinal) ||
             !ValidateOptions(options) ||
+            (secretStore is null) != (credentialReference is null) ||
             ModelContractValidator.Supports(normalized.Value, ModelCapability.ImageInput) ||
             ModelContractValidator.Supports(normalized.Value, ModelCapability.AudioInput) ||
             ModelContractValidator.Supports(normalized.Value, ModelCapability.DocumentInput))
@@ -84,7 +169,10 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             normalized.Value,
             options with { },
             handler,
-            clock));
+            clock,
+            contextPreparer,
+            secretStore,
+            credentialReference));
     }
 
     public void Dispose() => _httpClient.Dispose();
@@ -94,7 +182,24 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var prepared = ModelContractValidator.NormalizeRequest(request, Descriptor, _clock.UtcNow);
+        var context = _contextPreparer.Prepare(request);
+        if (!context.IsSuccess || context.Value is null || context.Value.Request is null ||
+            context.Value.RedactionCount < 0 ||
+            !string.Equals(context.Value.Policy, ModelContextPreparer.PolicyName, StringComparison.Ordinal))
+        {
+            yield return ErrorEvent(
+                request?.Id ?? default,
+                0,
+                context.Failure is null
+                    ? new ModelProviderError(
+                        ModelProviderErrorCode.PolicyDenied,
+                        "The model context did not pass the required preparation policy.",
+                        false)
+                    : ToProviderError(context.Failure));
+            yield break;
+        }
+
+        var prepared = ModelContractValidator.NormalizeRequest(context.Value.Request, Descriptor, _clock.UtcNow);
         if (!prepared.IsSuccess)
         {
             yield return ErrorEvent(
@@ -123,11 +228,79 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             Descriptor.ProviderType,
             Descriptor.Model,
             prepared.Value.InputHash,
-            _capabilityEvidenceHash);
+            _capabilityEvidenceHash,
+            context.Value.RedactionCount,
+            context.Value.Policy);
 
         using var duration = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         duration.CancelAfter(TimeSpan.FromSeconds(prepared.Value.Request.Limits.MaximumWallClockSeconds));
         using var message = CreateRequestMessage(prepared.Value.Request, payload.Value);
+        SecretLease? credentialLease = null;
+        if (_credentialReference is not null)
+        {
+            DomainResult<SecretLease> materialized = default;
+            ModelProviderError? credentialFailure = null;
+            try
+            {
+                materialized = await _secretStore!.MaterializeAsync(_credentialReference, duration.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && duration.IsCancellationRequested)
+            {
+                credentialFailure = new ModelProviderError(
+                    ModelProviderErrorCode.BudgetExceeded,
+                    "Provider credential materialization exceeded the invocation wall-clock limit.",
+                    false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                credentialFailure = new ModelProviderError(
+                    ModelProviderErrorCode.ProviderUnavailable,
+                    "Provider credential materialization was canceled by the configured store.",
+                    true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                credentialFailure = new ModelProviderError(
+                    ModelProviderErrorCode.ProviderUnavailable,
+                    "Provider credential materialization failed in the configured store.",
+                    true);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (credentialFailure is not null)
+            {
+                yield return ErrorEvent(prepared.Value.Request.Id, nextSequence, credentialFailure);
+                yield break;
+            }
+
+            if (!materialized.IsSuccess || materialized.Value is null)
+            {
+                yield return ErrorEvent(
+                    prepared.Value.Request.Id,
+                    nextSequence,
+                    new ModelProviderError(
+                        ModelProviderErrorCode.AuthenticationFailed,
+                        "The provider credential was unavailable for this invocation.",
+                        materialized.Failure?.IsRetryable ?? false));
+                yield break;
+            }
+
+            credentialLease = materialized.Value;
+            if (!TryApplyBearerCredential(message, credentialLease))
+            {
+                credentialLease.Dispose();
+                credentialLease = null;
+                yield return ErrorEvent(
+                    prepared.Value.Request.Id,
+                    nextSequence,
+                    new ModelProviderError(
+                        ModelProviderErrorCode.AuthenticationFailed,
+                        "The provider credential cannot be represented by the bounded bearer transport.",
+                        false));
+                yield break;
+            }
+        }
+
         HttpResponseMessage? response = null;
         ModelProviderError? sendFailure = null;
         try
@@ -158,6 +331,12 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
                 ModelProviderErrorCode.ProviderUnavailable,
                 "The provider transport canceled the request.",
                 true);
+        }
+        finally
+        {
+            message.Headers.Authorization = null;
+            credentialLease?.Dispose();
+            credentialLease = null;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -340,6 +519,64 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             CharSet = "utf-8",
         };
         return message;
+    }
+
+    private static bool TryApplyBearerCredential(HttpRequestMessage message, SecretLease credential)
+    {
+        var value = credential.Value.Span;
+        if (value.Length is < 1 or > 8192)
+        {
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (character is < '!' or > '~')
+            {
+                return false;
+            }
+        }
+
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", new string(value));
+        return true;
+    }
+
+    private static bool ValidateHostedProfile(
+        ProviderProfile profile,
+        ModelProviderDescriptor descriptor,
+        OpenAiCompatibleModelProviderOptions options,
+        ISecretStore secretStore)
+    {
+        if (profile is null || descriptor is null || descriptor.Capabilities is null ||
+            options.ChatCompletionsEndpoint is null ||
+            profile.SecretReference is null ||
+            profile.Capabilities is null || profile.Id.Value == Guid.Empty ||
+            profile.InstallationId.Value == Guid.Empty || profile.Version < 1 ||
+            profile.CreatedAt == default || profile.UpdatedAt < profile.CreatedAt ||
+            string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 128 || profile.Name.Any(char.IsControl) ||
+            string.IsNullOrWhiteSpace(profile.ActorId.Value) || profile.ActorId.Value.Length > 128 ||
+            string.IsNullOrWhiteSpace(profile.CorrelationId.Value) || profile.CorrelationId.Value.Length > 128 ||
+            profile.Endpoint is null || profile.Endpoint.Scheme != "https" ||
+            !string.Equals(profile.ProviderType, "openai-compatible", StringComparison.Ordinal) ||
+            profile.Id != descriptor.ProfileId ||
+            !string.Equals(profile.ProviderType, descriptor.ProviderType, StringComparison.Ordinal) ||
+            !string.Equals(profile.Model, descriptor.Model, StringComparison.Ordinal) ||
+            Uri.Compare(
+                profile.Endpoint,
+                options.ChatCompletionsEndpoint,
+                UriComponents.HttpRequestUrl,
+                UriFormat.UriEscaped,
+                StringComparison.Ordinal) != 0 ||
+            !string.Equals(profile.SecretReference.Store, secretStore.StoreName, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(profile.SecretReference.Key) || profile.SecretReference.Key.Length > 512 ||
+            profile.SecretReference.Key.Any(char.IsControl) ||
+            !profile.Capabilities.TextGeneration || !profile.Capabilities.Streaming || profile.Capabilities.Images)
+        {
+            return false;
+        }
+
+        return profile.Capabilities.ToolCalls ==
+            ModelContractValidator.Supports(descriptor, ModelCapability.ToolCalls);
     }
 
     private ModelErrorEvent ErrorEvent(

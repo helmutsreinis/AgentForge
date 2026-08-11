@@ -135,6 +135,11 @@ public sealed record ModelRequest(
     CorrelationId CorrelationId,
     CorrelationId? CausationId = null);
 
+public sealed record PreparedModelContext(
+    ModelRequest Request,
+    int RedactionCount,
+    string Policy);
+
 public sealed record ModelCapabilityEvidence(
     ModelCapability Capability,
     ModelCapabilityEvidenceSource Source,
@@ -176,7 +181,9 @@ public sealed record ModelStartedEvent(
     string ProviderType,
     string Model,
     string InputHash,
-    string CapabilityEvidenceHash) : ModelStreamEvent(RequestId, Sequence, Timestamp);
+    string CapabilityEvidenceHash,
+    int ContextRedactionCount = 0,
+    string ContextPreparationPolicy = "none") : ModelStreamEvent(RequestId, Sequence, Timestamp);
 
 public sealed record ModelTextDeltaEvent(
     ModelRequestId RequestId,

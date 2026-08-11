@@ -1,8 +1,12 @@
+using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Models;
+using AgentForge.Security;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentForge.IntegrationTests;
 
@@ -42,6 +46,7 @@ public sealed class OpenAiCompatibleLiveIntegrationTests
                 endpoint,
                 AllowInsecureHttp: endpoint.Scheme == "http",
                 DisableThinking: true),
+            CreateContextPreparer(),
             new LiveClock()).Value;
         var request = new ModelRequest(
             new ModelRequestId(Guid.NewGuid()),
@@ -64,6 +69,9 @@ public sealed class OpenAiCompatibleLiveIntegrationTests
         Assert.Equal(
             "AGENTFORGE_QWEN_OK",
             string.Concat(events.OfType<ModelTextDeltaEvent>().Select(item => item.Delta)));
+        var started = Assert.Single(events.OfType<ModelStartedEvent>());
+        Assert.Equal(ModelContextPreparer.PolicyName, started.ContextPreparationPolicy);
+        Assert.Equal(0, started.ContextRedactionCount);
         Assert.Single(events.OfType<ModelUsageEvent>());
         Assert.Equal(ModelFinishReason.Stop, Assert.Single(events.OfType<ModelCompletedEvent>()).FinishReason);
         Assert.DoesNotContain(events, item => item is ModelErrorEvent);
@@ -80,6 +88,15 @@ public sealed class OpenAiCompatibleLiveIntegrationTests
     private sealed class LiveClock : IClock
     {
         public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+    }
+
+    private static IModelContextPreparer CreateContextPreparer()
+    {
+        var services = new ServiceCollection();
+        services.AddAgentForgeSecurity(new ConfigurationBuilder().Build());
+        services.AddAgentForgeModels();
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        return provider.GetRequiredService<IModelContextPreparer>();
     }
 }
 

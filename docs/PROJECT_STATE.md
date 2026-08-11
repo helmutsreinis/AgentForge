@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Implement the model-context redaction and invocation-scoped credential boundary needed by
-hosted providers, then add exact policy/locality routing. Keep the unavailable live container
-gate open and all public model/tool invocation disabled.
+Implement exact policy/locality model routing over current capability evidence, then connect
+bounded provider health and failover. Keep the unavailable live container gate open and all
+public model/tool invocation disabled.
 
 ## Completed
 
@@ -63,17 +63,20 @@ gate open and all public model/tool invocation disabled.
 - Redirects, caller-owned HTTP credentials/cookies/proxies, remote error bodies, unsupported reasoning channels, malformed/truncated streams, tool substitution, media claims without resolution, and budget overruns fail typed without false completion. The host catalog remains empty and no public invocation route exists.
 - Ten deterministic hostile HTTP/SSE tests pass. A checked-in environment-gated live integration test skips in ordinary CI and completed the operator-authorized credential-free `qwen3.6` LAN probe with exact `AGENTFORGE_QWEN_OK` text, usage evidence, and a typed stop result.
 - An early loopback-only control-plane preview now visualizes installation, liveness, readiness, and explicit sandbox evidence over existing same-origin GET endpoints. It uses only local static assets, carries restrictive browser security headers, contains no form or credential field, and leaves every setup mutation in the shared CLI path until the Milestone 7 authenticated wizard gate.
+- M3 slice 3 added `IModelContextPreparer`, an immutable provider-egress snapshot that applies the existing structured sensitive-data boundary to text, attachment names, tool arguments/results, and descriptions while refusing sensitive identity fields or JSON contracts that cannot safely be rewritten. Started events pin the preparation policy and redaction count, and input hashes cover only the prepared request.
+- Every OpenAI-compatible invocation now requires that preparation policy before serialization. The adapter cannot send the caller's mutable raw request, preserves the original object, and returns a fixed typed failure without echoing sensitive or oversized content when preparation fails.
+- Hosted compatible construction exact-binds provider/profile/model/HTTPS endpoint/capability evidence and the configured store/reference. The secret is materialized only after the started event and immediately before `SendAsync`; visible-ASCII bearer bounds block header injection, and the header plus clearable lease are removed in `finally` before response events. Failed profile binding or materialization performs no transport call. Production DI still has an empty catalog and no model route.
 
 ## Latest gate
 
-`artifacts/gates/UI-PREVIEW-01-20260811.md`: Pass.
+`artifacts/gates/M3-03-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, the deterministic provider, and a credential-free compatible adapter are implemented. Hosted credentials, routing, model-context redaction, failover, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, and exact invocation-scoped hosted bearer materialization are implemented. Provider setup/live validation beyond deterministic profiles, routing, failover, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -84,7 +87,7 @@ gate open and all public model/tool invocation disabled.
 
 ## Exact next action
 
-Continue Milestone 3 with a typed model-context preparation boundary that redacts credential
-shapes before egress and materializes an exact provider secret for one hosted invocation.
-Then add policy/locality routing over current capability evidence. Do not expose public model
-invocation before routing, audit, cumulative budgets, and durable run snapshots are connected.
+Continue Milestone 3 with exact routing over required modality, data locality, current policy,
+context/tool support, and capability evidence. Then add bounded provider health and failover.
+Do not expose public model invocation before routing, audit, cumulative budgets, and durable
+run snapshots are connected.

@@ -206,10 +206,10 @@ delta/completion, structured output, usage, typed error, and completion events w
 sequence numbers. It intersects the request with provider evidence and token/tool/event/
 time limits, honors cancellation, and never emits completion after a scripted failure.
 
-The credential-free OpenAI-compatible adapter translates normalized requests to an exact
+The OpenAI-compatible adapter translates prepared normalized requests to an exact
 chat-completions endpoint. HTTPS is required unless its composition explicitly opts into
 plaintext HTTP for a local/LAN endpoint. Endpoint credentials, query/fragment data,
-redirects, caller-owned HTTP headers/credentials, cookies/proxies, and declared media
+redirects, caller-owned HTTP headers, cookies/proxies, and declared media
 capabilities are refused. Production construction owns a fixed no-cookie, no-proxy,
 no-redirect transport; only the unit-test assembly can inject a fake message handler.
 The adapter bounds serialized requests, total response bytes, individual SSE lines/events,
@@ -218,11 +218,28 @@ and wall time. Structured output is accumulated and validated before one atomic 
 provider error bodies never become application messages. Tool results preserve their error
 bit in a normalized JSON envelope and returned tool calls must match an exact request tool.
 
+`IModelContextPreparer` now snapshots every external request before adapter validation or
+serialization. It applies the shared structured redactor to message text, attachment names,
+tool arguments/results, and descriptions; sensitive identifiers and JSON contracts fail
+because rewriting them could change routing or schema authority. The prepared record carries
+the exact `agentforge-context-redaction-v1` policy and count, and the started event plus input
+hash describe the prepared request rather than the caller's mutable raw object.
+
+Hosted compatible construction is a separate exact-profile path. It requires matching
+profile/descriptor ID, type, model, capability posture, HTTPS endpoint, version, and secret
+store/reference. The adapter retains only that reference. After emitting started evidence,
+it materializes the secret into a clearable lease, accepts only a bounded visible-ASCII
+bearer value, sends headers, then removes `Authorization` and clears the lease in `finally`
+before translating any response event. Missing/malformed material or profile substitution
+fails without a transport call. The BCL necessarily creates a transient managed header
+string; removing the header immediately minimizes its lifetime, while logs, state, events,
+and request bodies never receive it.
+
 Production DI still contains an empty immutable provider catalog and no invocation route.
-The compatible adapter has no credential mode and is composed only by tests or an explicit
-live gate. Hosted adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside the
-feature boundary and must add model-context redaction, invocation-scoped secret
-materialization, locality/policy routing, audit, and durable run snapshots before exposure.
+The compatible adapter is composed only by tests or an explicit credential-free live gate.
+Hosted adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside the feature
+boundary and must still add current-profile re-read, locality/policy routing, destination
+controls, audit, and durable run snapshots before exposure.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
