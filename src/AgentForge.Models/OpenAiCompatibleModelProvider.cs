@@ -13,6 +13,14 @@ namespace AgentForge.Models;
 
 public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
 {
+    private static readonly HashSet<string> SupportedProviderTypes = new(StringComparer.Ordinal)
+    {
+        "openai",
+        "deepseek",
+        "vllm",
+        "openai-compatible",
+    };
+
     private readonly OpenAiCompatibleModelProviderOptions _options;
     private readonly HttpClient _httpClient;
     private readonly IClock _clock;
@@ -158,7 +166,7 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             return DomainResult.Fail<OpenAiCompatibleModelProvider>(normalized.Failure!);
         }
 
-        if (!string.Equals(normalized.Value.ProviderType, "openai-compatible", StringComparison.Ordinal) ||
+        if (!SupportedProviderTypes.Contains(normalized.Value.ProviderType) ||
             !ValidateOptions(options) ||
             (secretStore is null) != (credentialReference is null) ||
             ModelContractValidator.Supports(normalized.Value, ModelCapability.ImageInput) ||
@@ -552,6 +560,10 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
         OpenAiCompatibleModelProviderOptions options,
         ISecretStore secretStore)
     {
+        var destination = options.DestinationDataLocation ?? EndpointDestinationPolicy.Infer(options.ChatCompletionsEndpoint);
+        var secureTransport = profile?.Endpoint?.Scheme == "https" ||
+            profile?.Endpoint?.Scheme == "http" && options.AllowInsecureHttp &&
+            destination is ModelProviderDataLocation.Loopback or ModelProviderDataLocation.PrivateNetwork;
         if (profile is null || descriptor is null || descriptor.Capabilities is null ||
             options.ChatCompletionsEndpoint is null ||
             profile.SecretReference is null ||
@@ -561,8 +573,7 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             string.IsNullOrWhiteSpace(profile.Name) || profile.Name.Length > 128 || profile.Name.Any(char.IsControl) ||
             string.IsNullOrWhiteSpace(profile.ActorId.Value) || profile.ActorId.Value.Length > 128 ||
             string.IsNullOrWhiteSpace(profile.CorrelationId.Value) || profile.CorrelationId.Value.Length > 128 ||
-            profile.Endpoint is null || profile.Endpoint.Scheme != "https" ||
-            !string.Equals(profile.ProviderType, "openai-compatible", StringComparison.Ordinal) ||
+            profile.Endpoint is null || !secureTransport || !SupportedProviderTypes.Contains(profile.ProviderType) ||
             profile.Id != descriptor.ProfileId ||
             !string.Equals(profile.ProviderType, descriptor.ProviderType, StringComparison.Ordinal) ||
             !string.Equals(profile.Model, descriptor.Model, StringComparison.Ordinal) ||
@@ -580,7 +591,6 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             return false;
         }
 
-        var destination = options.DestinationDataLocation ?? EndpointDestinationPolicy.Infer(options.ChatCompletionsEndpoint);
         return descriptor.Routing is { } routing && routing.DataLocation == destination &&
             routing.Source is ModelCapabilityEvidenceSource.PolicyApproved &&
             profile.Capabilities.ToolCalls == ModelContractValidator.Supports(descriptor, ModelCapability.ToolCalls);

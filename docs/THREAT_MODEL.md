@@ -587,3 +587,10 @@ exact address families. Hosted location substitution fails before credential mat
 Residual risks are compromised public routing, CA/TLS compromise, OS socket behavior, and already
 approved pooled connections within their five-minute lifetime. Container/firewall egress controls
 remain separate gates.
+
+Named compatible profiles cannot use provider-type ambiguity to select an adapter. Setup normalizes
+and requires one of four exact identities, binds the configured OS secret store, materializes one
+bounded header-safe lease, clears it, and records conservative unprobed capability evidence.
+OpenAI/DeepSeek plaintext is denied; vLLM/generic plaintext is limited to inferred local/private
+destinations and remains subject to invocation-time address policy. Configuration never fabricates
+tool or media support and never adds a provider to the production catalog.

@@ -33,5 +33,6 @@
 | D-029 | Bind one-to-eight attempts into admission and total agent budget; append only exact ordered retry attempts, exclude every tried profile, reapply current routing/locality/fallback policy, and accumulate run usage/cost/stream/wall evidence while reconciling the ledger per attempt. | Accepted |
 | D-030 | Represent the agent loop as six pure typed phases with append-only hash-chained snapshots; resume only exact idempotency/authority matches, require progress evidence at Persist, and stop on bounded repair, no-progress, cancellation, or total-budget outcomes. | Accepted |
 | D-031 | Enforce provider data location inside the HTTP socket connect callback: resolve once, reject every mixed/disallowed DNS answer, connect directly to an approved IP, and retain TLS authentication for the exact configured hostname. | Accepted |
+| D-032 | Preserve OpenAI, DeepSeek, vLLM, and generic-compatible provider identities over the common hardened wire adapter; validate their secret and transport during shared host/CLI setup without guessing unprobed tool or media capabilities. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.
