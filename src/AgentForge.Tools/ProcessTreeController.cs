@@ -17,6 +17,21 @@ internal static class ProcessTreeController
     public static IProcessTreeController Create() => OperatingSystem.IsWindows()
         ? WindowsJobProcessTreeController.Create()
         : new ManagedProcessTreeController();
+
+    public static void TerminateManagedTree(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or Win32Exception)
+        {
+            // The process may have exited between the state check and termination.
+        }
+    }
 }
 
 internal sealed class ManagedProcessTreeController : IProcessTreeController
@@ -33,17 +48,7 @@ internal sealed class ManagedProcessTreeController : IProcessTreeController
     public void Terminate(Process process)
     {
         ArgumentNullException.ThrowIfNull(process);
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or Win32Exception)
-        {
-            // The process may have exited between the state check and termination.
-        }
+        ProcessTreeController.TerminateManagedTree(process);
     }
 
     public void Dispose()
@@ -114,21 +119,15 @@ internal sealed partial class WindowsJobProcessTreeController : IProcessTreeCont
         ArgumentNullException.ThrowIfNull(process);
         if (_attached)
         {
+            // A fast descendant can start between Process.Start and Job attachment.
+            // Kill the managed tree before the Job so such a descendant is not
+            // orphaned when its attached parent exits.
+            ProcessTreeController.TerminateManagedTree(process);
             _ = TerminateJobObject(_job, 1);
             return;
         }
 
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-        }
-        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or Win32Exception)
-        {
-            // The process may have exited between the state check and termination.
-        }
+        ProcessTreeController.TerminateManagedTree(process);
     }
 
     public void Dispose() => _job.Dispose();
