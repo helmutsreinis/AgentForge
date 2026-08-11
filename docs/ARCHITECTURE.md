@@ -116,6 +116,22 @@ descriptor, re-read current agent policy, atomically consume exact approval evid
 append audit/outbox state, then call `ISandbox`. Inventory paths or model-supplied tool
 identity can never cross that boundary directly.
 
+## Authoritative tool catalog
+
+`AgentForge.Tools` also implements `IToolCatalog` as an immutable map keyed by exact
+`(tool ID, version)`. A descriptor owns the callable executable path, typed parameter-to-
+argument bindings, capability and risk, target mapping, side effects, provenance,
+sandbox/network requirements, and time/output bounds. Admission validates and snapshots
+the complete definition before producing its canonical descriptor hash.
+
+Discovery is deliberately progressive. Search returns `ToolSummary` records without
+process paths, fixed arguments, bindings, or environment names. Full description requires
+an exact normalized ID and SemVer 2 version and never selects a nearby or latest version.
+Neither operation checks executable availability or starts a process. The later invocation
+service accepts values for the descriptor's parameters, not caller-authored executable,
+risk, capability, or isolation fields, and pins the descriptor hash into authorization,
+audit, and run evidence.
+
 ## Durability strategy
 
 SQLite with WAL is the zero-dependency store. Aggregate version columns provide

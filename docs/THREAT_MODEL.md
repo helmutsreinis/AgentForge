@@ -261,3 +261,27 @@ and managed descendant discovery has OS timing limits. Therefore restricted-host
 high-risk sandbox. Immutable authoritative descriptors, policy reconstruction, atomic
 approval consumption, invocation audit, and the container/namespace adapter remain closed
 gates before model-selected or high-risk tools can run.
+
+## M2 authoritative-tool-catalog update
+
+Catalog membership is a configuration trust decision, not inventory, availability, or
+invocation proof. Only typed definitions from built-in, operator-approved, or later
+signature-verified sources may be admitted. Source kind and trust level must form an
+allowed pair and carry exact source version plus lowercase SHA-256 evidence. Duplicate
+tool/version identities, malformed SemVer, unknown flags, understated side-effect risk,
+ambiguous targets, unbound parameters, relative executable paths, unsafe environment
+names, and unbounded execution settings fail admission.
+
+Admitted records snapshot mutable input and receive a hash over their normalized full
+descriptor. Progressive search exposes only identity, summary, capability, risk, target
+kind, side effects, provenance classification, and descriptor hash. Executable paths,
+fixed arguments, parameter bindings, and environment names remain behind exact ID/version
+description. Search and admission do not touch or execute the candidate path, so a hostile
+PATH entry cannot turn inventory into a probe.
+
+Descriptions remain untrusted model context even when their catalog provenance is valid.
+The next boundary must accept parameter values only, reconstruct all security fields from
+the exact descriptor, validate and canonicalize those values, bind the descriptor hash
+into authorization, consume approval and append start evidence transactionally, then use
+the restricted sandbox. Safe version/help probing must traverse that same boundary with a
+separate inventory/read capability and bounded output; the catalog itself never probes.

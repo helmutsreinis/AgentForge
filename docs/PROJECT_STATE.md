@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Milestone 2 slice 4: build authoritative immutable tool descriptors and progressive
-search/description, then require current policy and exact approval consumption before
-the restricted executor may start a process.
+Milestone 2 slice 4b: require current policy and exact approval consumption before an
+authoritative catalog descriptor may start the restricted executor, with atomic audit
+evidence and no generic process surface.
 
 ## Completed
 
@@ -48,10 +48,12 @@ the restricted executor may start a process.
 - Approval preview/apply requires the local administrator, accepts parameter JSON only through bounded redirected stdin in the CLI, emits redacted previews, persists hashes rather than raw request material, appends hash-chain audit evidence atomically, and enforces installation-scoped idempotency. Unit, upgrade, persistence, redaction, negative-policy, and Windows live-DPAPI CLI tests cover exact matching and conflicting replay.
 - M2 slice 3a added a restricted-host execution kernel behind `ISandbox`: fully qualified non-link executables, `ProcessStartInfo.ArgumentList`, cleared/allowlisted environments, non-link workspace containment, combined output and wall-clock bounds, cancellation-aware ordered observation, and process-tree cleanup. Windows uses a kill-on-close Job Object and recaptures descendants created before parent attachment; Linux uses managed process-tree termination.
 - Isolation capability reporting is explicit through the host and `agentforge sandbox capabilities`. Restricted-host execution rejects container, denied/loopback-network, filesystem-isolation, and resource-isolation requests with `UnsupportedCapability` instead of degrading. Hostile fixtures cover shell metacharacters, environment leakage, output floods, observer stalls, timeout/cancellation child cleanup, path escape/symlinks, unsupported isolation, and shell fallback on both supported platforms.
+- M2 slice 3b added an authoritative immutable tool catalog. Admission validates exact normalized ID/SemVer 2 versions, typed parameters and argument mappings, required target bindings, provenance/trust plus evidence hashes, side-effect risk floors, output sensitivity, sandbox/network controls, and execution bounds before calculating a canonical descriptor hash.
+- Progressive search returns bounded summaries without executable paths or argument/environment templates; exact description requires ID and version. Admission snapshots mutable input and deliberately performs no existence check, version/help probe, or execution. Hostile shapes, duplicate versions, precedence, cancellation, stable hashes, disclosure, and non-execution pass deterministic tests.
 
 ## Latest gate
 
-`artifacts/gates/M2-03A-20260811.md`: Pass.
+`artifacts/gates/M2-03B-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -63,10 +65,10 @@ the restricted executor may start a process.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
 - SQLite leases, inbox behavior, backup orchestration, and PostgreSQL parity remain later slices.
 - Environment profiles do not yet include bounded network/shell/package-database detail. PATH entries are inventory-only and retain unknown trust outside known system directories.
-- The restricted kernel has no public invocation endpoint. Exact approval records and passive inventory still make nothing callable. The next tool service must source every field from an authoritative descriptor, re-evaluate current policy, atomically consume a matching grant and append audit evidence before using `ISandbox`.
+- The restricted kernel has no public invocation endpoint. Exact approvals, passive inventory, and catalog membership still make nothing callable. The next tool service must source every security field from the exact descriptor hash, validate values, re-evaluate current policy, atomically consume a matching grant and append audit evidence before using `ISandbox`.
 - Restricted-host working-path verification is vulnerable to local filesystem replacement after validation, and process attachment/descendant discovery has OS timing limits. It is not filesystem, network, credential, privilege, CPU, memory, or process-count isolation; high-risk requests must require a later container/namespace adapter.
 
 ## Exact next action
 
-Continue Milestone 2 with authoritative tool descriptors, progressive discovery, and
-policy-bound invocation. Do not expose generic process execution through the API or CLI.
+Continue Milestone 2 with policy-bound exact tool invocation and safe availability
+probing. Do not expose generic process execution through the API or CLI.

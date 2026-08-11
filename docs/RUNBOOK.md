@@ -173,6 +173,14 @@ to make it run. There is intentionally no generic execution CLI/API. If a proces
 before the later authoritative tool/policy/approval/audit service is enabled, stop the
 host and treat that as a security defect.
 
+The authoritative catalog currently has no operator or model invocation surface. Catalog
+admission records a fully qualified process path but deliberately does not check that the
+file exists and never runs version/help. Search results are summaries; an exact description
+requires both normalized tool ID and exact SemVer version. Do not infer that inventory,
+catalog membership, a descriptor hash, or an approval row makes a tool callable. Until the
+policy-bound invocation gate passes, any process start attributed to catalog discovery is a
+security defect and the host should be stopped for evidence preservation.
+
 ## Passive environment inventory
 
 Capture Windows/Linux, distribution, WSL/isolation, filesystem, privilege, manager,
