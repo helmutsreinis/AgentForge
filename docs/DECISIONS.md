@@ -39,5 +39,6 @@
 | D-035 | Derive child grants only by intersecting explicit parent context, capability, budget, policy, skill, depth, count, concurrency, and expiry authority; persist the immutable canonical result. | Accepted |
 | D-036 | Calculate bounded recurrence in a pinned exact timezone, persist hash-chained schedule snapshots, and make DST, misfire, overlap, jitter, retry, pause, run-now, expiry, and dead-letter policy explicit. | Accepted |
 | D-037 | Store every validated skill version as one canonical content-addressed bundle; expose Markdown only through exact immutable run snapshots; govern the single active-version pointer through deterministic evaluation, separate approval, canary, and atomic promotion/rollback. | Accepted |
+| D-038 | Perform coding in exact-baseline Git worktrees, treat repository discovery and Roslyn/MSBuild navigation as bounded read-only evidence, and keep patching, verification, policy, and durable state behind harness-owned contracts. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.
