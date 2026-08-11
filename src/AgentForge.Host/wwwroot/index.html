@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="AgentForge local control plane preview">
+  <title>AgentForge · Local control plane</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand" href="/" aria-label="AgentForge home">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+        <span>AgentForge</span>
+      </a>
+
+      <nav>
+        <a class="nav-item active" href="#overview" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">⌂</span>
+          Overview
+        </a>
+        <a class="nav-item" href="#setup">
+          <span class="nav-icon" aria-hidden="true">◇</span>
+          Setup
+          <span class="nav-badge">1</span>
+        </a>
+        <span class="nav-item disabled" aria-disabled="true">
+          <span class="nav-icon" aria-hidden="true">⌘</span>
+          Agents
+          <span class="soon">Soon</span>
+        </span>
+        <span class="nav-item disabled" aria-disabled="true">
+          <span class="nav-icon" aria-hidden="true">↗</span>
+          Runs
+          <span class="soon">Soon</span>
+        </span>
+        <span class="nav-item disabled" aria-disabled="true">
+          <span class="nav-icon" aria-hidden="true">□</span>
+          Skills
+          <span class="soon">Soon</span>
+        </span>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="local-status">
+          <span class="status-dot good" aria-hidden="true"></span>
+          <span>
+            <strong>Local mode</strong>
+            <small>Loopback only</small>
+          </span>
+        </div>
+        <p>Production R1 preview</p>
+      </div>
+    </aside>
+
+    <main id="main-content">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">CONTROL PLANE</span>
+          <h1>Good evening.</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="last-updated" class="last-updated" aria-live="polite">Connecting…</span>
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh status" title="Refresh status">
+            <span aria-hidden="true">↻</span>
+          </button>
+        </div>
+      </header>
+
+      <section id="overview" class="hero" aria-labelledby="hero-title">
+        <div class="hero-orb" aria-hidden="true"><span></span></div>
+        <div class="hero-copy">
+          <div id="state-pill" class="pill warning">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="state-label">Checking installation</span>
+          </div>
+          <h2 id="hero-title">Your local agent harness<br>starts here.</h2>
+          <p id="state-description">AgentForge is checking the durable installation state before enabling runtime operations.</p>
+          <a class="primary-action" href="#setup">
+            View setup guide
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+        <div class="hero-lines" aria-hidden="true"></div>
+      </section>
+
+      <section class="status-grid" aria-label="System status">
+        <article class="status-card">
+          <div class="card-heading">
+            <span class="card-icon violet" aria-hidden="true">◈</span>
+            <span id="host-indicator" class="mini-state pending">Checking</span>
+          </div>
+          <h3>Host</h3>
+          <p id="host-copy">Contacting the local control plane.</p>
+          <div class="metric">
+            <span>Endpoint</span>
+            <code>127.0.0.1</code>
+          </div>
+        </article>
+
+        <article class="status-card">
+          <div class="card-heading">
+            <span class="card-icon cyan" aria-hidden="true">◎</span>
+            <span id="readiness-indicator" class="mini-state pending">Checking</span>
+          </div>
+          <h3>Runtime</h3>
+          <p id="readiness-copy">Waiting for installation status.</p>
+          <div class="metric">
+            <span>Mode</span>
+            <strong id="runtime-mode">Setup only</strong>
+          </div>
+        </article>
+
+        <article class="status-card">
+          <div class="card-heading">
+            <span class="card-icon amber" aria-hidden="true">⬡</span>
+            <span id="sandbox-indicator" class="mini-state pending">Checking</span>
+          </div>
+          <h3>Sandbox</h3>
+          <p id="sandbox-copy">Reading explicit isolation evidence.</p>
+          <div class="metric">
+            <span>Adapter</span>
+            <strong id="sandbox-kind">Unknown</strong>
+          </div>
+        </article>
+      </section>
+
+      <section id="setup" class="setup-panel" aria-labelledby="setup-title">
+        <div class="setup-copy">
+          <span class="section-number">01</span>
+          <div>
+            <span class="eyebrow">FIRST RUN</span>
+            <h2 id="setup-title">Complete setup in the trusted CLI</h2>
+            <p>The web surface is read-only in this preview. Use the shared setup service through the CLI to create the installation, then refresh this page.</p>
+          </div>
+        </div>
+        <div class="command-card">
+          <div class="command-topline">
+            <span>PowerShell</span>
+            <button id="copy-button" type="button" aria-label="Copy setup command">
+              <span aria-hidden="true">⧉</span>
+              <span id="copy-label">Copy</span>
+            </button>
+          </div>
+          <pre><code id="setup-command">dotnet run --project src/AgentForge.Cli -- setup begin --interactive</code></pre>
+        </div>
+      </section>
+
+      <footer>
+        <span>AgentForge preview</span>
+        <span aria-hidden="true">·</span>
+        <a href="/api/v1/setup/status">Setup API</a>
+        <span aria-hidden="true">·</span>
+        <a href="/health/live">Health</a>
+      </footer>
+    </main>
+  </div>
+  <noscript>This preview needs JavaScript to read the local AgentForge status endpoints.</noscript>
+</body>
+</html>

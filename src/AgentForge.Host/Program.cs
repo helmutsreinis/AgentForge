@@ -47,6 +47,27 @@ await using (var initializationScope = app.Services.CreateAsyncScope())
 
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.ContentSecurityPolicy =
+        "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; " +
+        "form-action 'none'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; " +
+        "script-src 'self'; style-src 'self'";
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    context.Response.Headers.XFrameOptions = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["Permissions-Policy"] =
+        "camera=(), geolocation=(), microphone=(), payment=(), usb=()";
+    await next(context);
+});
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers.CacheControl = "no-store";
+    },
+});
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {

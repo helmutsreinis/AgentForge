@@ -36,9 +36,15 @@ platform-specific even when lock files are identical.
 
 ## Local smoke
 
-Start `dotnet run --project src/AgentForge.Host`. Confirm `/health/live` is 200,
-`/health/ready` is 503 on a clean installation, `/api/v1/setup/status` is available,
-and `/api/v1/runtime/ping` is 503. The CLI returns exit code 2 for setup-required.
+Start `dotnet run --project src/AgentForge.Host` and open `http://127.0.0.1:5047/`.
+The read-only preview shows installation, host, runtime-readiness, and sandbox evidence
+from same-origin GET endpoints. Confirm `/health/live` is 200, `/health/ready` is 503
+on a clean installation, `/api/v1/setup/status` is available, and
+`/api/v1/runtime/ping` is 503. The CLI returns exit code 2 for setup-required.
+
+The preview intentionally has no form or mutation route. Complete setup through the CLI;
+do not add browser credential entry until the one-time nonce, authenticated session, CSRF,
+rate-limit, audit, and exact-idempotency controls pass their web-wizard gate.
 
 Begin a deterministic offline setup transaction with:
 
