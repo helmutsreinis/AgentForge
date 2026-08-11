@@ -9,6 +9,7 @@ internal sealed class ModelRunEntity
     public long AgentVersion { get; set; }
     public Guid ProviderProfileId { get; set; }
     public long ProviderVersion { get; set; }
+    public required string AttemptedProfileIdsJson { get; set; }
     public Guid RequestId { get; set; }
     public required string ProviderType { get; set; }
     public required string Model { get; set; }
@@ -24,7 +25,16 @@ internal sealed class ModelRunEntity
     public long ReservedInputTokens { get; set; }
     public long ReservedOutputTokens { get; set; }
     public int ReservedToolCalls { get; set; }
+    public int ReservedEvents { get; set; }
     public int ReservedWallClockSeconds { get; set; }
+    public string? LeaseOwner { get; set; }
+    public string? LeaseTokenHash { get; set; }
+    public long? LeaseAcquiredAtUtcTicks { get; set; }
+    public long? LeaseHeartbeatAtUtcTicks { get; set; }
+    public long? LeaseExpiresAtUtcTicks { get; set; }
+    public int EventCount { get; set; }
+    public long LastEventSequence { get; set; }
+    public required string EventStreamHash { get; set; }
     public long UsedInputTokens { get; set; }
     public long UsedOutputTokens { get; set; }
     public int UsedToolCalls { get; set; }

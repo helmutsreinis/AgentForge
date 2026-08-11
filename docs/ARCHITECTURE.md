@@ -308,6 +308,32 @@ or fail only within its input/output/tool/time reservation; observed overage bec
 Admission deliberately stops before start. Production catalogs remain empty and no host/CLI
 model mutation exists, so a durable reservation cannot yet cause provider egress.
 
+## Durable model attempt execution
+
+`IModelRunExecutionService` is the internal bridge from admission to one exact provider attempt.
+It reconstructs current planning from the caller request plus persisted attempt history, requires
+all route/input/health/reservation evidence to match the reserved aggregate, re-reads Ready
+installation/agent authority, and resolves the exact selected catalog entry. No caller can pass an
+adapter, endpoint, credential, budget, route, or policy object into this boundary.
+
+The start transaction advances both run records, stores only a random lease-token hash, reserves
+the exact run dimensions in a versioned `model_budget_ledgers` row, and appends redacted start
+audit. The provider is enumerated only after commit. A stream accumulator checks identity, route,
+prepared-input hash, contiguous sequence, timestamps, typed bounds, usage cardinality, terminal
+ordering, and the deliberate tool-call denial. It incrementally hashes canonical events; content
+is available only to the optional in-process observer and is not returned by replay or persisted.
+
+One terminal transaction writes safe usage/state/stream evidence, reconciles the exact active
+reservation into cumulative consumption, and appends terminal audit. Malformed streams become
+retryable failure, overages become `BudgetExceeded`, and caller cancellation becomes durable
+`Canceled` evidence before cancellation propagates. Optimistic ledger/run versions make a race
+fail atomically rather than partially starting or releasing work.
+
+This slice executes only when an embedding application deliberately populates the provider and
+health catalogs. Production composition leaves both empty and has no API/CLI model mutation.
+Expired-lease recovery, heartbeat/takeover, health writes, additional attempts/failover,
+cross-attempt cost accounting, and destination/DNS revalidation remain later boundaries.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,

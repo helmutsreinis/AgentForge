@@ -325,11 +325,12 @@ must never select a cloud descriptor; do not work around a typed routing failure
 an attachment, changing the requested model, or enabling fallback. Selection hashes are
 diagnostic evidence, not authorization tokens.
 
-Do not populate the production catalog or add a CLI/API model call yet. Runtime enablement must
-atomically re-read durable agent/profile versions, incorporate bounded health and destination
-evidence, reserve cumulative budget, append redacted audit, persist the run snapshot, and then
-resolve the exact selected profile. On retry, pass only stable profile IDs that failed this
-attempt as exclusions and preserve the original request and policy.
+Do not populate the production catalog or add a CLI/API model call yet. The internal execution
+service now re-reads durable authority and bounded health, reserves shared budget, commits a start
+lease plus redacted audit, and resolves the exact selected profile. Production composition still
+requires hosted destination/DNS controls and the expired-lease recovery gate. On a later retry,
+pass only stable profile IDs that failed this attempt as exclusions and preserve the original
+request and policy.
 
 The internal route planner now performs the read-only portion of that sequence. It prepares
 context, reads serializable installation/agent/provider authority, requires exact versions and
@@ -339,11 +340,11 @@ healthy; do not fabricate `Healthy`, extend evidence beyond 15 minutes, clear at
 or reuse an expired plan to force a route.
 
 Route plans contain hashes and versions but are not bearer capabilities or invocation receipts.
-There is intentionally no CLI/API command to create or consume one. The internal admission
-service may consume only a current exact plan to reserve durable state; leave both production
-catalogs empty and do not resolve the selected adapter. A retry may add only the exact profile
-that produced a typed retryable failure, up to eight unique attempts, while retaining the
-original prepared request and expected policy versions.
+There is intentionally no CLI/API command to create or consume one. Admission may consume only a
+current exact plan; execution then independently re-plans and compares it to the reservation
+before resolving a catalog adapter. Leave both production catalogs empty. A later retry may add
+only the exact profile that produced a typed retryable failure, up to eight unique attempts,
+while retaining the original prepared request and expected policy versions.
 
 Model run admission now persists a `Reserved` run and `Planned` first attempt together with one
 redacted audit event. It is still an internal service with no CLI/API route. Exact retries must
@@ -353,10 +354,17 @@ editing hashes, deleting the existing row, extending a plan lifetime, or reconst
 inside SQLite.
 
 A `Reserved` run proves only durable admission. Do not manually mark it `Running`, resolve its
-profile, materialize its secret, or call a provider. The next runtime gate must acquire a durable
-start lease, re-read current authority/destination, reconcile cumulative reservations, and commit
-start evidence before egress. Cancellation and terminal transitions exist as pure domain logic
-but are not yet exposed as operational recovery commands.
+profile, materialize its secret, or call a provider; only the internal execution service may
+atomically acquire its random hash-only lease and shared reservation before enumeration. A
+terminal run retains usage and stream hashes but not response content, and an exact replay must
+not call the adapter again.
+
+If a process exits after `model.run-started` without terminal audit, preserve the database, WAL,
+audit chain, lease timestamps, run/attempt versions, and ledger. Do not delete the run, reset it to
+`Reserved`, clear the lease, decrement the ledger, or reuse its idempotency key. There is not yet
+an operator recovery command; keep invocation disabled until the expired-lease reconciliation
+gate can determine safe failure/takeover semantics. Caller cancellation during a live in-process
+attempt should produce durable `Canceled` evidence and release the ledger before propagating.
 
 Run the explicit live integration gate by setting process-scoped variables, then remove
 them after the test process exits:
@@ -370,9 +378,9 @@ dotnet test tests/AgentForge.IntegrationTests --filter FullyQualifiedName~OpenAi
 The test is skipped when either variable is absent. These variables are endpoint/model
 metadata only; this credential-free gate accepts no API key or authorization header.
 
-Before runtime enablement, add network/locality policy and DNS/IP controls, routing/failover, audit,
-durable snapshots, and cross-attempt usage/cost accounting. Setup profile acceptance alone
-does not compose an adapter.
+Before public runtime enablement, add hosted destination DNS/IP controls, expired-lease recovery,
+durable health/circuit-breaker writes, retry/failover, and cross-attempt usage/cost accounting.
+Setup profile acceptance alone does not compose an adapter.
 
 ## SQLite migration and cold backup
 
@@ -418,6 +426,11 @@ Migration 0009 creates durable model-run and first-attempt reservation evidence.
 migration destroys idempotency, route provenance, budget reservations, and terminal history.
 Stop the host and restore the complete pre-0009 backup rather than applying down to operator
 state. Never delete a reserved run to make an uncertain retry appear new.
+
+Migration 0010 adds model start leases, attempted-profile history, stream evidence, event
+reservations, and the shared agent budget ledger. Its down migration destroys execution and
+accounting evidence. Restore the full pre-0010 backup rather than applying down. Never clear a
+running lease or ledger reservation manually; preserve it for typed expired-lease recovery.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

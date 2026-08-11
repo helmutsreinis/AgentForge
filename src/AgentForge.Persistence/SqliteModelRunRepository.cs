@@ -92,6 +92,9 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         AgentVersion = run.AgentVersion,
         ProviderProfileId = run.Route.ProfileId.Value,
         ProviderVersion = run.ProviderVersion,
+        AttemptedProfileIdsJson = JsonSerializer.Serialize(
+            run.AttemptedProfileIds.Select(item => item.ToString()).ToArray(),
+            SerializerOptions),
         RequestId = run.RequestId.Value,
         ProviderType = run.Route.ProviderType,
         Model = run.Route.Model,
@@ -107,7 +110,16 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         ReservedInputTokens = run.Reservation.InputTokens,
         ReservedOutputTokens = run.Reservation.OutputTokens,
         ReservedToolCalls = run.Reservation.ToolCalls,
+        ReservedEvents = run.Reservation.Events,
         ReservedWallClockSeconds = run.Reservation.WallClockSeconds,
+        LeaseOwner = run.Lease?.Owner,
+        LeaseTokenHash = run.Lease?.TokenHash,
+        LeaseAcquiredAtUtcTicks = run.Lease?.AcquiredAt.UtcTicks,
+        LeaseHeartbeatAtUtcTicks = run.Lease?.HeartbeatAt.UtcTicks,
+        LeaseExpiresAtUtcTicks = run.Lease?.ExpiresAt.UtcTicks,
+        EventCount = run.StreamEvidence.EventCount,
+        LastEventSequence = run.StreamEvidence.LastSequence,
+        EventStreamHash = run.StreamEvidence.EventStreamHash,
         UsedInputTokens = run.Usage.InputTokens,
         UsedOutputTokens = run.Usage.OutputTokens,
         UsedToolCalls = run.Usage.ToolCalls,
@@ -143,6 +155,9 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         CreatedAtUtcTicks = attempt.CreatedAt.UtcTicks,
         StartedAtUtcTicks = attempt.StartedAt?.UtcTicks,
         CompletedAtUtcTicks = attempt.CompletedAt?.UtcTicks,
+        EventCount = attempt.StreamEvidence.EventCount,
+        LastEventSequence = attempt.StreamEvidence.LastSequence,
+        EventStreamHash = attempt.StreamEvidence.EventStreamHash,
         UsedInputTokens = attempt.Usage.InputTokens,
         UsedOutputTokens = attempt.Usage.OutputTokens,
         UsedToolCalls = attempt.Usage.ToolCalls,
@@ -161,6 +176,11 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         new AgentIdentityId(run.AgentId),
         run.AgentVersion,
         run.ProviderVersion,
+        Array.AsReadOnly((JsonSerializer.Deserialize<string[]>(
+            run.AttemptedProfileIdsJson,
+            SerializerOptions) ?? [])
+            .Select(item => new ProviderProfileId(Guid.Parse(item)))
+            .ToArray()),
         new ModelRequestId(run.RequestId),
         Route(
             run.ProviderProfileId,
@@ -179,7 +199,17 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
             run.ReservedInputTokens,
             run.ReservedOutputTokens,
             run.ReservedToolCalls,
+            run.ReservedEvents,
             run.ReservedWallClockSeconds),
+        run.LeaseOwner is null
+            ? null
+            : new ModelRunLease(
+                run.LeaseOwner,
+                run.LeaseTokenHash!,
+                Timestamp(run.LeaseAcquiredAtUtcTicks!.Value),
+                Timestamp(run.LeaseHeartbeatAtUtcTicks!.Value),
+                Timestamp(run.LeaseExpiresAtUtcTicks!.Value)),
+        new ModelRunStreamEvidence(run.EventCount, run.LastEventSequence, run.EventStreamHash),
         new ModelUsage(
             run.UsedInputTokens,
             run.UsedOutputTokens,
@@ -215,6 +245,10 @@ internal sealed class SqliteModelRunRepository(AgentForgeDbContext dbContext) : 
         Timestamp(attempt.CreatedAtUtcTicks),
         Timestamp(attempt.StartedAtUtcTicks),
         Timestamp(attempt.CompletedAtUtcTicks),
+        new ModelRunStreamEvidence(
+            attempt.EventCount,
+            attempt.LastEventSequence,
+            attempt.EventStreamHash),
         new ModelUsage(
             attempt.UsedInputTokens,
             attempt.UsedOutputTokens,

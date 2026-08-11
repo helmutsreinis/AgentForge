@@ -37,7 +37,26 @@ public sealed record ModelRunBudgetReservation(
     long InputTokens,
     long OutputTokens,
     int ToolCalls,
+    int Events,
     int WallClockSeconds);
+
+public sealed record ModelRunLease(
+    string Owner,
+    string TokenHash,
+    DateTimeOffset AcquiredAt,
+    DateTimeOffset HeartbeatAt,
+    DateTimeOffset ExpiresAt);
+
+public sealed record ModelRunStreamEvidence(
+    int EventCount,
+    long LastSequence,
+    string EventStreamHash)
+{
+    public const string EmptyHash =
+        "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    public static ModelRunStreamEvidence Empty { get; } = new(0, -1, EmptyHash);
+}
 
 public sealed record ModelRunRecord(
     ModelRunId Id,
@@ -46,6 +65,7 @@ public sealed record ModelRunRecord(
     AgentIdentityId AgentId,
     long AgentVersion,
     long ProviderVersion,
+    IReadOnlyList<AgentForge.Domain.Providers.ProviderProfileId> AttemptedProfileIds,
     ModelRequestId RequestId,
     ModelRouteSelection Route,
     string PlanEvidenceHash,
@@ -55,6 +75,8 @@ public sealed record ModelRunRecord(
     string ContextPreparationPolicy,
     string AdmissionRequestHash,
     ModelRunBudgetReservation Reservation,
+    ModelRunLease? Lease,
+    ModelRunStreamEvidence StreamEvidence,
     ModelUsage Usage,
     ModelRunState State,
     DateTimeOffset CreatedAt,
@@ -79,6 +101,7 @@ public sealed record ModelRunAttemptRecord(
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
+    ModelRunStreamEvidence StreamEvidence,
     ModelUsage Usage,
     ModelFinishReason? FinishReason,
     FailureCode? FailureCode,
@@ -120,6 +143,9 @@ public static class ModelRunStateMachine
             plan.Route.RequiredCapabilities.Any(capability => !Enum.IsDefined(capability)) ||
             plan.InstallationId.Value == Guid.Empty || plan.InstallationVersion < 1 ||
             plan.AgentId.Value == Guid.Empty || plan.AgentVersion < 1 || plan.ProviderVersion < 1 ||
+            plan.AttemptedProfileIds is null || plan.AttemptedProfileIds.Count > 8 ||
+            plan.AttemptedProfileIds.Any(item => item.Value == Guid.Empty) ||
+            plan.AttemptedProfileIds.Distinct().Count() != plan.AttemptedProfileIds.Count ||
             plan.RequestId.Value == Guid.Empty || !IsHash(plan.PlanEvidenceHash) ||
             !IsHash(plan.Route.SelectionEvidenceHash) || !IsHash(plan.PreparedInputHash) ||
             !IsHash(plan.HealthEvidenceHash) || !IsHash(admissionRequestHash) ||
@@ -128,6 +154,7 @@ public static class ModelRunStateMachine
             plan.ReservedInputTokens is < 0 or > 10_000_000 ||
             plan.ReservedOutputTokens is < 1 or > 1_000_000 ||
             plan.ReservedToolCalls is < 0 or > 1_024 ||
+            plan.ReservedEvents is < 2 or > 100_000 ||
             plan.ReservedWallClockSeconds is < 1 or > 86_400 ||
             plan.ValidUntil <= plan.PlannedAt ||
             plan.ValidUntil - plan.PlannedAt > TimeSpan.FromSeconds(5) ||
@@ -152,6 +179,7 @@ public static class ModelRunStateMachine
             plan.AgentId,
             plan.AgentVersion,
             plan.ProviderVersion,
+            Array.AsReadOnly(plan.AttemptedProfileIds.ToArray()),
             plan.RequestId,
             route,
             plan.PlanEvidenceHash,
@@ -164,7 +192,10 @@ public static class ModelRunStateMachine
                 plan.ReservedInputTokens,
                 plan.ReservedOutputTokens,
                 plan.ReservedToolCalls,
+                plan.ReservedEvents,
                 plan.ReservedWallClockSeconds),
+            null,
+            ModelRunStreamEvidence.Empty,
             zeroUsage,
             ModelRunState.Reserved,
             reservedAt,
@@ -188,6 +219,7 @@ public static class ModelRunStateMachine
             reservedAt,
             null,
             null,
+            ModelRunStreamEvidence.Empty,
             zeroUsage,
             null,
             null,
@@ -198,20 +230,34 @@ public static class ModelRunStateMachine
 
     public static DomainResult<ModelRunAggregate> Start(
         ModelRunAggregate aggregate,
-        DateTimeOffset startedAt)
+        string leaseOwner,
+        string leaseToken,
+        DateTimeOffset startedAt,
+        DateTimeOffset expiresAt)
     {
         if (!IsConsistent(aggregate) || aggregate.Run.State is not ModelRunState.Reserved ||
             aggregate.Attempt.State is not ModelRunAttemptState.Planned ||
-            startedAt < aggregate.Run.CreatedAt)
+            startedAt < aggregate.Run.CreatedAt || !IsBounded(leaseOwner, 256) ||
+            !IsLeaseToken(leaseToken) || expiresAt <= startedAt ||
+            expiresAt - startedAt >
+                TimeSpan.FromSeconds(aggregate.Run.Reservation.WallClockSeconds + 60L))
         {
-            return Invalid("Only one consistent reserved model run attempt can start.");
+            return Invalid("Only one consistent reserved model run attempt can start with a bounded lease.");
         }
+
+        var lease = new ModelRunLease(
+            leaseOwner,
+            HashLeaseToken(leaseToken),
+            startedAt,
+            startedAt,
+            expiresAt);
 
         return DomainResult.Success(new ModelRunAggregate(
             aggregate.Run with
             {
                 State = ModelRunState.Running,
                 StartedAt = startedAt,
+                Lease = lease,
                 Version = checked(aggregate.Run.Version + 1),
             },
             aggregate.Attempt with
@@ -224,12 +270,16 @@ public static class ModelRunStateMachine
 
     public static DomainResult<ModelRunAggregate> Complete(
         ModelRunAggregate aggregate,
+        string leaseToken,
         ModelUsage usage,
+        ModelRunStreamEvidence streamEvidence,
         ModelFinishReason finishReason,
         DateTimeOffset completedAt)
     {
-        if (!CanFinish(aggregate, usage, completedAt) || !Enum.IsDefined(finishReason) ||
-            ExceedsReservation(aggregate, usage, completedAt))
+        if (!CanFinish(aggregate, leaseToken, usage, streamEvidence, completedAt) ||
+            !Enum.IsDefined(finishReason) ||
+            ExceedsReservation(aggregate, usage, completedAt) ||
+            streamEvidence.EventCount > aggregate.Run.Reservation.Events)
         {
             return Invalid("Model completion requires started state and usage within the reserved budget.");
         }
@@ -237,6 +287,7 @@ public static class ModelRunStateMachine
         return Finish(
             aggregate,
             usage,
+            streamEvidence,
             completedAt,
             ModelRunState.Succeeded,
             ModelRunAttemptState.Succeeded,
@@ -247,11 +298,15 @@ public static class ModelRunStateMachine
 
     public static DomainResult<ModelRunAggregate> RecordBudgetExceeded(
         ModelRunAggregate aggregate,
+        string leaseToken,
         ModelUsage usage,
-        DateTimeOffset completedAt)
+        ModelRunStreamEvidence streamEvidence,
+        DateTimeOffset completedAt,
+        bool providerReported = false)
     {
-        if (!CanFinish(aggregate, usage, completedAt) ||
-            !ExceedsReservation(aggregate, usage, completedAt))
+        if (!CanFinish(aggregate, leaseToken, usage, streamEvidence, completedAt) ||
+            !ExceedsReservation(aggregate, usage, completedAt) &&
+                streamEvidence.EventCount <= aggregate.Run.Reservation.Events && !providerReported)
         {
             return Invalid("Budget-exceeded completion requires observed usage beyond the reservation.");
         }
@@ -259,6 +314,7 @@ public static class ModelRunStateMachine
         return Finish(
             aggregate,
             usage,
+            streamEvidence,
             completedAt,
             ModelRunState.BudgetExceeded,
             ModelRunAttemptState.Failed,
@@ -269,13 +325,16 @@ public static class ModelRunStateMachine
 
     public static DomainResult<ModelRunAggregate> Fail(
         ModelRunAggregate aggregate,
+        string leaseToken,
         DomainFailure failure,
         ModelUsage usage,
+        ModelRunStreamEvidence streamEvidence,
         DateTimeOffset failedAt)
     {
         if (failure is null || failure.Code is FailureCode.BudgetExceeded ||
-            !CanFinish(aggregate, usage, failedAt) ||
-            ExceedsReservation(aggregate, usage, failedAt))
+            !CanFinish(aggregate, leaseToken, usage, streamEvidence, failedAt) ||
+            ExceedsReservation(aggregate, usage, failedAt) ||
+            streamEvidence.EventCount > aggregate.Run.Reservation.Events)
         {
             return Invalid("Model failure requires started state and bounded observed usage.");
         }
@@ -283,6 +342,7 @@ public static class ModelRunStateMachine
         return Finish(
             aggregate,
             usage,
+            streamEvidence,
             failedAt,
             ModelRunState.Failed,
             ModelRunAttemptState.Failed,
@@ -296,11 +356,11 @@ public static class ModelRunStateMachine
         DateTimeOffset canceledAt)
     {
         if (!IsConsistent(aggregate) ||
-            aggregate.Run.State is not (ModelRunState.Reserved or ModelRunState.Running) ||
-            aggregate.Attempt.State is not (ModelRunAttemptState.Planned or ModelRunAttemptState.Started) ||
+            aggregate.Run.State is not ModelRunState.Reserved ||
+            aggregate.Attempt.State is not ModelRunAttemptState.Planned ||
             canceledAt < aggregate.Run.CreatedAt)
         {
-            return Invalid("Only a reserved or running model run can be canceled.");
+            return Invalid("Only a reserved model run can be canceled without its lease token.");
         }
 
         return DomainResult.Success(new ModelRunAggregate(
@@ -318,9 +378,36 @@ public static class ModelRunStateMachine
             }));
     }
 
+    public static DomainResult<ModelRunAggregate> CancelRunning(
+        ModelRunAggregate aggregate,
+        string leaseToken,
+        ModelUsage usage,
+        ModelRunStreamEvidence streamEvidence,
+        DateTimeOffset canceledAt)
+    {
+        if (!CanFinish(aggregate, leaseToken, usage, streamEvidence, canceledAt) ||
+            ExceedsReservation(aggregate, usage, canceledAt) ||
+            streamEvidence.EventCount > aggregate.Run.Reservation.Events)
+        {
+            return Invalid("Only the exact running lease holder can cancel with bounded evidence.");
+        }
+
+        return Finish(
+            aggregate,
+            usage,
+            streamEvidence,
+            canceledAt,
+            ModelRunState.Canceled,
+            ModelRunAttemptState.Canceled,
+            null,
+            null,
+            false);
+    }
+
     private static DomainResult<ModelRunAggregate> Finish(
         ModelRunAggregate aggregate,
         ModelUsage usage,
+        ModelRunStreamEvidence streamEvidence,
         DateTimeOffset completedAt,
         ModelRunState runState,
         ModelRunAttemptState attemptState,
@@ -332,6 +419,7 @@ public static class ModelRunStateMachine
             {
                 State = runState,
                 CompletedAt = completedAt,
+                StreamEvidence = streamEvidence with { },
                 Usage = usage with { Currency = usage.Currency?.ToUpperInvariant() },
                 FinishReason = finishReason,
                 FailureCode = failureCode,
@@ -341,6 +429,7 @@ public static class ModelRunStateMachine
             {
                 State = attemptState,
                 CompletedAt = completedAt,
+                StreamEvidence = streamEvidence with { },
                 Usage = usage with { Currency = usage.Currency?.ToUpperInvariant() },
                 FinishReason = finishReason,
                 FailureCode = failureCode,
@@ -350,18 +439,24 @@ public static class ModelRunStateMachine
 
     private static bool CanFinish(
         ModelRunAggregate aggregate,
+        string leaseToken,
         ModelUsage usage,
+        ModelRunStreamEvidence streamEvidence,
         DateTimeOffset completedAt) =>
         IsConsistent(aggregate) && aggregate.Run.State is ModelRunState.Running &&
         aggregate.Attempt.State is ModelRunAttemptState.Started &&
+        aggregate.Run.Lease is { } lease && IsLeaseToken(leaseToken) &&
+        FixedEquals(lease.TokenHash, HashLeaseToken(leaseToken)) &&
         aggregate.Run.StartedAt is { } startedAt && completedAt >= startedAt &&
-        ValidateUsage(usage);
+        completedAt <= lease.ExpiresAt &&
+        ValidateUsage(usage) && ValidateStreamEvidence(streamEvidence);
 
     private static bool IsConsistent(ModelRunAggregate aggregate) =>
         aggregate is not null && aggregate.Run is not null && aggregate.Attempt is not null &&
         aggregate.Run.Id.Value != Guid.Empty && aggregate.Attempt.Id.Value != Guid.Empty &&
         aggregate.Run.Route is not null && aggregate.Attempt.Route is not null &&
         aggregate.Run.Reservation is not null &&
+        aggregate.Run.StreamEvidence is not null && aggregate.Attempt.StreamEvidence is not null &&
         aggregate.Run.Route.RequiredCapabilities is not null &&
         aggregate.Attempt.Route.RequiredCapabilities is not null &&
         aggregate.Attempt.RunId == aggregate.Run.Id && aggregate.Attempt.Sequence == 1 &&
@@ -377,7 +472,7 @@ public static class ModelRunStateMachine
         usage.OutputTokens > aggregate.Run.Reservation.OutputTokens ||
         usage.ToolCalls > aggregate.Run.Reservation.ToolCalls ||
         aggregate.Run.StartedAt is { } startedAt &&
-            observedAt - startedAt > TimeSpan.FromSeconds(aggregate.Run.Reservation.WallClockSeconds);
+            observedAt - startedAt >= TimeSpan.FromSeconds(aggregate.Run.Reservation.WallClockSeconds);
 
     private static bool ValidateUsage(ModelUsage usage) =>
         usage is not null && usage.InputTokens >= 0 && usage.OutputTokens >= 0 && usage.ToolCalls >= 0 &&
@@ -385,6 +480,21 @@ public static class ModelRunStateMachine
         (usage.Cost is null && usage.Currency is null ||
             usage.Cost is not null && usage.Currency is { Length: 3 } currency &&
             currency.All(char.IsAsciiLetter));
+
+    private static bool ValidateStreamEvidence(ModelRunStreamEvidence evidence) =>
+        evidence is not null && evidence.EventCount is >= 0 and <= 100_001 &&
+        (evidence.EventCount == 0 && evidence.LastSequence == -1 &&
+                FixedEquals(evidence.EventStreamHash, ModelRunStreamEvidence.EmptyHash) ||
+            evidence.EventCount > 0 && evidence.LastSequence == evidence.EventCount - 1L &&
+                IsHash(evidence.EventStreamHash));
+
+    private static bool IsLeaseToken(string? value) =>
+        value is { Length: 43 } && value.All(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '-' or '_');
+
+    private static string HashLeaseToken(string value) =>
+        $"sha256:{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.ASCII.GetBytes(value)))}";
 
     private static bool IsHash(string value)
     {

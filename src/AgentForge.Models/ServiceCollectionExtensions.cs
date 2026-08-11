@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IModelRouter, ModelRouter>();
         services.AddScoped<IModelRoutePlanner, ModelRoutePlanner>();
         services.AddScoped<IModelRunAdmissionService, ModelRunAdmissionService>();
+        services.AddScoped<IModelRunExecutionService, ModelRunExecutionService>();
         return services;
     }
 }

@@ -16,6 +16,7 @@ using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Environments;
 using AgentForge.Domain.Installations;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
@@ -1920,6 +1921,104 @@ public sealed class PersistenceFoundationTests : IDisposable
                 installationId,
                 "missing-run",
                 CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Model_run_execution_migration_preserves_legacy_reserved_run_with_safe_defaults()
+    {
+        var installationId = new InstallationId(Guid.Parse("de140e5e-4f21-4e17-83d5-7ce21627990a"));
+        var providerId = new ProviderProfileId(Guid.Parse("d81c58ad-b50f-452f-a51f-27849c36acb9"));
+        var agentId = new AgentIdentityId(Guid.Parse("39d827d2-427a-4110-98ea-0f80a627bfda"));
+        var runId = new ModelRunId(Guid.Parse("98b38d3f-407f-4921-b570-b70013611a93"));
+        var attemptId = Guid.Parse("9a0507e7-6a23-48ea-a089-b84863cf1317");
+        var requestId = Guid.Parse("2b3ee9b5-6b2d-414e-b296-e3e0e7dcfeda");
+        var hash = "sha256:" + new string('a', 64);
+        var capabilities = JsonSerializer.Serialize(new[] { ModelCapability.TextGeneration.ToString() });
+        await using (var previousSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = previousSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260811132212_ModelRunAdmission", CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("execution-upgrade"),
+                    new CorrelationId("execution-upgrade")), CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(
+                    installationId,
+                    providerId,
+                    "execution-upgrade"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("execution-upgrade"),
+                    new CorrelationId("execution-upgrade")), CancellationToken.None);
+            Assert.True((await previousSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+
+            await context.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO model_runs (
+                    Id, InstallationId, InstallationVersion, AgentId, AgentVersion,
+                    ProviderProfileId, ProviderVersion, RequestId, ProviderType, Model,
+                    IsFallback, RequiredCapabilitiesJson, SelectionEvidenceHash, PlanEvidenceHash,
+                    PreparedInputHash, HealthEvidenceHash, ContextRedactionCount,
+                    ContextPreparationPolicy, AdmissionRequestHash, ReservedInputTokens,
+                    ReservedOutputTokens, ReservedToolCalls, ReservedWallClockSeconds,
+                    UsedInputTokens, UsedOutputTokens, UsedToolCalls, State, CreatedAtUtcTicks,
+                    ActorId, IdempotencyKey, CorrelationId, Version)
+                VALUES (
+                    {runId.Value}, {installationId.Value}, {0L}, {agentId.Value}, {0L},
+                    {providerId.Value}, {0L}, {requestId}, {"fixture"}, {"fixture-model"},
+                    {false}, {capabilities}, {hash}, {hash}, {hash}, {hash}, {0},
+                    {"agentforge-context-redaction-v1"}, {hash}, {100L}, {50L}, {0}, {30},
+                    {0L}, {0L}, {0}, {"Reserved"}, {Now.UtcTicks}, {"execution-upgrade"},
+                    {"legacy-execution-run"}, {"execution-upgrade"}, {0L});
+
+                INSERT INTO model_run_attempts (
+                    Id, RunId, Sequence, ProviderProfileId, ProviderVersion, ProviderType, Model,
+                    IsFallback, RequiredCapabilitiesJson, SelectionEvidenceHash, PlanEvidenceHash,
+                    State, CreatedAtUtcTicks, UsedInputTokens, UsedOutputTokens, UsedToolCalls,
+                    IsRetryable, Version)
+                VALUES (
+                    {attemptId}, {runId.Value}, {1}, {providerId.Value}, {0L}, {"fixture"},
+                    {"fixture-model"}, {false}, {capabilities}, {hash}, {hash}, {"Planned"},
+                    {Now.UtcTicks}, {0L}, {0L}, {0}, {false}, {0L});
+                """, CancellationToken.None);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        var upgraded = await upgradedScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdAsync(runId, CancellationToken.None);
+
+        Assert.NotNull(upgraded);
+        Assert.Empty(upgraded.Run.AttemptedProfileIds);
+        Assert.Equal(2, upgraded.Run.Reservation.Events);
+        Assert.Null(upgraded.Run.Lease);
+        Assert.Equal(ModelRunStreamEvidence.Empty, upgraded.Run.StreamEvidence);
+        Assert.Equal(ModelRunStreamEvidence.Empty, upgraded.Attempt.StreamEvidence);
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+            .FindAsync(agentId, CancellationToken.None));
     }
 
     [Fact]

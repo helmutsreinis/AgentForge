@@ -134,6 +134,7 @@ internal sealed class ModelRunAdmissionService(
                 run.AgentVersion,
                 ProviderProfileId = run.Route.ProfileId.ToString(),
                 run.ProviderVersion,
+                AttemptedProfileIds = run.AttemptedProfileIds.Select(item => item.ToString()).ToArray(),
                 RequestId = run.RequestId.ToString(),
                 run.Route.ProviderType,
                 run.Route.Model,
@@ -152,6 +153,7 @@ internal sealed class ModelRunAdmissionService(
                 run.Reservation.InputTokens,
                 run.Reservation.OutputTokens,
                 run.Reservation.ToolCalls,
+                run.Reservation.Events,
                 run.Reservation.WallClockSeconds,
             },
             new
@@ -207,6 +209,7 @@ internal sealed class ModelRunAdmissionService(
         plan.ReservedInputTokens == request.EstimatedInputTokens &&
         plan.ReservedOutputTokens == request.Request.Limits.MaximumOutputTokens &&
         plan.ReservedToolCalls == request.Request.Limits.MaximumToolCalls &&
+        plan.ReservedEvents == request.Request.Limits.MaximumEvents &&
         plan.ReservedWallClockSeconds == request.Request.Limits.MaximumWallClockSeconds;
 
     private static string ComputeAdmissionRequestHash(
