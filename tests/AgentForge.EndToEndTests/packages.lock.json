@@ -526,10 +526,18 @@
           "AgentForge.Audit": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Environment": "[1.0.0, )",
+          "AgentForge.Models": "[1.0.0, )",
           "AgentForge.Persistence": "[1.0.0, )",
           "AgentForge.Security": "[1.0.0, )",
           "AgentForge.Setup": "[1.0.0, )",
           "AgentForge.Tools": "[1.0.0, )"
+        }
+      },
+      "agentforge.models": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
         }
       },
       "agentforge.persistence": {

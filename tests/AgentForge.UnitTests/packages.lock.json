@@ -122,6 +122,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.models": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.security": {
         "type": "Project",
         "dependencies": {

@@ -176,6 +176,32 @@ and inbox/outbox tables prevent duplicate external effects. Large immutable data
 content-addressed outside relational rows. PostgreSQL later implements identical
 repository contracts.
 
+## Provider-neutral model boundary
+
+`AgentForge.Domain.Models` owns typed messages, artifact-backed attachments, response
+formats, tool definitions/results, capability evidence, budgets, usage/cost, provider
+errors, and sequenced stream events. `AgentForge.Abstractions.Models` exposes only
+`IModelProvider` and the exact-profile `IModelProviderCatalog`. Domain has no SDK/package
+dependency, and vendor records cannot cross this boundary.
+
+`AgentForge.Models` validates and snapshots requests before asynchronous enumeration.
+JSON schemas, tool results, tool arguments, and structured output are bounded, parsed with
+fixed depth, reject duplicate object keys, and normalize before use. Attachment content is
+an immutable artifact hash/media type/length/modality reference; the input fingerprint
+includes that reference so an image or document cannot be silently omitted without
+changing evidence. Capability evidence records source, availability, observation time, and
+optional expiry; any unavailable, unknown, temporarily failing, future, or expired evidence
+fails closed for that capability. The started event pins separate normalized input and
+sorted capability-evidence SHA-256 values.
+
+The deterministic provider owns immutable scripts and emits started, text delta, tool-call
+delta/completion, structured output, usage, typed error, and completion events with strict
+sequence numbers. It intersects the request with provider evidence and token/tool/event/
+time limits, honors cancellation, and never emits completion after a scripted failure.
+Production DI contains an empty immutable provider catalog and no invocation route. Later
+adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside their feature adapter
+and must translate into these records.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,
