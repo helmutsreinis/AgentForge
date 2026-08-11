@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IModelContextPreparer, ModelContextPreparer>();
         services.AddSingleton<IModelProviderCatalog>(_ => ModelProviderCatalog.Create([]).Value);
+        services.AddSingleton<IModelRouter, ModelRouter>();
         return services;
     }
 }

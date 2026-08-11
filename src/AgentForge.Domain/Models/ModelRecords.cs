@@ -1,3 +1,4 @@
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 
@@ -56,6 +57,14 @@ public enum ModelCapabilityAvailability
     Unavailable,
     Unknown,
     TemporarilyFailing,
+}
+
+public enum ModelProviderDataLocation
+{
+    InProcess,
+    Loopback,
+    PrivateNetwork,
+    Cloud,
 }
 
 public enum ModelFinishReason
@@ -152,7 +161,34 @@ public sealed record ModelProviderDescriptor(
     ProviderProfileId ProfileId,
     string ProviderType,
     string Model,
-    IReadOnlyList<ModelCapabilityEvidence> Capabilities);
+    IReadOnlyList<ModelCapabilityEvidence> Capabilities,
+    ModelProviderRoutingEvidence? Routing = null);
+
+public sealed record ModelProviderRoutingEvidence(
+    ModelProviderDataLocation DataLocation,
+    ModelCapabilityEvidenceSource Source,
+    int MaximumContextTokens,
+    int MaximumOutputTokens,
+    int ReliabilityBasisPoints,
+    decimal? InputCostPerMillionTokens,
+    decimal? OutputCostPerMillionTokens,
+    int TypicalLatencyMilliseconds,
+    DateTimeOffset ObservedAt,
+    DateTimeOffset? ExpiresAt = null);
+
+public sealed record ModelRoutingRequest(
+    ModelRequest Request,
+    AgentModelPolicy Policy,
+    long EstimatedInputTokens,
+    IReadOnlyList<ProviderProfileId> ExcludedProfileIds);
+
+public sealed record ModelRouteSelection(
+    ProviderProfileId ProfileId,
+    string ProviderType,
+    string Model,
+    bool IsFallback,
+    IReadOnlySet<ModelCapability> RequiredCapabilities,
+    string SelectionEvidenceHash);
 
 public sealed record ModelUsage(
     long InputTokens,

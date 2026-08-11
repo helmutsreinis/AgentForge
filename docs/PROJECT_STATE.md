@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Implement exact policy/locality model routing over current capability evidence, then connect
-bounded provider health and failover. Keep the unavailable live container gate open and all
-public model/tool invocation disabled.
+Connect bounded provider health and failover to current durable profile/policy reads, then add
+model audit, cumulative budgets, and immutable run snapshots. Keep the unavailable live
+container gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -66,17 +66,19 @@ public model/tool invocation disabled.
 - M3 slice 3 added `IModelContextPreparer`, an immutable provider-egress snapshot that applies the existing structured sensitive-data boundary to text, attachment names, tool arguments/results, and descriptions while refusing sensitive identity fields or JSON contracts that cannot safely be rewritten. Started events pin the preparation policy and redaction count, and input hashes cover only the prepared request.
 - Every OpenAI-compatible invocation now requires that preparation policy before serialization. The adapter cannot send the caller's mutable raw request, preserves the original object, and returns a fixed typed failure without echoing sensitive or oversized content when preparation fails.
 - Hosted compatible construction exact-binds provider/profile/model/HTTPS endpoint/capability evidence and the configured store/reference. The secret is materialized only after the started event and immediately before `SendAsync`; visible-ASCII bearer bounds block header injection, and the header plus clearable lease are removed in `finally` before response events. Failed profile binding or materialization performs no transport call. Production DI still has an empty catalog and no model route.
+- M3 slice 4 added immutable provider routing evidence and a pure exact-model router. It filters current modality evidence, data locality, policy-approved route evidence, context/output bounds, and tool support in fixed order; a viable primary wins before deterministic reliability/cost/latency/profile-ID fallback.
+- Local-only content cannot fall back to cloud, media remains a required capability rather than being omitted, expired/unapproved evidence fails typed, and each selection hash binds policy, context requirements, exclusions, required capabilities, fallback state, and provider evidence. Production composition still has an empty catalog and no model invocation route.
 
 ## Latest gate
 
-`artifacts/gates/M3-03-20260811.md`: Pass.
+`artifacts/gates/M3-04-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, and exact invocation-scoped hosted bearer materialization are implemented. Provider setup/live validation beyond deterministic profiles, routing, failover, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, and pure policy/locality routing are implemented. Provider setup/live validation beyond deterministic profiles, health-aware failover, current durable policy/profile binding, audit/snapshots, and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -87,7 +89,6 @@ public model/tool invocation disabled.
 
 ## Exact next action
 
-Continue Milestone 3 with exact routing over required modality, data locality, current policy,
-context/tool support, and capability evidence. Then add bounded provider health and failover.
-Do not expose public model invocation before routing, audit, cumulative budgets, and durable
-run snapshots are connected.
+Continue Milestone 3 with bounded provider health and retry/failover over current durable
+profile and policy reads. Then add model audit, cumulative budgets, and immutable run
+snapshots. Do not expose public model invocation before those boundaries are connected.

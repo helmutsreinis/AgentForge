@@ -241,6 +241,26 @@ Hosted adapters may use vendor SDKs or `Microsoft.Extensions.AI` only inside the
 boundary and must still add current-profile re-read, locality/policy routing, destination
 controls, audit, and durable run snapshots before exposure.
 
+## Model routing boundary
+
+`IModelRouter` consumes the immutable provider catalog plus a trusted effective
+`AgentModelPolicy`; it never accepts an endpoint, credential, provider adapter, or policy
+rule from model content. Descriptors add bounded routing evidence for data location, policy
+approval, context/output windows, reliability, cost, latency, and evidence lifetime. Routing
+filters in a stable order: exact model and attempt exclusions, current modality capability,
+data locality, current policy approval, context/output capacity, and tool support.
+
+A viable exact primary profile wins. Only an explicitly enabled fallback is considered, and
+its ordering is deterministic by reliability, known combined cost, latency, and profile ID.
+Media parts produce required capabilities and remain in the normalized request; no route can
+strip an attachment to become eligible. The result snapshots the required capability set and
+a SHA-256 of the decision inputs plus selected provider evidence.
+
+This component is selection logic, not a runtime authorization service. Production still
+registers an empty catalog and exposes no invocation route. The later boundary must re-read
+the durable agent/profile and current health, enforce destination policy, audit the selection,
+reserve cumulative budget, persist a run snapshot, then resolve the exact adapter.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,

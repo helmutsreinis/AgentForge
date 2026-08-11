@@ -45,7 +45,13 @@ internal static class ModelContractValidator
         var normalized = descriptor with
         {
             Capabilities = new ReadOnlyCollection<ModelCapabilityEvidence>(evidence),
+            Routing = descriptor.Routing is null ? null : descriptor.Routing with { },
         };
+        if (normalized.Routing is not null && !ValidateRoutingEvidence(normalized.Routing))
+        {
+            return Invalid<ModelProviderDescriptor>("Model provider routing evidence is invalid or unbounded.");
+        }
+
         if (!Supports(normalized, ModelCapability.TextGeneration) ||
             !Supports(normalized, ModelCapability.Streaming))
         {
@@ -341,6 +347,21 @@ internal static class ModelContractValidator
                     item.ExpiresAt,
                 })
                 .ToArray(),
+            Routing = descriptor.Routing is null
+                ? null
+                : new
+                {
+                    DataLocation = descriptor.Routing.DataLocation.ToString(),
+                    Source = descriptor.Routing.Source.ToString(),
+                    descriptor.Routing.MaximumContextTokens,
+                    descriptor.Routing.MaximumOutputTokens,
+                    descriptor.Routing.ReliabilityBasisPoints,
+                    descriptor.Routing.InputCostPerMillionTokens,
+                    descriptor.Routing.OutputCostPerMillionTokens,
+                    descriptor.Routing.TypicalLatencyMilliseconds,
+                    descriptor.Routing.ObservedAt,
+                    descriptor.Routing.ExpiresAt,
+                },
         };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(canonical, SerializerOptions);
         return $"sha256:{Convert.ToHexStringLower(SHA256.HashData(bytes))}";
@@ -357,6 +378,18 @@ internal static class ModelContractValidator
         return document.RootElement.ValueKind is JsonValueKind.Object &&
             HasUniquePropertyNames(document.RootElement);
     }
+
+    private static bool ValidateRoutingEvidence(ModelProviderRoutingEvidence evidence) =>
+        Enum.IsDefined(evidence.DataLocation) && Enum.IsDefined(evidence.Source) &&
+        evidence.MaximumContextTokens is >= 1 and <= 10_000_000 &&
+        evidence.MaximumOutputTokens is >= 1 &&
+        evidence.MaximumOutputTokens <= evidence.MaximumContextTokens &&
+        evidence.ReliabilityBasisPoints is >= 0 and <= 10_000 &&
+        evidence.InputCostPerMillionTokens is null or >= 0 and <= 1_000_000 &&
+        evidence.OutputCostPerMillionTokens is null or >= 0 and <= 1_000_000 &&
+        evidence.TypicalLatencyMilliseconds is >= 0 and <= 3_600_000 &&
+        evidence.ObservedAt != default &&
+        (evidence.ExpiresAt is null || evidence.ExpiresAt > evidence.ObservedAt);
 
     internal static bool TryNormalizeJson(string? value, int maximumCharacters, out string? normalized)
     {
