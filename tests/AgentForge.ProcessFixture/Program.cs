@@ -74,7 +74,7 @@ static async Task<int> SpawnChildAsync(string sentinelPath, string delayText)
 
     using var child = Process.Start(startInfo)
         ?? throw new InvalidOperationException("Child process could not be started.");
-    await Console.Out.WriteAsync(child.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    await Console.Out.WriteLineAsync(child.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
     await Console.Out.FlushAsync();
     await Task.Delay(TimeSpan.FromSeconds(30));
     return 0;

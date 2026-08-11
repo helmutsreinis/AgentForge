@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Time;
@@ -122,6 +123,49 @@ public sealed class RestrictedHostSandboxTests : IDisposable
         Assert.False(result.IsSuccess);
         Assert.Equal(FailureCode.BudgetExceeded, result.Failure?.Code);
         await Task.Delay(TimeSpan.FromSeconds(2));
+        Assert.False(File.Exists(sentinel));
+    }
+
+    [Fact]
+    public async Task Windows_job_attach_recaptures_a_preexisting_descendant()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var sentinel = Path.Combine(_temporaryRoot, "preexisting-child-sentinel");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = DotnetHost,
+            WorkingDirectory = _temporaryRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[] { FixtureAssembly, "spawn-child", sentinel, "30000" })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var parent = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the pre-attachment process fixture.");
+        using var readTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var childIdText = await parent.StandardOutput.ReadLineAsync(readTimeout.Token);
+        Assert.True(int.TryParse(
+            childIdText,
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var childId));
+
+        using var controller = ProcessTreeController.Create();
+        var attached = controller.Attach(parent);
+        controller.Terminate(parent);
+        await parent.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(attached);
+        Assert.True(await WaitForProcessExitAsync(childId));
         Assert.False(File.Exists(sentinel));
     }
 
@@ -280,6 +324,33 @@ public sealed class RestrictedHostSandboxTests : IDisposable
         catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or PlatformNotSupportedException)
         {
             return false;
+        }
+    }
+
+    private static async Task<bool> WaitForProcessExitAsync(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try
+            {
+                await process.WaitForExitAsync(timeout.Token);
+                return true;
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+
+                return false;
+            }
+        }
+        catch (ArgumentException)
+        {
+            return true;
         }
     }
 

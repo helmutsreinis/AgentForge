@@ -20,7 +20,8 @@ implements the first `RestrictedHost` adapter with:
 - existing non-link working directories contained within an existing workspace;
 - a cleared environment rebuilt only from bounded configured allowlists;
 - one ordered combined output budget, wall-clock timeout, and caller cancellation;
-- process-tree termination and Windows Job Object kill-on-close; and
+- process-tree termination, Windows Job Object kill-on-close, and native recapture of
+  descendants created before parent attachment; and
 - exact capability reporting with typed failure for every unavailable required feature.
 
 No public endpoint invokes this interface. The future tool application service must use
@@ -35,7 +36,7 @@ slice passes. It cannot satisfy container, filesystem, denied/loopback network, 
 memory, process-count, credential, or privilege isolation, and must return
 `UnsupportedCapability` for those requests.
 
-Path validation and process-tree attachment/discovery retain OS-level timing windows, so
+Path validation and bounded process-tree attachment/discovery retain OS-level timing windows, so
 restricted-host capability is not sufficient for untrusted or high-risk binaries. The
 later container/namespace adapter remains mandatory, and Docker absence keeps that live
 gate open without weakening deterministic tests.

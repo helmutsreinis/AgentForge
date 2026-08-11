@@ -245,7 +245,8 @@ administrator-configured inheritance and invocation allowlists; standard input i
 Standard output and error share one byte budget and one ordered observer boundary. A wall-
 clock timeout, caller cancellation, output overflow, or observer failure terminates the
 process tree and drains boundedly. Windows attaches the child to a kill-on-close Job
-Object; Linux uses managed descendant termination. Tests use hostile shell metacharacters,
+Object, enumerates the native process snapshot, and adds descendants that started before
+the parent attachment; later children inherit the Job. Linux uses managed descendant termination. Tests use hostile shell metacharacters,
 output floods, stalled observers, path escapes, symlinks, and delayed child sentinels.
 
 Capability flags are security claims. The restricted-host adapter does not claim or
@@ -255,8 +256,8 @@ or container isolation. A request for any unavailable control returns
 diagnostics; it exposes no generic invocation surface.
 
 Residual risks remain explicit. Local filesystem entries can be replaced between path
-validation and process start, Windows Job attachment follows process creation, and managed
-descendant discovery has OS timing limits. Therefore restricted-host execution is not a
+validation and process start, Windows descendant capture is a bounded snapshot/recheck,
+and managed descendant discovery has OS timing limits. Therefore restricted-host execution is not a
 high-risk sandbox. Immutable authoritative descriptors, policy reconstruction, atomic
 approval consumption, invocation audit, and the container/namespace adapter remain closed
 gates before model-selected or high-risk tools can run.
