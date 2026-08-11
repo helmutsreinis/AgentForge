@@ -9,6 +9,7 @@ using AgentForge.Host.Health;
 using AgentForge.Host.Http;
 using AgentForge.Models;
 using AgentForge.Persistence;
+using AgentForge.Runtime;
 using AgentForge.Security;
 using AgentForge.Setup;
 using AgentForge.Tools;
@@ -32,6 +33,7 @@ builder.Services.AddAgentForgeAudit();
 builder.Services.AddAgentForgeEnvironment(builder.Configuration);
 builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddAgentForgeModels();
+builder.Services.AddAgentForgeRuntime();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddHealthChecks()

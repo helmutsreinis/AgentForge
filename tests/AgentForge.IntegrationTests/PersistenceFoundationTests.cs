@@ -8,6 +8,7 @@ using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Runtime;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Tools;
@@ -19,11 +20,13 @@ using AgentForge.Domain.Installations;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Runtime;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Domain.Tools;
 using AgentForge.Environment;
 using AgentForge.Persistence;
+using AgentForge.Runtime;
 using AgentForge.Security;
 using AgentForge.Setup;
 using AgentForge.Tools;
@@ -68,6 +71,7 @@ public sealed class PersistenceFoundationTests : IDisposable
         services.AddAgentForgeAudit();
         services.AddAgentForgeEnvironment(configuration);
         services.AddAgentForgeTools(configuration);
+        services.AddAgentForgeRuntime();
         configure?.Invoke(services);
         return services.BuildServiceProvider(validateScopes: true);
     }
@@ -85,6 +89,162 @@ public sealed class PersistenceFoundationTests : IDisposable
         Assert.Same(repository, source);
         Assert.True(evidence.IsSuccess, evidence.Failure?.Message);
         Assert.Empty(evidence.Value);
+    }
+
+    [Fact]
+    public async Task Agent_loop_snapshots_resume_after_interruption_and_replay_without_reexecution()
+    {
+        var executor = new InterruptingLoopExecutor();
+        await using var services = BuildServices(
+            _directory,
+            "agent-loop.db",
+            collection => collection.AddSingleton<IAgentLoopStepExecutor>(executor));
+        await using (var initializationScope = services.CreateAsyncScope())
+        {
+            await initializationScope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                .InitializeAsync(CancellationToken.None);
+        }
+
+        var installationId = new InstallationId(Guid.Parse("75524f08-6d88-4e84-9bb8-c71ef02cf7c7"));
+        AgentIdentity agent;
+        await using (var setupScope = services.CreateAsyncScope())
+        {
+            var setup = setupScope.ServiceProvider.GetRequiredService<ISetupApplicationService>();
+            Assert.True((await setup.BeginAsync(new BeginSetupRequest(
+                installationId,
+                new ActorId("local-admin"),
+                new CorrelationId("loop-begin")), CancellationToken.None)).IsSuccess);
+            var secret = await setupScope.ServiceProvider.GetRequiredService<ISecretStore>()
+                .StoreAsync("loop-provider", "provider-fixture".AsMemory(), CancellationToken.None);
+            Assert.True(secret.IsSuccess);
+            var provider = await setup.ConfigureProviderAsync(new ConfigureProviderRequest(
+                new ProviderProfileCandidate(
+                    "primary",
+                    "deterministic",
+                    new Uri("http://127.0.0.1:9000/v1"),
+                    "deterministic-text-v1",
+                    secret.Value),
+                new ActorId("local-admin"),
+                new CorrelationId("loop-provider")), CancellationToken.None);
+            Assert.True(provider.IsSuccess, provider.Failure?.Message);
+            var created = await setup.CreateAgentAsync(new CreateAgentRequest(
+                CreateAgentCandidate(provider.Value.Profile.Id),
+                new ActorId("local-admin"),
+                new CorrelationId("loop-agent")), CancellationToken.None);
+            Assert.True(created.IsSuccess, created.Failure?.Message);
+            agent = created.Value.Agent;
+        }
+
+        var request = new AgentLoopRunRequest(
+            new AgentLoopId(Guid.Parse("66e2ca4b-384b-4f6b-ac0f-274d3380c0f4")),
+            installationId,
+            agent.Id,
+            agent.Version,
+            new AgentLoopBudget(4, 4, 1_000, 1_000, 60, 2, 2),
+            "sha256:" + new string('a', 64),
+            new ActorId("worker"),
+            "agent-loop-001",
+            new CorrelationId("loop-run"));
+
+        await using (var interruptedScope = services.CreateAsyncScope())
+        {
+            await Assert.ThrowsAsync<SimulatedWorkerExitException>(() => interruptedScope.ServiceProvider
+                .GetRequiredService<IAgentLoopService>()
+                .RunAsync(request, CancellationToken.None));
+        }
+
+        AgentLoopSnapshot completed;
+        await using (var resumeScope = services.CreateAsyncScope())
+        {
+            var resumed = await resumeScope.ServiceProvider.GetRequiredService<IAgentLoopService>()
+                .RunAsync(request, CancellationToken.None);
+            Assert.True(resumed.IsSuccess, resumed.Failure?.Message);
+            Assert.True(resumed.Value.WasResumed);
+            Assert.Equal(AgentLoopState.Completed, resumed.Value.Snapshot.State);
+            completed = resumed.Value.Snapshot;
+        }
+
+        var callsBeforeReplay = executor.Calls;
+        await using (var replayScope = services.CreateAsyncScope())
+        {
+            var replay = await replayScope.ServiceProvider.GetRequiredService<IAgentLoopService>()
+                .RunAsync(request, CancellationToken.None);
+            Assert.True(replay.IsSuccess, replay.Failure?.Message);
+            Assert.Equal(completed, replay.Value.Snapshot);
+            Assert.Equal(callsBeforeReplay, executor.Calls);
+
+            var history = await replayScope.ServiceProvider.GetRequiredService<IRunSnapshotStore>()
+                .ListAsync(request.LoopId, CancellationToken.None);
+            Assert.Equal(7, history.Count);
+            Assert.Equal(Enumerable.Range(0, 7).Select(index => (long)index), history.Select(item => item.Sequence));
+            Assert.All(history, item => Assert.True(AgentLoopStateMachine.IsConsistent(item)));
+            Assert.Equal(
+                history.Take(history.Count - 1).Select(item => item.SnapshotHash),
+                history.Skip(1).Select(item => item.PreviousSnapshotHash));
+
+            var conflict = await replayScope.ServiceProvider.GetRequiredService<IAgentLoopService>()
+                .RunAsync(request with { InitialStateHash = "sha256:" + new string('f', 64) }, CancellationToken.None);
+            Assert.False(conflict.IsSuccess);
+            Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
+            Assert.Equal(callsBeforeReplay, executor.Calls);
+        }
+    }
+
+    [Fact]
+    public async Task Agent_loop_snapshot_migration_preserves_prior_authority_without_fabricating_runs()
+    {
+        var installationId = new InstallationId(Guid.Parse("75e344f4-1a32-4ae8-a8a4-ad6c1221c606"));
+        var providerId = new ProviderProfileId(Guid.Parse("e28c6599-e3a7-41ee-b671-a26821932040"));
+        var agentId = new AgentIdentityId(Guid.Parse("8bd6f23c-ed1a-4379-aae3-ea0043285498"));
+        await using (var priorScope = _services.CreateAsyncScope())
+        {
+            var context = priorScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260811195031_ModelRunRetryFailover", CancellationToken.None);
+            await priorScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("loop-upgrade"),
+                    new CorrelationId("loop-upgrade")), CancellationToken.None);
+            await priorScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "loop-upgrade"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await priorScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("loop-upgrade"),
+                    new CorrelationId("loop-upgrade")), CancellationToken.None);
+            Assert.True((await priorScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.NotNull(await upgradedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .FindByIdAsync(agentId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IRunSnapshotStore>()
+            .FindByIdempotencyKeyAsync(installationId, "missing-loop", CancellationToken.None));
+        var applied = await upgradedScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>()
+            .Database.GetAppliedMigrationsAsync(CancellationToken.None);
+        Assert.Contains("20260811201331_AgentLoopSnapshots", applied);
     }
 
     [Fact]
@@ -2078,6 +2238,38 @@ public sealed class PersistenceFoundationTests : IDisposable
         var integrity = await scope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
             .VerifyAsync(CancellationToken.None);
         Assert.True(integrity.IsValid);
+    }
+
+    private sealed class InterruptingLoopExecutor : IAgentLoopStepExecutor
+    {
+        private int _interrupted;
+
+        public int Calls { get; private set; }
+
+        public Task<DomainResult<AgentLoopStepResult>> ExecuteAsync(
+            AgentLoopSnapshot snapshot,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls++;
+            if (snapshot.Phase is AgentLoopPhase.Plan && Interlocked.Exchange(ref _interrupted, 1) == 0)
+            {
+                throw new SimulatedWorkerExitException();
+            }
+
+            return Task.FromResult(DomainResult.Success(new AgentLoopStepResult(
+                "sha256:" + new string('b', 64),
+                snapshot.Phase is AgentLoopPhase.Persist ? "sha256:" + new string('c', 64) : null,
+                1,
+                1,
+                snapshot.Phase is AgentLoopPhase.Act ? 1 : 0,
+                StructuredOutputValid: true,
+                RequestsCompletion: snapshot.Phase is AgentLoopPhase.Verify)));
+        }
+    }
+
+    private sealed class SimulatedWorkerExitException : Exception
+    {
     }
 
     public void Dispose()

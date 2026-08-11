@@ -4,8 +4,8 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Complete Milestone 3 with the typed observe/plan/act/verify/reflect/persist loop, immutable run
-snapshots, structured-output repair, no-progress detection, and remaining provider/runtime hardening.
+Complete Milestone 3 provider/runtime hardening, then start durable task orchestration, delegation,
+fault recovery, and scheduling in Milestone 4.
 Keep the unavailable live container gate open and all public model/tool invocation disabled.
 
 ## Completed
@@ -84,17 +84,20 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Run usage, normalized cost/currency, stream count/chained hash, and wall time now accumulate across attempts while the shared agent ledger reserves and reconciles each attempt independently. Current agent turns/token/tool/wall policy caps the multiplied total before admission.
 - Deterministic two-provider SQLite coverage proves primary retryable failure, unavailable health, exact fallback selection, successful second attempt, two immutable history rows, cumulative evidence, ledger release, and audit order. `AllowFallback=false`, total-budget overflow, history substitution, attempt exhaustion, and idempotency changes fail closed.
 - Migration 0012 assigns existing runs maximum one, backfills attempt reservations from their run, and fabricates no retry.
+- M3 slice 10 introduced the independent `AgentForge.Runtime` module and a pure typed Observe/Plan/Act/Verify/Reflect/Persist state machine. Every accepted transition is an immutable canonical hash-chained snapshot containing exact installation/agent authority, total budget/consumption, turn, repair, progress, correlation, and typed terminal evidence.
+- Structured-output rejection repeats only the current phase within an explicit repair allowance. Persist alone advances turns and requires normalized progress evidence; repeated evidence, total turn/token/tool/wall exhaustion, cancellation, and executor failure become typed terminal snapshots. Completion requested during verification must still pass Reflect and Persist.
+- The SQLite store appends snapshots under loop/sequence and binds concurrent initial mutations through installation/idempotency/sequence uniqueness. A simulated process exit after Observe resumes at Plan in a new scope; completion appends seven self-consistent snapshots, and terminal or conflicting replay performs no execution. Migration 0013 preserves prior authority and fabricates no loop.
 
 ## Latest gate
 
-`artifacts/gates/M3-09-20260811.md`: Pass.
+`artifacts/gates/M3-10-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, and internal adapter execution are implemented. Typed loop behavior and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -105,7 +108,6 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Add immutable run snapshots and the typed observe/plan/act/verify/reflect/persist loop with total
-turn/tool/token/time budgets, cancellation, structured-output repair, and no-progress detection.
-Do not expose public model invocation before loop, automatic crash scanning, and destination/DNS
-gates pass.
+Finish Milestone 3 hosted destination/DNS and provider-adapter gates without opening public
+invocation. Then create Milestone 4 task/DAG/checkpoint/lease state machines and deterministic
+kill-and-resume orchestration before adding delegation patterns or schedules.

@@ -10,6 +10,7 @@ public enum FailureCode
     ConcurrencyConflict,
     BudgetExceeded,
     RecoverableExternalFailure,
+    NoProgress,
 }
 
 public sealed record DomainFailure(
