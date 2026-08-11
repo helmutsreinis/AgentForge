@@ -417,3 +417,16 @@ of truth. The pinned spike verifies typed handlers, streamed workflow events, an
 cancellation-token propagation. AgentForge retains tasks, leases, retries,
 compensation, audit, approvals, snapshots, and promotion because those invariants
 span more than a framework workflow execution.
+
+## Durable DAG orchestration
+
+`AgentForge.Orchestration` owns application transitions while Domain owns the pure task state
+machine. A definition is an acyclic graph with exact authority and pinned policy/budget/skill
+evidence. Nodes contain only bounded names, capability IDs, context hashes, budgets, dependencies,
+retry, and compensation identity—not prompt or tool output bodies.
+
+Each mutation appends a complete canonical snapshot and redacted audit event in one unit of work.
+Workers receive a raw random lease token once; SQLite stores only its hash. Expected aggregate
+versions plus `(TaskId, Version)` uniqueness prevent competing workers from committing the same
+transition. Expired recovery releases or exhausts leases deterministically and never revisits a
+completed node.

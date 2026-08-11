@@ -594,3 +594,17 @@ bounded header-safe lease, clears it, and records conservative unprobed capabili
 OpenAI/DeepSeek plaintext is denied; vLLM/generic plaintext is limited to inferred local/private
 destinations and remains subject to invocation-time address policy. Configuration never fabricates
 tool or media support and never adds a provider to the production catalog.
+
+## M4 durable-DAG update
+
+Graph structure is untrusted until node IDs, bounds, dependency existence, acyclicity, unique
+capabilities, context evidence hashes, budgets, retries, and compensation authority validate.
+Mutable caller collections are copied before hashing. Models cannot provide a lease token or alter
+the persisted policy/budget/skill snapshots.
+
+Worker possession is a random 256-bit token whose hash alone enters snapshots and audit. Exact task
+version, owner, token hash, live expiry, and node state are checked before terminal evidence is
+accepted. A stale or crashed worker therefore cannot overwrite takeover, and a completed node can
+never be reclaimed. Remaining threats are dispatcher starvation, malicious but already authorized
+workers, delegation-context overexposure, and schedule-trigger flooding; the latter two are the
+next Milestone 4 gates.

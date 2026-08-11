@@ -93,10 +93,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - Host and CLI setup now compose the Models profile validator. Exact secret-store binding, bounded header-safe materialization, HTTPS requirements for cloud OpenAI/DeepSeek, local/private-only plaintext for vLLM/generic profiles, buffer clearing, and unsupported-type denial pass deterministically. Configuration exposes conservative text/streaming evidence only; model-specific tool/media support remains unavailable until probed.
 - M3 slice 12B added a distinct bounded Anthropic Messages adapter. It translates exact system/message/tool request blocks and ordered SSE text/tool/usage/completion evidence into harness-owned records; malformed, substituted, oversized, truncated, or remote-error streams fail typed without false completion.
 - Hosted Anthropic calls require a cloud-approved HTTPS profile, socket destination enforcement, prepared context, exact API version, and an invocation-scoped clearable API-key lease. The full Milestone 3 provider, routing, durable execution, failover, and typed-loop gate passes with production catalogs and public invocation still closed.
+- M4 slice 1 added the independent Orchestration module and a pure durable DAG lifecycle. Definitions bind exact authority, policy/budget/skill snapshots, capabilities, minimum context evidence, typed node budgets, bounded retries, and unique compensation nodes before an append-only canonical snapshot chain can start.
+- Claims, heartbeats, completion, failure, cancellation, and expired recovery require exact versions. Random worker tokens are persisted only as hashes, leases last at most five minutes, stale workers fail, completed nodes never repeat, and snapshot plus redacted audit commits atomically. A process-loss fixture resumes versions 0-6 in fresh scopes.
 
 ## Latest gate
 
-`artifacts/gates/M3-12B-20260811.md`: Pass. Milestone 3 and release checkpoint `0.2 Agent Runtime Alpha` are complete.
+`artifacts/gates/M4-01-20260812.md`: Pass.
 
 ## Known constraints and risks
 
@@ -114,5 +116,5 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Create Milestone 4 task/DAG/checkpoint/lease state machines and deterministic kill-and-resume
-orchestration. Follow with minimum-context delegation and restart-safe scheduling.
+Implement minimum-context child delegation with capability/budget intersection and recursion bounds,
+then add restart-safe timezone scheduling.

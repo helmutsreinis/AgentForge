@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
@@ -57,6 +58,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IModelRunRepository, SqliteModelRunRepository>();
         services.AddScoped<IModelBudgetLedgerRepository, SqliteModelBudgetLedgerRepository>();
         services.AddScoped<IRunSnapshotStore, SqliteRunSnapshotStore>();
+        services.AddScoped<ITaskSnapshotStore, SqliteTaskSnapshotStore>();
         services.AddScoped<SqliteModelProviderHealthRepository>();
         services.AddScoped<IModelProviderHealthRepository>(provider =>
             provider.GetRequiredService<SqliteModelProviderHealthRepository>());
