@@ -152,6 +152,27 @@ the same exact, expiring durable evidence. This slice does not execute tools: a 
 restricted executor must source risk/tool identity from its catalog, re-evaluate policy,
 enforce isolation and containment, and consume a matching grant atomically.
 
+## Restricted sandbox diagnostics
+
+Inspect the controls the current host can actually enforce:
+
+```text
+agentforge sandbox capabilities
+```
+
+The command is read-only and calls the loopback host. `RestrictedHost` currently means
+direct fully qualified executable paths, argument arrays, a cleared/allowlisted
+environment, non-link working-directory containment, bounded combined output, a wall-
+clock timeout, and process-tree termination. Windows additionally reports Job Object
+kill-on-close. Treat every absent feature as unavailable: this adapter does not provide
+filesystem, network, credential, privilege, CPU, memory, or process-count isolation.
+
+Requests needing `Container`, denied/loopback-only network, filesystem isolation, or
+resource isolation return `UnsupportedCapability`; operators must not weaken the request
+to make it run. There is intentionally no generic execution CLI/API. If a process starts
+before the later authoritative tool/policy/approval/audit service is enabled, stop the
+host and treat that as a security defect.
+
 ## Passive environment inventory
 
 Capture Windows/Linux, distribution, WSL/isolation, filesystem, privilege, manager,

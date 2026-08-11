@@ -130,6 +130,7 @@ var path = args switch
 {
     ["status"] => "/api/v1/status",
     ["setup", "status"] => "/api/v1/setup/status",
+    ["sandbox", "capabilities"] => "/api/v1/sandbox/capabilities",
     _ => null,
 };
 
@@ -2473,6 +2474,7 @@ static void PrintHelp()
     Console.WriteLine("Usage:");
     Console.WriteLine("  agentforge status");
     Console.WriteLine("  agentforge setup status");
+    Console.WriteLine("  agentforge sandbox capabilities");
     Console.WriteLine("  agentforge setup begin --data-directory <path> --actor <id> --correlation <id> [--installation-id <guid>]");
     Console.WriteLine("  agentforge setup begin --interactive");
     Console.WriteLine("  agentforge setup provider configure --data-directory <path> --name <name> --type <type> --endpoint <uri> --model <model> (--credential-stdin | --credential-prompt) --actor <id> --correlation <id>");

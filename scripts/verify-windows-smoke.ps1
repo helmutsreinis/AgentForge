@@ -47,6 +47,21 @@ try {
     }
 
     $setupStatus = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5047/api/v1/setup/status).StatusCode
+    $sandboxResponse = Invoke-RestMethod -Method Get -Uri http://127.0.0.1:5047/api/v1/sandbox/capabilities
+    $previousEndpoint = $env:AGENTFORGE_ENDPOINT
+    $env:AGENTFORGE_ENDPOINT = 'http://127.0.0.1:5047'
+    try {
+        $cliOutput = & dotnet 'src/AgentForge.Cli/bin/Release/net10.0/agentforge.dll' sandbox capabilities
+        if ($LASTEXITCODE -ne 0) {
+            throw "Sandbox capability CLI failed (exit=$LASTEXITCODE)."
+        }
+
+        $cliSandbox = $cliOutput | ConvertFrom-Json
+    }
+    finally {
+        $env:AGENTFORGE_ENDPOINT = $previousEndpoint
+    }
+
     try {
         Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5047/api/v1/runtime/ping -ErrorAction Stop | Out-Null
         $runtimeStatus = 200
@@ -55,8 +70,9 @@ try {
         $runtimeStatus = [int]$_.Exception.Response.StatusCode
     }
 
-    Write-Output "live=$liveStatus setup=$setupStatus runtime=$runtimeStatus"
-    if ($setupStatus -ne 200 -or $runtimeStatus -ne 503) {
+    Write-Output "live=$liveStatus setup=$setupStatus runtime=$runtimeStatus sandbox=$($sandboxResponse.kind) cliSandbox=$($cliSandbox.kind)"
+    if ($setupStatus -ne 200 -or $runtimeStatus -ne 503 -or
+        $sandboxResponse.kind -ne 'RestrictedHost' -or $cliSandbox.kind -ne 'RestrictedHost') {
         throw 'The host did not retain its fail-closed setup posture.'
     }
 }

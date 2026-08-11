@@ -1,5 +1,6 @@
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Security;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Abstractions.Tracing;
 using AgentForge.Audit;
 using AgentForge.Domain.Installations;
@@ -9,6 +10,7 @@ using AgentForge.Host.Http;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
+using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +29,7 @@ builder.Services.AddAgentForgePersistence(builder.Configuration);
 builder.Services.AddAgentForgeSecurity(builder.Configuration);
 builder.Services.AddAgentForgeAudit();
 builder.Services.AddAgentForgeEnvironment(builder.Configuration);
+builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddHealthChecks()
@@ -73,6 +76,17 @@ app.MapGet("/api/v1/status", async (
     var response = StatusResponse.From(state, correlation.CorrelationId);
     return Results.Json(response, statusCode: state.IsReady ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable);
 });
+
+app.MapGet("/api/v1/sandbox/capabilities", (
+    ISandbox sandbox,
+    ICorrelationContext correlation) => Results.Ok(new
+    {
+        kind = sandbox.Capabilities.Kind.ToString(),
+        sandbox.Capabilities.IsAvailable,
+        supportedFeatures = sandbox.Capabilities.SupportedFeatures.ToString(),
+        sandbox.Capabilities.Evidence,
+        correlationId = correlation.CorrelationId,
+    }));
 
 app.MapGet("/api/v1/runtime/ping", async (
     HttpRequest request,

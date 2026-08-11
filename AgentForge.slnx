@@ -12,12 +12,14 @@
     <Project Path="src/AgentForge.Persistence/AgentForge.Persistence.csproj" />
     <Project Path="src/AgentForge.Security/AgentForge.Security.csproj" />
     <Project Path="src/AgentForge.Setup/AgentForge.Setup.csproj" />
+    <Project Path="src/AgentForge.Tools/AgentForge.Tools.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AgentForge.ArchitectureTests/AgentForge.ArchitectureTests.csproj" />
     <Project Path="tests/AgentForge.CrossPlatformTests/AgentForge.CrossPlatformTests.csproj" />
     <Project Path="tests/AgentForge.EndToEndTests/AgentForge.EndToEndTests.csproj" />
     <Project Path="tests/AgentForge.IntegrationTests/AgentForge.IntegrationTests.csproj" />
+    <Project Path="tests/AgentForge.ProcessFixture/AgentForge.ProcessFixture.csproj" />
     <Project Path="tests/AgentForge.SecurityTests/AgentForge.SecurityTests.csproj" />
     <Project Path="tests/AgentForge.UnitTests/AgentForge.UnitTests.csproj" />
   </Folder>

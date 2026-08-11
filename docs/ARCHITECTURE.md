@@ -18,6 +18,7 @@ flowchart LR
   Runtime --> Policy["Policy and approvals"]
   Runtime --> Orchestration["Durable task orchestration"]
   Runtime --> Catalogs["Tool and skill catalogs"]
+  Catalogs --> Sandbox["Restricted execution adapters"]
   Orchestration --> Persistence["Repository contracts"]
   Setup --> Persistence
   Policy --> Persistence
@@ -99,6 +100,21 @@ authentication.
 - Every run pins hashes/versions of policy, provider routing, environment, tools,
   skills, and artifacts.
 - External content is evidence. It is never interpreted as policy or system-level instruction.
+
+## Restricted execution boundary
+
+`AgentForge.Tools` implements `ISandbox` without referencing another feature
+implementation. Its restricted-host adapter starts only a fully qualified, existing,
+non-link executable with `ProcessStartInfo.ArgumentList`, clears the child environment,
+contains the working directory, and bounds output, time, cancellation, and tree cleanup.
+Capability flags describe only controls the selected OS adapter enforces. Unsupported
+container, network, filesystem, or resource isolation fails typed.
+
+The kernel is deliberately not an authorization service and has no invocation endpoint.
+The later tool application service must build an authorization context from its immutable
+descriptor, re-read current agent policy, atomically consume exact approval evidence and
+append audit/outbox state, then call `ISandbox`. Inventory paths or model-supplied tool
+identity can never cross that boundary directly.
 
 ## Durability strategy
 

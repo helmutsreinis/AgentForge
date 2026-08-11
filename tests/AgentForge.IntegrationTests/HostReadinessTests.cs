@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +52,22 @@ public sealed class HostReadinessTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("integration-test-1", response.Headers.GetValues("X-Correlation-Id").Single());
         Assert.Contains("Uninitialized", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Sandbox_capabilities_report_enforced_and_unavailable_isolation()
+    {
+        using var client = _factory.CreateClient();
+        using var response = await client.GetAsync("/api/v1/sandbox/capabilities", CancellationToken.None);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(CancellationToken.None));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("RestrictedHost", document.RootElement.GetProperty("kind").GetString());
+        Assert.True(document.RootElement.GetProperty("isAvailable").GetBoolean());
+        var features = document.RootElement.GetProperty("supportedFeatures").GetString();
+        Assert.Contains("ArgumentArray", features, StringComparison.Ordinal);
+        Assert.DoesNotContain("NetworkIsolation", features, StringComparison.Ordinal);
+        Assert.DoesNotContain("FileSystemIsolation", features, StringComparison.Ordinal);
     }
 
     public void Dispose()
