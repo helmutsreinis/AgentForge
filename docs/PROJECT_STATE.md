@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Add durable model run/attempt state with redacted audit, cumulative budget reservation,
-immutable snapshots, and typed stop/cancellation behavior. Keep the unavailable live container
-gate open and all public model/tool invocation disabled.
+Continue Milestone 3 with durable start leases, cross-run reservation accounting, exact
+profile/destination revalidation, and internal adapter-attempt execution. Keep the unavailable
+live container gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -70,17 +70,20 @@ gate open and all public model/tool invocation disabled.
 - Local-only content cannot fall back to cloud, media remains a required capability rather than being omitted, expired/unapproved evidence fails typed, and each selection hash binds policy, context requirements, exclusions, required capabilities, fallback state, and provider evidence. Production composition still has an empty catalog and no model invocation route.
 - M3 slice 5 added bounded immutable provider-health evidence and a scoped route planner. It prepares/redacts context, serializably reads Ready installation/agent/provider authority, exact-binds durable versions and the agent's primary model, enforces request budgets, and merges current health with at most eight exact attempted profiles.
 - Missing/future/expired/unknown/unavailable health excludes rather than authorizes. A second authority/health read detects concurrent changes; successful plans bind prepared input, context policy, authority versions, route, and health into SHA-256 evidence and expire within five seconds. Both production catalogs remain empty, plans are non-authorizing, and no egress or public route exists.
+- M3 slice 6 added pure durable model run/first-attempt transitions with exact plan, context, route, health, and authority snapshots; immutable input/output/tool/time reservations; typed start/success/failure/cancellation/budget-exceeded states; and optimistic-concurrency versions.
+- `IModelRunAdmissionService` redacts before request identity, consumes only a fresh exact route plan, and atomically commits the `Reserved` run, `Planned` attempt, and redacted hash-chain audit. Installation-scoped idempotency handles exact, conflicting, and concurrent retries without storing prompt content, endpoint/secret data, provider output, or performing egress.
+- M3 slice 6 passes on Windows and Ubuntu with 198 product tests plus 2 framework-spike tests per platform, 11 focused state-machine tests, 8 focused admission/route integration tests, migration drift/upgrade, format, vulnerability/secret scans, and host/CLI smoke. The operator-authorized credential-free `qwen3.6` live gate also passes.
 
 ## Latest gate
 
-`artifacts/gates/M3-05-20260811.md`: Pass.
+`artifacts/gates/M3-06-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, and short-lived health/current-authority route planning are implemented. Provider setup/live validation beyond deterministic profiles, durable health observation, audit/run state, cumulative reservation, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, and durable run/attempt admission are implemented. Durable health observation, cross-run cumulative accounting/reconciliation, start leases, exact adapter execution, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -91,6 +94,6 @@ gate open and all public model/tool invocation disabled.
 
 ## Exact next action
 
-Continue Milestone 3 with durable model run/attempt state, redacted audit, cumulative budget
-reservation, immutable snapshots, and typed cancellation/stop behavior. Do not expose public
-model invocation before those boundaries and exact plan consumption are connected.
+Add durable start leases and an atomic cross-run reservation ledger, re-read exact provider and
+destination authority at start, and execute only the internally resolved adapter while persisting
+stream/usage/terminal evidence. Do not expose public model invocation before those boundaries pass.

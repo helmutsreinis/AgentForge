@@ -5,6 +5,7 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
@@ -1862,6 +1863,63 @@ public sealed class PersistenceFoundationTests : IDisposable
         var evaluation = upgradedScope.ServiceProvider.GetRequiredService<ICapabilityPolicyEvaluator>()
             .Evaluate(contextResult.Value, policy, legacy, Now);
         Assert.Equal(CapabilityDecision.RequireApproval, evaluation.Decision);
+    }
+
+    [Fact]
+    public async Task Model_run_admission_migration_preserves_existing_agent_authority()
+    {
+        var installationId = new InstallationId(Guid.Parse("c524a0f3-ce8a-4d67-81fe-a266a6e95610"));
+        var providerId = new ProviderProfileId(Guid.Parse("df271180-1c3e-40ed-92f5-4449aeeb9614"));
+        var agentId = new AgentIdentityId(Guid.Parse("134bd2cd-a8b1-4e84-a956-dac27e973d86"));
+        await using (var previousSchemaScope = _services.CreateAsyncScope())
+        {
+            var context = previousSchemaScope.ServiceProvider.GetRequiredService<AgentForgeDbContext>();
+            await context.Database.GetService<IMigrator>()
+                .MigrateAsync("20260811071446_PolicyBoundToolInvocations", CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IInstallationRepository>()
+                .AddAsync(InstallationSnapshot.CreateUninitialized(
+                    installationId,
+                    Now,
+                    new ActorId("model-run-upgrade"),
+                    new CorrelationId("model-run-upgrade")), CancellationToken.None);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+                .AddAsync(CreateProviderProfile(installationId, providerId, "model-run-upgrade"), CancellationToken.None);
+            var candidate = CreateAgentCandidate(providerId);
+            await previousSchemaScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .AddAsync(new AgentIdentity(
+                    agentId,
+                    installationId,
+                    candidate.Name,
+                    candidate.Expertise,
+                    candidate.Mission,
+                    candidate.PreferredLanguage,
+                    candidate.TimeZone,
+                    candidate.ResponseStyle,
+                    candidate.DefaultWorkspace,
+                    candidate.ModelPolicy,
+                    candidate.MemoryPolicy,
+                    candidate.CapabilityPolicy,
+                    candidate.Budget,
+                    candidate.ChildLimits,
+                    candidate.LearningPolicy,
+                    0,
+                    Now,
+                    Now,
+                    new ActorId("model-run-upgrade"),
+                    new CorrelationId("model-run-upgrade")), CancellationToken.None);
+            Assert.True((await previousSchemaScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await InitializeAsync();
+        await using var upgradedScope = _services.CreateAsyncScope();
+        Assert.NotNull(await upgradedScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+            .FindByIdAsync(agentId, CancellationToken.None));
+        Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdempotencyKeyAsync(
+                installationId,
+                "missing-run",
+                CancellationToken.None));
     }
 
     [Fact]

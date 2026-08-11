@@ -1,9 +1,13 @@
+using System.Text;
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Audit;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
@@ -107,6 +111,184 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Assert.Equal(71, result.Value.PlanEvidenceHash.Length);
     }
 
+    [Fact]
+    public async Task Model_run_admission_reserves_atomically_and_replays_without_prompt_persistence()
+    {
+        await SeedAsync();
+        const string prompt = "unique admission prompt that must never enter durable storage";
+        const string credential = "sk-" + "1234567890abcdefghijklmnop";
+        var admission = Admission($"{prompt}; password={credential}", "admission-001");
+
+        ModelRunAdmissionResult first;
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            var result = await scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            first = result.Value;
+            Assert.False(first.IsIdempotentReplay);
+            Assert.Equal(ModelRunState.Reserved, first.Aggregate.Run.State);
+            Assert.Equal(ModelRunAttemptState.Planned, first.Aggregate.Attempt.State);
+            Assert.True(first.Aggregate.Run.ContextRedactionCount >= 1);
+            Assert.Equal(200, first.Aggregate.Run.Reservation.InputTokens);
+            Assert.Equal(100, first.Aggregate.Run.Reservation.OutputTokens);
+        }
+
+        await using (var replayScope = Services.CreateAsyncScope())
+        {
+            var replay = await replayScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None);
+            Assert.True(replay.IsSuccess, replay.Failure?.Message);
+            Assert.True(replay.Value.IsIdempotentReplay);
+            Assert.Equal(first.Aggregate.Run.Id, replay.Value.Aggregate.Run.Id);
+
+            var persisted = await replayScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .FindByIdAsync(first.Aggregate.Run.Id, CancellationToken.None);
+            Assert.NotNull(persisted);
+            Assert.Equal(first.Aggregate.Run.Id, persisted.Run.Id);
+            Assert.Equal(first.Aggregate.Attempt.Id, persisted.Attempt.Id);
+            Assert.Equal(first.Aggregate.Run.AdmissionRequestHash, persisted.Run.AdmissionRequestHash);
+            Assert.Equal(
+                first.Aggregate.Run.Route.RequiredCapabilities.OrderBy(item => item),
+                persisted.Run.Route.RequiredCapabilities.OrderBy(item => item));
+            var audit = Assert.Single(await replayScope.ServiceProvider.GetRequiredService<IAuditReader>()
+                .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+            Assert.Equal("model.run-reserved", audit.OperationType);
+            Assert.Contains(first.Aggregate.Run.PlanEvidenceHash, audit.Input.Json, StringComparison.Ordinal);
+            Assert.True((await replayScope.ServiceProvider.GetRequiredService<IAuditIntegrityVerifier>()
+                .VerifyAsync(CancellationToken.None)).IsValid);
+        }
+
+        var databaseBytes = await File.ReadAllBytesAsync(Path.Combine(_directory, "agentforge.db"));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(prompt)));
+        Assert.Equal(-1, databaseBytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(credential)));
+    }
+
+    [Fact]
+    public async Task Model_run_idempotency_conflict_and_planning_failure_write_nothing_new()
+    {
+        await SeedAsync();
+        await using var scope = Services.CreateAsyncScope();
+        var service = scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>();
+        var first = await service.AdmitAsync(Admission("first request", "admission-conflict"), CancellationToken.None);
+        Assert.True(first.IsSuccess, first.Failure?.Message);
+
+        var conflict = await service.AdmitAsync(
+            Admission("changed request", "admission-conflict"),
+            CancellationToken.None);
+        var deniedPlan = await service.AdmitAsync(
+            Admission("wrong authority", "admission-denied") with
+            {
+                PlanningRequest = Admission("wrong authority", "admission-denied").PlanningRequest with
+                {
+                    ExpectedAgentVersion = 999,
+                },
+            },
+            CancellationToken.None);
+
+        Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
+        Assert.Equal(FailureCode.ConcurrencyConflict, deniedPlan.Failure?.Code);
+        Assert.Null(await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdempotencyKeyAsync(InstallationId, "admission-denied", CancellationToken.None));
+        Assert.Single(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Concurrent_exact_admissions_converge_on_one_run_and_one_audit_event()
+    {
+        await SeedAsync();
+        var admission = Admission("concurrent exact request", "admission-race");
+
+        var results = await Task.WhenAll(AdmitInNewScopeAsync(admission), AdmitInNewScopeAsync(admission));
+
+        Assert.All(results, result => Assert.True(result.IsSuccess, result.Failure?.Message));
+        Assert.Single(results.Select(item => item.Value.Aggregate.Run.Id).Distinct());
+        Assert.Single(results, item => !item.Value.IsIdempotentReplay);
+        await using var verificationScope = Services.CreateAsyncScope();
+        Assert.Single(await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Sensitive_metadata_correlation_mismatch_and_precancellation_are_write_free()
+    {
+        await SeedAsync();
+        await using var scope = Services.CreateAsyncScope();
+        var service = scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>();
+        var sensitive = await service.AdmitAsync(
+            Admission("safe request", "password=must-not-be-metadata"),
+            CancellationToken.None);
+        var mismatch = Admission("safe request", "correlation-mismatch") with
+        {
+            CorrelationId = new CorrelationId("different-correlation"),
+        };
+        var mismatched = await service.AdmitAsync(mismatch, CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            service.AdmitAsync(Admission("safe request", "precanceled"), cancellation.Token));
+
+        Assert.Equal(FailureCode.ValidationFailure, sensitive.Failure?.Code);
+        Assert.Equal(FailureCode.ValidationFailure, mismatched.Failure?.Code);
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+        Assert.Null(await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdempotencyKeyAsync(InstallationId, "precanceled", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Started_and_completed_run_versions_and_usage_round_trip()
+    {
+        await SeedAsync();
+        ModelRunId runId;
+        await using (var scope = Services.CreateAsyncScope())
+        {
+            var admitted = await scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(Admission("transition round trip", "admission-transition"), CancellationToken.None);
+            Assert.True(admitted.IsSuccess, admitted.Failure?.Message);
+            runId = admitted.Value.Aggregate.Run.Id;
+            var started = ModelRunStateMachine.Start(
+                admitted.Value.Aggregate,
+                admitted.Value.Aggregate.Run.CreatedAt);
+            Assert.True(started.IsSuccess, started.Failure?.Message);
+            await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .UpdateAsync(started.Value, 0, 0, CancellationToken.None);
+            Assert.True((await scope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await using (var completionScope = Services.CreateAsyncScope())
+        {
+            var persisted = await completionScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .FindByIdAsync(runId, CancellationToken.None);
+            Assert.NotNull(persisted);
+            Assert.Equal(ModelRunState.Running, persisted.Run.State);
+            var completed = ModelRunStateMachine.Complete(
+                persisted,
+                new ModelUsage(120, 60, 0, 0.125m, "usd"),
+                ModelFinishReason.Stop,
+                persisted.Run.StartedAt!.Value.AddSeconds(1));
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            await completionScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+                .UpdateAsync(completed.Value, 1, 1, CancellationToken.None);
+            Assert.True((await completionScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        await using var verificationScope = Services.CreateAsyncScope();
+        var final = await verificationScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdAsync(runId, CancellationToken.None);
+        Assert.NotNull(final);
+        Assert.Equal(ModelRunState.Succeeded, final.Run.State);
+        Assert.Equal(ModelRunAttemptState.Succeeded, final.Attempt.State);
+        Assert.Equal(120, final.Run.Usage.InputTokens);
+        Assert.Equal(0.125m, final.Run.Usage.Cost);
+        Assert.Equal("USD", final.Run.Usage.Currency);
+        Assert.Equal(2, final.Run.Version);
+    }
+
     public async Task InitializeAsync()
     {
         var configuration = new ConfigurationBuilder()
@@ -123,6 +305,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         services.AddAgentForgeSetup(configuration);
         services.AddAgentForgePersistence(configuration);
         services.AddAgentForgeSecurity(configuration);
+        services.AddAgentForgeAudit();
         services.AddAgentForgeModels();
         services.AddSingleton<IModelProviderCatalog>(_ => ModelProviderCatalog.Create([
             new FakeProvider(Descriptor(runtimeNow)),
@@ -258,6 +441,35 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         "Current integration evidence.",
         observedAt.AddMinutes(-5),
         observedAt.AddMinutes(5));
+
+    private static ModelRunAdmissionRequest Admission(string prompt, string idempotencyKey)
+    {
+        var correlation = new CorrelationId("model-run-admission");
+        var request = new ModelRequest(
+            new ModelRequestId(Guid.Parse("7321b61a-4b71-45b2-b99c-b09ca7f9b19e")),
+            "authority-model",
+            [new ModelMessage(ModelMessageRole.User, [new ModelTextContent(prompt)])],
+            [],
+            new ModelResponseFormat(ModelResponseFormatKind.Text),
+            new ModelInvocationLimits(100, 0, 32, 30),
+            0,
+            1,
+            42,
+            correlation);
+        return new ModelRunAdmissionRequest(
+            new ModelRoutePlanningRequest(InstallationId, 7, AgentId, 3, request, 200, []),
+            new ActorId("model-worker"),
+            idempotencyKey,
+            correlation);
+    }
+
+    private async Task<DomainResult<ModelRunAdmissionResult>> AdmitInNewScopeAsync(
+        ModelRunAdmissionRequest request)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+            .AdmitAsync(request, CancellationToken.None);
+    }
 
     private sealed class FakeProvider(ModelProviderDescriptor descriptor) : IModelProvider
     {

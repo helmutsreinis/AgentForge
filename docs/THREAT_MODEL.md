@@ -480,3 +480,24 @@ fixtures rather than a durable circuit breaker. The production catalogs remain e
 provider is resolved. Durable run/attempt idempotency, cumulative budget reservation, audit,
 destination DNS/IP revalidation, health recording, and exact adapter resolution remain required
 before egress.
+
+## M3 durable model-run admission update
+
+Admission treats retry identity and durable evidence as a security boundary. Actor,
+idempotency, correlation, and causation values are bounded and rejected if credential-shaped;
+model correlation must exactly match the admission envelope. Context is redacted before its
+effective hash participates in the admission hash. Exact retries compare hashes in fixed time,
+while changed content, authority, history, actor, or correlation under the same installation key
+conflicts. A database uniqueness race cannot create two runs or two audit events.
+
+The short-lived plan must exactly match requested installation/agent/request versions and all
+four reservation dimensions. Run, first attempt, and redacted audit evidence commit atomically.
+The schema cannot store model messages, attachment bytes, endpoints, secret references,
+credentials, raw responses, or remote error bodies; byte-scan fixtures verify representative
+prompt and credential absence. Failed planning, invalid metadata, and pre-cancellation write
+nothing.
+
+Admission is not execution authority. There is no provider resolution, credential
+materialization, network call, public mutation, or reservation-start lease. Cumulative budget
+accounting across concurrent runs, exact destination revalidation, reservation reconciliation,
+retry/attempt expansion, and crash-safe stream checkpoints remain required before egress.

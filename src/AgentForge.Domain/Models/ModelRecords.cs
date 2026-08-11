@@ -148,7 +148,8 @@ public sealed record ModelRequest(
 public sealed record PreparedModelContext(
     ModelRequest Request,
     int RedactionCount,
-    string Policy);
+    string Policy,
+    string InputHash);
 
 public sealed record ModelCapabilityEvidence(
     ModelCapability Capability,
@@ -241,6 +242,10 @@ public sealed record ModelRoutePlan(
     int ContextRedactionCount,
     string ContextPreparationPolicy,
     string HealthEvidenceHash,
+    long ReservedInputTokens,
+    long ReservedOutputTokens,
+    int ReservedToolCalls,
+    int ReservedWallClockSeconds,
     DateTimeOffset PlannedAt,
     DateTimeOffset ValidUntil,
     string PlanEvidenceHash);

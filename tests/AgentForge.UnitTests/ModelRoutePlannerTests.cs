@@ -553,7 +553,11 @@ public sealed class ModelRoutePlannerTests
             CallCount++;
             if (!redact)
             {
-                return DomainResult.Success(new PreparedModelContext(request, 0, "test-context-v1"));
+                return DomainResult.Success(new PreparedModelContext(
+                    request,
+                    0,
+                    "test-context-v1",
+                    "sha256:" + new string('c', 64)));
             }
 
             var prepared = request with
@@ -563,7 +567,11 @@ public sealed class ModelRoutePlannerTests
                     new ModelMessage(ModelMessageRole.User, [new ModelTextContent("[REDACTED]")]),
                 ],
             };
-            return DomainResult.Success(new PreparedModelContext(prepared, 1, "test-context-v1"));
+            return DomainResult.Success(new PreparedModelContext(
+                prepared,
+                1,
+                "test-context-v1",
+                "sha256:" + new string('d', 64)));
         }
     }
 

@@ -25,6 +25,10 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ToolInvocationEntity> ToolInvocations => Set<ToolInvocationEntity>();
 
+    internal DbSet<ModelRunEntity> ModelRuns => Set<ModelRunEntity>();
+
+    internal DbSet<ModelRunAttemptEntity> ModelRunAttempts => Set<ModelRunAttemptEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -239,6 +243,69 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.CausationId).HasMaxLength(128);
             entity.Property(item => item.StandardOutputHash).HasMaxLength(71);
             entity.Property(item => item.StandardErrorHash).HasMaxLength(71);
+            entity.Property(item => item.FailureCode).HasMaxLength(64);
+            entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ModelRunEntity>(entity =>
+        {
+            entity.ToTable("model_runs");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ProviderProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.CreatedAtUtcTicks });
+            entity.Property(item => item.ProviderType).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Model).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.RequiredCapabilitiesJson).HasMaxLength(1024).IsRequired();
+            entity.Property(item => item.SelectionEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PlanEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PreparedInputHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.HealthEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ContextPreparationPolicy).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.AdmissionRequestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.Currency).HasMaxLength(3);
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+            entity.Property(item => item.FinishReason).HasMaxLength(64);
+            entity.Property(item => item.FailureCode).HasMaxLength(64);
+            entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<ModelRunAttemptEntity>(entity =>
+        {
+            entity.ToTable("model_run_attempts");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<ModelRunEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.RunId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ProviderProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.RunId, item.Sequence }).IsUnique();
+            entity.Property(item => item.ProviderType).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Model).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.RequiredCapabilitiesJson).HasMaxLength(1024).IsRequired();
+            entity.Property(item => item.SelectionEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PlanEvidenceHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Currency).HasMaxLength(3);
+            entity.Property(item => item.FinishReason).HasMaxLength(64);
             entity.Property(item => item.FailureCode).HasMaxLength(64);
             entity.Property(item => item.Version).IsConcurrencyToken();
         });

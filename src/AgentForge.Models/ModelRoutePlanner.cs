@@ -230,6 +230,10 @@ public sealed class ModelRoutePlanner(
             prepared.Value.RedactionCount,
             prepared.Value.Policy,
             finalHealthHash,
+            request.EstimatedInputTokens,
+            prepared.Value.Request.Limits.MaximumOutputTokens,
+            prepared.Value.Request.Limits.MaximumToolCalls,
+            prepared.Value.Request.Limits.MaximumWallClockSeconds,
             plannedAt,
             validUntil,
             planHash));
@@ -594,6 +598,10 @@ public sealed class ModelRoutePlanner(
             prepared.RedactionCount,
             prepared.Policy,
             healthHash,
+            request.EstimatedInputTokens,
+            ReservedOutputTokens = prepared.Request.Limits.MaximumOutputTokens,
+            ReservedToolCalls = prepared.Request.Limits.MaximumToolCalls,
+            ReservedWallClockSeconds = prepared.Request.Limits.MaximumWallClockSeconds,
             plannedAt,
             validUntil,
         });

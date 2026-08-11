@@ -46,7 +46,7 @@ passing gate report.
 | AF-MODEL-001 | Provider-neutral contracts support streaming, structured output, tools, usage, cancellation, fallback, and hosted/local providers. | 3 | In progress |
 | AF-MODEL-002 | Routing uses the intersection of declared, observed, configured, and policy-approved capabilities and respects data locality. | 3 | In progress |
 | AF-MULTI-001 | Media is routed only to an approved capable model/extractor or returns typed UnsupportedCapability; media is never silently dropped. | 3 | In progress |
-| AF-RUN-001 | The typed agent loop persists immutable run snapshots, budgets, stop conditions, cancellation, loop detection, and typed results. | 3 | Planned |
+| AF-RUN-001 | The typed agent loop persists immutable run snapshots, budgets, stop conditions, cancellation, loop detection, and typed results. | 3 | In progress |
 | AF-TASK-001 | Work is a durable DAG with checkpoints, leases, heartbeats, bounded retry, idempotency, compensation, interruption recovery, and evidence. | 4 | Planned |
 | AF-TASK-002 | Delegation bounds depth/count/concurrency and gives children only intersected context, capability, and budget. | 4 | Planned |
 | AF-SCHED-001 | Durable one-shot, interval, cron-like, and calendar schedules handle timezone/DST, misfire, overlap, idempotency, pause/resume, and preview. | 4 | Planned |
