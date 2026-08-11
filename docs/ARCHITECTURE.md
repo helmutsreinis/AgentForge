@@ -338,8 +338,28 @@ attempt as retryable failure, release its ledger reservation, append recovery au
 bounded observed provider-health failure. Normal success records healthy evidence; retryable
 external failure records temporary unavailability; cancellation and non-provider failures write no
 health judgment. One versioned `model_provider_health` row per profile is the default scoped route-
-planning source. Background lease scanning, takeover, additional attempts/failover, cross-attempt
-cost accounting, and destination/DNS revalidation remain later boundaries.
+planning source. Background lease scanning, takeover, and destination/DNS revalidation remain
+later boundaries.
+
+## Bounded model retry and failover
+
+Admission binds an explicit maximum attempt count into the request hash and immutable total run
+reservation. Each attempt has a separate reservation and row. The current aggregate exposes the
+latest attempt while `ListAttemptsAsync` returns the append-only ordered history. Exact agent
+authority caps maximum turns and the multiplied input/output/tool/wall budget before reservation.
+
+A retryable external failure commits before retry planning. The next route plan includes every
+prior exact profile as an ordered exclusion, so a profile cannot be contacted twice. Current health,
+data locality, fallback permission, capability, context, cost, and latency rules are re-applied. The
+retry state machine accepts only a fresh plan whose attempted list is the prior list plus the current
+failed profile, whose new profile is distinct, and whose per-attempt reservation fits the remaining
+total budget. Run update, new planned attempt, and retry audit then commit atomically.
+
+The ledger reserves and reconciles the current attempt only. Run usage, normalized cost/currency,
+stream count/chained hash, and wall time accumulate across terminal attempts. Policy can therefore
+end a retryable run after one attempt even when the numeric limit is higher; inability to select a
+fallback never authorizes policy weakening. Typed loop snapshots and post-attempt verification are
+still separate.
 
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence

@@ -2032,6 +2032,9 @@ public sealed class PersistenceFoundationTests : IDisposable
         Assert.Null(upgraded.Run.Lease);
         Assert.Equal(ModelRunStreamEvidence.Empty, upgraded.Run.StreamEvidence);
         Assert.Equal(ModelRunStreamEvidence.Empty, upgraded.Attempt.StreamEvidence);
+        Assert.Equal(1, upgraded.Run.MaximumAttempts);
+        Assert.Equal(0, upgraded.Run.ConsumedWallClockSeconds);
+        Assert.Equal(upgraded.Run.Reservation, upgraded.Attempt.Reservation);
         Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
             .FindAsync(agentId, CancellationToken.None));
         Assert.Null(await upgradedScope.ServiceProvider.GetRequiredService<IModelProviderHealthRepository>()

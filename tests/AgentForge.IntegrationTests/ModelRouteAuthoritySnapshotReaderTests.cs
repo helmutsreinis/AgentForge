@@ -32,11 +32,14 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Guid.Parse("60992f5f-a83b-4734-8d98-0151a251f92b"));
     private static readonly ProviderProfileId ProviderId = new(
         Guid.Parse("861745e5-7408-4310-879c-2d8fa97c043f"));
+    private static readonly ProviderProfileId FallbackProviderId = new(
+        Guid.Parse("e6431550-1c96-41ab-bb28-b18f57d3134c"));
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(),
         $"agentforge-route-authority-{Guid.NewGuid():N}");
     private ServiceProvider? _services;
     private RecordingProvider? _provider;
+    private RecordingProvider? _fallbackProvider;
 
     [Fact]
     public async Task Reads_installation_agent_and_provider_profiles_in_one_durable_snapshot()
@@ -52,7 +55,8 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         Assert.Equal(7, result.Value.Installation.Version);
         Assert.Equal(AgentId, result.Value.Agent.Id);
         Assert.Equal(3, result.Value.Agent.Version);
-        var profile = Assert.Single(result.Value.ProviderProfiles);
+        Assert.Equal(2, result.Value.ProviderProfiles.Count);
+        var profile = Assert.Single(result.Value.ProviderProfiles, item => item.Id == ProviderId);
         Assert.Equal(ProviderId, profile.Id);
         Assert.Equal(4, profile.Version);
         Assert.Equal("authority-model", profile.Model);
@@ -178,6 +182,9 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         var conflict = await service.AdmitAsync(
             Admission("changed request", "admission-conflict"),
             CancellationToken.None);
+        var retryPolicyConflict = await service.AdmitAsync(
+            Admission("first request", "admission-conflict", maximumAttempts: 2),
+            CancellationToken.None);
         var deniedPlan = await service.AdmitAsync(
             Admission("wrong authority", "admission-denied") with
             {
@@ -189,10 +196,29 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             CancellationToken.None);
 
         Assert.Equal(FailureCode.ConcurrencyConflict, conflict.Failure?.Code);
+        Assert.Equal(FailureCode.ConcurrencyConflict, retryPolicyConflict.Failure?.Code);
         Assert.Equal(FailureCode.ConcurrencyConflict, deniedPlan.Failure?.Code);
         Assert.Null(await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
             .FindByIdempotencyKeyAsync(InstallationId, "admission-denied", CancellationToken.None));
         Assert.Single(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Retry_policy_that_exceeds_total_agent_budget_is_write_free()
+    {
+        await SeedAsync(allowFallback: true);
+        await using var scope = Services.CreateAsyncScope();
+
+        var result = await scope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+            .AdmitAsync(
+                Admission("oversized retry budget", "admission-retry-budget", maximumAttempts: 3),
+                CancellationToken.None);
+
+        Assert.Equal(FailureCode.BudgetExceeded, result.Failure?.Code);
+        Assert.Null(await scope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .FindByIdempotencyKeyAsync(InstallationId, "admission-retry-budget", CancellationToken.None));
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<IAuditReader>()
             .ReadAsync(InstallationId, 0, 10, CancellationToken.None));
     }
 
@@ -434,6 +460,114 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Retryable_primary_failure_fails_over_once_and_accumulates_exact_attempt_evidence()
+    {
+        await SeedAsync(allowFallback: true);
+        _provider!.FailAtCompletion = true;
+        var admission = Admission("bounded fallback fixture", "execution-fallback", maximumAttempts: 2);
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            var result = await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            admitted = result.Value;
+            Assert.Equal(2, admitted.Aggregate.Run.MaximumAttempts);
+            Assert.Equal(400, admitted.Aggregate.Run.Reservation.InputTokens);
+            Assert.Equal(200, admitted.Aggregate.Run.Reservation.OutputTokens);
+            Assert.Equal(200, admitted.Aggregate.Attempt.Reservation.InputTokens);
+        }
+
+        ModelRunExecutionResult executed;
+        await using (var executionScope = Services.CreateAsyncScope())
+        {
+            var result = await executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+                .ExecuteAsync(Execution(admitted, admission), null, CancellationToken.None);
+            Assert.True(result.IsSuccess, result.Failure?.Message);
+            executed = result.Value;
+        }
+
+        Assert.Equal(ModelRunState.Succeeded, executed.Aggregate.Run.State);
+        Assert.Equal(2, executed.Aggregate.Attempt.Sequence);
+        Assert.Equal(FallbackProviderId, executed.Aggregate.Attempt.Route.ProfileId);
+        Assert.Equal([ProviderId], executed.Aggregate.Run.AttemptedProfileIds);
+        Assert.Equal(240, executed.Aggregate.Run.Usage.InputTokens);
+        Assert.Equal(120, executed.Aggregate.Run.Usage.OutputTokens);
+        Assert.Equal(0.25m, executed.Aggregate.Run.Usage.Cost);
+        Assert.Equal(8, executed.Aggregate.Run.StreamEvidence.EventCount);
+        Assert.Equal(120, executed.Aggregate.Attempt.Usage.InputTokens);
+        Assert.Equal(1, _provider.InvocationCount);
+        Assert.Equal(1, _fallbackProvider?.InvocationCount);
+
+        await using var verificationScope = Services.CreateAsyncScope();
+        var attempts = await verificationScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .ListAttemptsAsync(executed.Aggregate.Run.Id, CancellationToken.None);
+        Assert.Equal(2, attempts.Count);
+        Assert.Equal(ModelRunAttemptState.Failed, attempts[0].State);
+        Assert.True(attempts[0].IsRetryable);
+        Assert.Equal(ProviderId, attempts[0].Route.ProfileId);
+        Assert.Equal(ModelRunAttemptState.Succeeded, attempts[1].State);
+        Assert.Equal(FallbackProviderId, attempts[1].Route.ProfileId);
+        Assert.Equal(120, attempts[0].Usage.InputTokens);
+        Assert.Equal(120, attempts[1].Usage.InputTokens);
+
+        var ledger = await verificationScope.ServiceProvider.GetRequiredService<IModelBudgetLedgerRepository>()
+            .FindAsync(AgentId, CancellationToken.None);
+        Assert.NotNull(ledger);
+        Assert.Equal(0, ledger.ActiveRuns);
+        Assert.Equal(2, ledger.Consumption.CompletedRuns);
+        Assert.Equal(240, ledger.Consumption.InputTokens);
+        Assert.Equal(120, ledger.Consumption.OutputTokens);
+        Assert.Equal(8, ledger.Consumption.Events);
+
+        var health = verificationScope.ServiceProvider.GetRequiredService<IModelProviderHealthRepository>();
+        Assert.Equal(
+            ModelProviderHealthStatus.TemporarilyUnavailable,
+            (await health.FindAsync(ProviderId, CancellationToken.None))?.Evidence.Status);
+        Assert.Equal(
+            ModelProviderHealthStatus.Healthy,
+            (await health.FindAsync(FallbackProviderId, CancellationToken.None))?.Evidence.Status);
+        var audit = await verificationScope.ServiceProvider.GetRequiredService<IAuditReader>()
+            .ReadAsync(InstallationId, 0, 20, CancellationToken.None);
+        Assert.Equal(
+            [
+                "model.run-reserved",
+                "model.run-started",
+                "model.run-completed",
+                "model.run-retry-planned",
+                "model.run-started",
+                "model.run-completed",
+            ],
+            audit.Select(item => item.OperationType));
+    }
+
+    [Fact]
+    public async Task Retry_budget_cannot_override_agent_fallback_policy()
+    {
+        await SeedAsync(allowFallback: false);
+        _provider!.FailAtCompletion = true;
+        var admission = Admission("fallback policy fixture", "execution-fallback-denied", maximumAttempts: 2);
+        ModelRunAdmissionResult admitted;
+        await using (var admissionScope = Services.CreateAsyncScope())
+        {
+            admitted = (await admissionScope.ServiceProvider.GetRequiredService<IModelRunAdmissionService>()
+                .AdmitAsync(admission, CancellationToken.None)).Value;
+        }
+
+        await using var executionScope = Services.CreateAsyncScope();
+        var result = await executionScope.ServiceProvider.GetRequiredService<IModelRunExecutionService>()
+            .ExecuteAsync(Execution(admitted, admission), null, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        Assert.Equal(ModelRunState.Failed, result.Value.Aggregate.Run.State);
+        Assert.Equal(1, result.Value.Aggregate.Attempt.Sequence);
+        Assert.Equal(1, _provider.InvocationCount);
+        Assert.Equal(0, _fallbackProvider?.InvocationCount);
+        Assert.Single(await executionScope.ServiceProvider.GetRequiredService<IModelRunRepository>()
+            .ListAttemptsAsync(admitted.Aggregate.Run.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Caller_cancellation_persists_canceled_terminal_evidence_and_releases_reservation()
     {
         await SeedAsync();
@@ -530,7 +664,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
                 .AdmitAsync(admission, CancellationToken.None)).Value.Aggregate;
             var reserved = ModelBudgetLedgerStateMachine.Reserve(
                 null,
-                admitted.Run,
+                admitted,
                 new AgentBudget(8, 4, 4_096, 1_024, 60),
                 admitted.Run.CreatedAt);
             Assert.True(reserved.IsSuccess, reserved.Failure?.Message);
@@ -647,7 +781,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         services.AddAgentForgeAudit();
         services.AddAgentForgeModels();
         var deterministic = DeterministicModelProvider.Create(
-            Descriptor(runtimeNow),
+            Descriptor(runtimeNow, ProviderId, "authority-fixture", reliability: 9_500),
             new DeterministicModelScript(
             [
                 new DeterministicTextStep("execution output that must remain outside durable storage"),
@@ -655,12 +789,30 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             ]),
             new RuntimeClock()).Value;
         _provider = new RecordingProvider(deterministic);
+        var fallback = DeterministicModelProvider.Create(
+            Descriptor(runtimeNow, FallbackProviderId, "fallback-fixture", reliability: 9_000),
+            new DeterministicModelScript(
+            [
+                new DeterministicTextStep("fallback execution output"),
+                new DeterministicUsageStep(new ModelUsage(120, 60, 0, 0.125m, "usd")),
+            ]),
+            new RuntimeClock()).Value;
+        _fallbackProvider = new RecordingProvider(fallback);
         services.AddSingleton<IModelProviderCatalog>(_ => ModelProviderCatalog.Create([
             _provider,
+            _fallbackProvider,
         ]).Value);
         services.AddSingleton<IModelProviderHealthSource>(_ => ModelProviderHealthCatalog.Create([
             new ModelProviderHealthEvidence(
                 ProviderId,
+                ModelProviderHealthStatus.Healthy,
+                ModelHealthEvidenceSource.Probed,
+                0,
+                "probe-ok",
+                runtimeNow.AddMinutes(-1),
+                runtimeNow.AddMinutes(1)),
+            new ModelProviderHealthEvidence(
+                FallbackProviderId,
                 ModelProviderHealthStatus.Healthy,
                 ModelHealthEvidenceSource.Probed,
                 0,
@@ -698,7 +850,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
     private ServiceProvider Services => _services ??
         throw new InvalidOperationException("The test service provider has not been initialized.");
 
-    private async Task SeedAsync()
+    private async Task SeedAsync(bool allowFallback = false)
     {
         await using (var installationScope = Services.CreateAsyncScope())
         {
@@ -731,6 +883,20 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             Now,
             new ActorId("operator"),
             new CorrelationId("authority-provider"));
+        var fallbackProfile = new ProviderProfile(
+            FallbackProviderId,
+            InstallationId,
+            "fallback-provider",
+            "fallback-fixture",
+            new Uri("https://fallback-models.example.test/v1/chat/completions"),
+            "authority-model",
+            new SecretReference("fixture", "provider/fallback"),
+            new ProviderCapabilitySummary(true, true, true, false, "probed"),
+            2,
+            Now.AddDays(-1),
+            Now,
+            new ActorId("operator"),
+            new CorrelationId("fallback-provider"));
         var agent = new AgentIdentity(
             AgentId,
             InstallationId,
@@ -741,7 +907,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             "Europe/Kiev",
             "concise",
             null,
-            new AgentModelPolicy(ProviderId, ModelDataLocality.CloudAllowed, false),
+            new AgentModelPolicy(ProviderId, ModelDataLocality.CloudAllowed, allowFallback),
             new AgentMemoryPolicy(AgentMemoryScope.Task, 30),
             new AgentCapabilityPolicy(NetworkPosture.Denied, [], []),
             new AgentBudget(8, 4, 4_096, 1_024, 60),
@@ -754,15 +920,21 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             new CorrelationId("authority-agent"));
         await identityScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
             .AddAsync(profile, CancellationToken.None);
+        await identityScope.ServiceProvider.GetRequiredService<IProviderProfileRepository>()
+            .AddAsync(fallbackProfile, CancellationToken.None);
         await identityScope.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
             .AddAsync(agent, CancellationToken.None);
         Assert.True((await identityScope.ServiceProvider.GetRequiredService<IUnitOfWork>()
             .CommitAsync(CancellationToken.None)).Succeeded);
     }
 
-    private static ModelProviderDescriptor Descriptor(DateTimeOffset observedAt) => new(
-        ProviderId,
-        "authority-fixture",
+    private static ModelProviderDescriptor Descriptor(
+        DateTimeOffset observedAt,
+        ProviderProfileId profileId,
+        string providerType,
+        int reliability) => new(
+        profileId,
+        providerType,
         "authority-model",
         [
             Capability(ModelCapability.TextGeneration, observedAt),
@@ -773,7 +945,7 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             ModelCapabilityEvidenceSource.PolicyApproved,
             8_192,
             1_024,
-            9_500,
+            reliability,
             1,
             2,
             200,
@@ -790,7 +962,10 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
         observedAt.AddMinutes(-5),
         observedAt.AddMinutes(5));
 
-    private static ModelRunAdmissionRequest Admission(string prompt, string idempotencyKey)
+    private static ModelRunAdmissionRequest Admission(
+        string prompt,
+        string idempotencyKey,
+        int maximumAttempts = 1)
     {
         var correlation = new CorrelationId("model-run-admission");
         var request = new ModelRequest(
@@ -808,7 +983,9 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             new ModelRoutePlanningRequest(InstallationId, 7, AgentId, 3, request, 200, []),
             new ActorId("model-worker"),
             idempotencyKey,
-            correlation);
+            correlation,
+            null,
+            maximumAttempts);
     }
 
     private async Task<DomainResult<ModelRunAdmissionResult>> AdmitInNewScopeAsync(
@@ -840,6 +1017,8 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
 
         public bool CorruptSecondSequence { get; set; }
 
+        public bool FailAtCompletion { get; set; }
+
         public async IAsyncEnumerable<ModelStreamEvent> StreamAsync(
             ModelRequest request,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
@@ -849,9 +1028,25 @@ public sealed class ModelRouteAuthoritySnapshotReaderTests : IAsyncLifetime
             await foreach (var modelEvent in inner.StreamAsync(request, cancellationToken)
                 .WithCancellation(cancellationToken))
             {
-                yield return CorruptSecondSequence && index++ == 1
-                    ? modelEvent with { Sequence = 99 }
-                    : modelEvent;
+                if (CorruptSecondSequence && index++ == 1)
+                {
+                    yield return modelEvent with { Sequence = 99 };
+                }
+                else if (FailAtCompletion && modelEvent is ModelCompletedEvent completed)
+                {
+                    yield return new ModelErrorEvent(
+                        completed.RequestId,
+                        completed.Sequence,
+                        completed.Timestamp,
+                        new ModelProviderError(
+                            ModelProviderErrorCode.ProviderUnavailable,
+                            "deterministic primary outage",
+                            true));
+                }
+                else
+                {
+                    yield return modelEvent;
+                }
             }
         }
     }

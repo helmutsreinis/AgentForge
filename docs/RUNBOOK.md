@@ -346,6 +346,18 @@ before resolving a catalog adapter. Leave both production catalogs empty. A late
 only the exact profile that produced a typed retryable failure, up to eight unique attempts,
 while retaining the original prepared request and expected policy versions.
 
+Admission now accepts a bounded maximum attempt count, but that number cannot enable fallback. It is
+hashed into idempotency and multiplied against per-attempt token/tool/time reservations; the total
+must fit current agent limits. On retry, preserve every prior attempt row and let the internal service
+append only the exact failed profile to the exclusion list. Never edit attempted IDs, reset a failed
+attempt to planned, change locality, or reuse an earlier profile. A policy-denied or unavailable
+fallback leaves the durable failed attempt as the final result.
+
+Inspect retry evidence through the run repository: the aggregate returns the latest attempt and the
+ordered history returns all attempts. The run usage/cost/event/wall fields are cumulative; each
+attempt field and ledger reconciliation is per-attempt. A mismatch is corruption, not a reason to
+recalculate or delete state.
+
 Model run admission now persists a `Reserved` run and `Planned` first attempt together with one
 redacted audit event. It is still an internal service with no CLI/API route. Exact retries must
 reuse the installation-scoped idempotency key and all original authority, request, actor, and
@@ -384,7 +396,7 @@ The test is skipped when either variable is absent. These variables are endpoint
 metadata only; this credential-free gate accepts no API key or authorization header.
 
 Before public runtime enablement, add hosted destination DNS/IP controls, automatic expired-lease
-scanning, retry/failover, and cross-attempt usage/cost accounting.
+scanning, and the typed durable loop with verification/no-progress evidence.
 Setup profile acceptance alone does not compose an adapter.
 
 ## SQLite migration and cold backup
@@ -441,6 +453,11 @@ Migration 0011 creates the versioned provider-health table with exact installati
 attempt provenance and bounded circuit-breaker timestamps. It fabricates no evidence for existing
 runs. Its down migration destroys health provenance. Restore the full pre-0011 backup rather than
 applying down; never edit health rows to force routing.
+
+Migration 0012 adds total attempt limits/cumulative wall evidence and per-attempt reservations. It
+backfills existing single attempts from their parent run and assigns maximum one. Its down migration
+destroys retry accounting. Restore the full pre-0012 backup rather than applying down; never delete
+attempt history to force failover.
 
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a

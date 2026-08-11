@@ -20,6 +20,11 @@ public interface IModelRunRepository
         long expectedAttemptVersion,
         CancellationToken cancellationToken);
 
+    ValueTask AppendAttemptAsync(
+        ModelRunAggregate aggregate,
+        long expectedRunVersion,
+        CancellationToken cancellationToken);
+
     ValueTask<ModelRunAggregate?> FindByIdAsync(
         ModelRunId runId,
         CancellationToken cancellationToken);
@@ -27,5 +32,9 @@ public interface IModelRunRepository
     ValueTask<ModelRunAggregate?> FindByIdempotencyKeyAsync(
         InstallationId installationId,
         string idempotencyKey,
+        CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<ModelRunAttemptRecord>> ListAttemptsAsync(
+        ModelRunId runId,
         CancellationToken cancellationToken);
 }

@@ -4,9 +4,9 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Continue Milestone 3 with bounded retry/failover attempts, exact attempted-profile history, and
-cross-attempt usage/cost accounting. Keep the unavailable live container gate open and all public
-model/tool invocation disabled.
+Complete Milestone 3 with the typed observe/plan/act/verify/reflect/persist loop, immutable run
+snapshots, structured-output repair, no-progress detection, and remaining provider/runtime hardening.
+Keep the unavailable live container gate open and all public model/tool invocation disabled.
 
 ## Completed
 
@@ -80,17 +80,21 @@ model/tool invocation disabled.
 - M3 slice 8 added exact-owner/token monotonic heartbeats that never extend expiry and deterministic exact-version expired-lease recovery. Recovery records retryable failure at the persisted expiry while atomically releasing the shared agent reservation, writing bounded temporary provider-health evidence, and appending redacted audit.
 - Successful execution now writes five-minute observed healthy evidence; retryable external failure writes 15-minute temporary unavailability with capped exponential retry time; cancellation, policy, unsupported, and budget outcomes write no health judgment. The scoped SQLite repository is the default route-planning health source while the production provider catalog and public model surfaces remain closed.
 - Migration 0011 fabricates no health for prior runs. Pure and SQLite fixtures cover heartbeat ownership/token/time, raw-token absence, health reset/backoff/provenance, success/failure/cancellation classification, atomic crash recovery and duplicate denial, ledger release, audit integrity, DI lifetime, and prior-schema upgrade.
+- M3 slice 9 added one-to-eight idempotency-bound attempt limits, immutable total run reservations, per-attempt reservations and append-only history, exact failed-profile exclusions, current-policy failover planning, and atomic retry-plan audit before the next lease.
+- Run usage, normalized cost/currency, stream count/chained hash, and wall time now accumulate across attempts while the shared agent ledger reserves and reconciles each attempt independently. Current agent turns/token/tool/wall policy caps the multiplied total before admission.
+- Deterministic two-provider SQLite coverage proves primary retryable failure, unavailable health, exact fallback selection, successful second attempt, two immutable history rows, cumulative evidence, ledger release, and audit order. `AllowFallback=false`, total-budget overflow, history substitution, attempt exhaustion, and idempotency changes fail closed.
+- Migration 0012 assigns existing runs maximum one, backfills attempt reservations from their run, and fabricates no retry.
 
 ## Latest gate
 
-`artifacts/gates/M3-08-20260811.md`: Pass.
+`artifacts/gates/M3-09-20260811.md`: Pass.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
 - Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
-- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, shared reservation accounting, observed provider health, and internal adapter execution are implemented. Retries/failover, cross-attempt cost accounting, typed loop behavior, and public invocation remain disabled until their Milestone 3 gates pass.
+- Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, and internal adapter execution are implemented. Typed loop behavior and public invocation remain disabled until their Milestone 3 gates pass.
 - The browser surface is diagnostic-only. Interactive web setup, administrator sessions, nonce/CSRF protection, authenticated mutations, and CLI/web profile equivalence remain the Milestone 7 gate.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, and topology-preserving rollback restore are authenticated and snapshot-backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing entities through restore is intentionally denied.
@@ -101,6 +105,7 @@ model/tool invocation disabled.
 
 ## Exact next action
 
-Create bounded retry/failover attempts that retain exact attempted-profile history and reconcile
-cross-attempt usage/cost. Do not expose public model invocation before automatic crash scanning,
-retry accounting, and destination/DNS gates pass.
+Add immutable run snapshots and the typed observe/plan/act/verify/reflect/persist loop with total
+turn/tool/token/time budgets, cancellation, structured-output repair, and no-progress detection.
+Do not expose public model invocation before loop, automatic crash scanning, and destination/DNS
+gates pass.

@@ -108,7 +108,7 @@ internal sealed class ModelRunRecoveryService(
 
         var reconciled = ModelBudgetLedgerStateMachine.Reconcile(
             currentLedger,
-            recovered.Value.Run,
+            recovered.Value,
             recoveredAt);
         if (!reconciled.IsSuccess)
         {

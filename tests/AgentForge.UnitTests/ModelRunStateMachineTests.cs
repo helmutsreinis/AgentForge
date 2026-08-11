@@ -312,9 +312,103 @@ public sealed class ModelRunStateMachineTests
             Now.AddSeconds(10)).IsSuccess);
     }
 
-    private static ModelRunAggregate Start()
+    [Fact]
+    public void Retry_appends_exact_history_and_accumulates_usage_cost_stream_and_wall_time()
     {
-        var reserved = Reserve(CreatePlan()).Value;
+        var first = Start(maximumAttempts: 2);
+        var failed = ModelRunStateMachine.Fail(
+            first,
+            LeaseToken,
+            new DomainFailure(FailureCode.RecoverableExternalFailure, "fixture", true),
+            new ModelUsage(100, 50, 0, 0.25m, "usd"),
+            StreamEvidence,
+            Now.AddSeconds(2)).Value;
+        var nextProfile = new ProviderProfileId(Guid.Parse("0309a840-cadb-4940-8f46-f2fb2411a8cb"));
+        var retryPlan = CreatePlan() with
+        {
+            AttemptedProfileIds = [failed.Attempt.Route.ProfileId],
+            Route = failed.Run.Route with
+            {
+                ProfileId = nextProfile,
+                IsFallback = true,
+                SelectionEvidenceHash = HashB,
+            },
+            PlannedAt = Now.AddSeconds(3),
+            ValidUntil = Now.AddSeconds(8),
+            PlanEvidenceHash = HashC,
+        };
+
+        var retry = ModelRunStateMachine.Retry(
+            failed,
+            new ModelRunAttemptId(Guid.Parse("34bc3d34-e1d4-461e-a0a6-46832ac5f0a9")),
+            retryPlan,
+            Now.AddSeconds(3));
+
+        Assert.True(retry.IsSuccess, retry.Failure?.Message);
+        Assert.Equal(ModelRunState.Reserved, retry.Value.Run.State);
+        Assert.Equal(2, retry.Value.Attempt.Sequence);
+        Assert.Equal([failed.Attempt.Route.ProfileId], retry.Value.Run.AttemptedProfileIds);
+        Assert.Equal(nextProfile, retry.Value.Attempt.Route.ProfileId);
+        Assert.Equal(100, retry.Value.Run.Usage.InputTokens);
+        Assert.Equal(2, retry.Value.Run.StreamEvidence.EventCount);
+        Assert.Equal(2, retry.Value.Run.ConsumedWallClockSeconds);
+        Assert.Null(retry.Value.Run.Lease);
+
+        var second = ModelRunStateMachine.Start(
+            retry.Value,
+            "model-worker",
+            LeaseToken,
+            Now.AddSeconds(4),
+            Now.AddSeconds(45)).Value;
+        var completed = ModelRunStateMachine.Complete(
+            second,
+            LeaseToken,
+            new ModelUsage(200, 75, 0, 0.50m, "USD"),
+            StreamEvidence,
+            ModelFinishReason.Stop,
+            Now.AddSeconds(6));
+
+        Assert.True(completed.IsSuccess, completed.Failure?.Message);
+        Assert.Equal(300, completed.Value.Run.Usage.InputTokens);
+        Assert.Equal(125, completed.Value.Run.Usage.OutputTokens);
+        Assert.Equal(0.75m, completed.Value.Run.Usage.Cost);
+        Assert.Equal("USD", completed.Value.Run.Usage.Currency);
+        Assert.Equal(4, completed.Value.Run.StreamEvidence.EventCount);
+        Assert.Equal(4, completed.Value.Run.ConsumedWallClockSeconds);
+        Assert.Equal(200, completed.Value.Attempt.Usage.InputTokens);
+        Assert.Equal(Now, completed.Value.Run.StartedAt);
+        Assert.Equal(Now.AddSeconds(4), completed.Value.Attempt.StartedAt);
+    }
+
+    [Fact]
+    public void Retry_rejects_exhausted_or_substituted_attempt_history()
+    {
+        var failed = ModelRunStateMachine.Fail(
+            Start(),
+            LeaseToken,
+            new DomainFailure(FailureCode.RecoverableExternalFailure, "fixture", true),
+            new ModelUsage(1, 2, 0, null, null),
+            StreamEvidence,
+            Now.AddSeconds(2)).Value;
+        var plan = CreatePlan() with
+        {
+            AttemptedProfileIds = [new ProviderProfileId(Guid.NewGuid())],
+            PlannedAt = Now.AddSeconds(3),
+            ValidUntil = Now.AddSeconds(8),
+        };
+
+        var retry = ModelRunStateMachine.Retry(
+            failed,
+            new ModelRunAttemptId(Guid.NewGuid()),
+            plan,
+            Now.AddSeconds(3));
+
+        Assert.Equal(FailureCode.InvalidStateTransition, retry.Failure?.Code);
+    }
+
+    private static ModelRunAggregate Start(int maximumAttempts = 1)
+    {
+        var reserved = Reserve(CreatePlan(), maximumAttempts: maximumAttempts).Value;
         var started = ModelRunStateMachine.Start(
             reserved,
             "model-worker",
@@ -327,7 +421,8 @@ public sealed class ModelRunStateMachineTests
 
     private static DomainResult<ModelRunAggregate> Reserve(
         ModelRoutePlan plan,
-        DateTimeOffset? at = null) =>
+        DateTimeOffset? at = null,
+        int maximumAttempts = 1) =>
         ModelRunStateMachine.Reserve(
             new ModelRunId(Guid.Parse("fcfd1394-b273-46d7-b713-3582361f1d76")),
             new ModelRunAttemptId(Guid.Parse("fc01dd06-8104-43d1-998b-2df9f65d5ac1")),
@@ -337,7 +432,8 @@ public sealed class ModelRunStateMachineTests
             "model-run-001",
             new CorrelationId("model-run"),
             null,
-            at ?? Now);
+            at ?? Now,
+            maximumAttempts);
 
     private static ModelRoutePlan CreatePlan(IReadOnlySet<ModelCapability>? capabilities = null) => new(
         new ModelRequestId(Guid.Parse("4662178b-31aa-44fc-9268-937268e58a97")),
