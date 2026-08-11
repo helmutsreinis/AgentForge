@@ -4,8 +4,8 @@ Updated: 2026-08-11
 
 ## Current objective
 
-Complete Milestone 3 provider/runtime hardening, then start durable task orchestration, delegation,
-fault recovery, and scheduling in Milestone 4.
+Finish the remaining named provider adapters for Milestone 3, then start durable task orchestration,
+delegation, fault recovery, and scheduling in Milestone 4.
 Keep the unavailable live container gate open and all public model/tool invocation disabled.
 
 ## Completed
@@ -87,10 +87,12 @@ Keep the unavailable live container gate open and all public model/tool invocati
 - M3 slice 10 introduced the independent `AgentForge.Runtime` module and a pure typed Observe/Plan/Act/Verify/Reflect/Persist state machine. Every accepted transition is an immutable canonical hash-chained snapshot containing exact installation/agent authority, total budget/consumption, turn, repair, progress, correlation, and typed terminal evidence.
 - Structured-output rejection repeats only the current phase within an explicit repair allowance. Persist alone advances turns and requires normalized progress evidence; repeated evidence, total turn/token/tool/wall exhaustion, cancellation, and executor failure become typed terminal snapshots. Completion requested during verification must still pass Reflect and Persist.
 - The SQLite store appends snapshots under loop/sequence and binds concurrent initial mutations through installation/idempotency/sequence uniqueness. A simulated process exit after Observe resumes at Plan in a new scope; completion appends seven self-consistent snapshots, and terminal or conflicting replay performs no execution. Migration 0013 preserves prior authority and fabricates no loop.
+- M3 slice 11 moved provider data-location enforcement into the actual socket connection. Each new production connection verifies the exact configured host/port, resolves once, rejects the complete answer if any address falls outside Loopback, PrivateNetwork, or Cloud policy, and connects directly to an approved address while TLS authenticates the configured hostname.
+- Conservative IPv4/IPv6 classification rejects loopback/private/link-local/carrier-NAT/multicast/benchmark/documentation rebinding shapes for cloud routes and rejects mixed answers for every route class. Hosted construction exact-matches policy-approved routing evidence before secret materialization. The private-LAN `qwen3.6` live gate passes through the policy-bound handler.
 
 ## Latest gate
 
-`artifacts/gates/M3-10-20260811.md`: Pass.
+`artifacts/gates/M3-11-20260811.md`: Pass.
 
 ## Known constraints and risks
 
@@ -108,6 +110,6 @@ Keep the unavailable live container gate open and all public model/tool invocati
 
 ## Exact next action
 
-Finish Milestone 3 hosted destination/DNS and provider-adapter gates without opening public
-invocation. Then create Milestone 4 task/DAG/checkpoint/lease state machines and deterministic
-kill-and-resume orchestration before adding delegation patterns or schedules.
+Add named OpenAI, Anthropic, DeepSeek, generic-compatible, and vLLM adapter profiles behind the
+existing contracts and destination boundary without opening public invocation. Then create
+Milestone 4 task/DAG/checkpoint/lease state machines and deterministic kill-and-resume orchestration.

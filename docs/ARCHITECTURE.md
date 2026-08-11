@@ -385,6 +385,19 @@ cancellation reaches a durable canceled snapshot. The default step executor retu
 `UnsupportedCapability`, so composition cannot initiate autonomous work. Task ownership, leases,
 automatic scanning, and DAG orchestration are Milestone 4 boundaries.
 
+## Provider destination connection boundary
+
+Production compatible HTTP adapters do not rely on profile-time DNS checks. Their sockets are
+created through a connect callback bound to the exact configured hostname, port, and declared data
+location. The callback resolves once, normalizes at most 64 answers, rejects the whole set if any
+address is outside the Loopback, PrivateNetwork, or Cloud class, and connects directly to an
+approved IP. The HTTP/TLS layer continues to authenticate and address the original hostname.
+
+This closes the DNS check/use gap and blocks mixed-answer rebinding to loopback, RFC1918/unique-local,
+link-local, carrier-NAT, multicast, benchmark, unspecified, or documentation ranges. Hosted
+construction also requires the chosen location to equal current policy-approved routing evidence.
+Proxy, redirects, cookies, ambient authentication, and automatic decompression remain disabled.
+
 Audit callers submit typed metadata plus raw structured payloads to the Audit module.
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,

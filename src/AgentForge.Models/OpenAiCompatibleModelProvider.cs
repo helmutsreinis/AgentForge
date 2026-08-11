@@ -54,10 +54,15 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(contextPreparer);
         ArgumentNullException.ThrowIfNull(clock);
+        if (!ValidateOptions(options))
+        {
+            return Invalid<OpenAiCompatibleModelProvider>("OpenAI-compatible endpoint or transport bounds are invalid.");
+        }
+
         return CreateCore(
             descriptor,
             options,
-            CreateSafeHandler(),
+            CreateSafeHandler(options),
             clock,
             contextPreparer,
             null,
@@ -85,7 +90,7 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
         return CreateCore(
             descriptor,
             options,
-            CreateSafeHandler(),
+            CreateSafeHandler(options),
             clock,
             contextPreparer,
             secretStore,
@@ -575,8 +580,10 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             return false;
         }
 
-        return profile.Capabilities.ToolCalls ==
-            ModelContractValidator.Supports(descriptor, ModelCapability.ToolCalls);
+        var destination = options.DestinationDataLocation ?? EndpointDestinationPolicy.Infer(options.ChatCompletionsEndpoint);
+        return descriptor.Routing is { } routing && routing.DataLocation == destination &&
+            routing.Source is ModelCapabilityEvidenceSource.PolicyApproved &&
+            profile.Capabilities.ToolCalls == ModelContractValidator.Supports(descriptor, ModelCapability.ToolCalls);
     }
 
     private ModelErrorEvent ErrorEvent(
@@ -647,20 +654,14 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
             options.MaximumEventBytes is >= 1024 and <= 4_194_304 &&
             options.MaximumResponseBytes >= options.MaximumEventBytes &&
             options.MaximumResponseBytes <= 268_435_456 &&
-            options.MaximumRequestBytes is >= 1024 and <= 16_777_216;
+            options.MaximumRequestBytes is >= 1024 and <= 16_777_216 &&
+            options.DestinationDataLocation is not ModelProviderDataLocation.InProcess;
     }
 
-    private static SocketsHttpHandler CreateSafeHandler() => new()
-    {
-        AllowAutoRedirect = false,
-        UseCookies = false,
-        UseProxy = false,
-        AutomaticDecompression = DecompressionMethods.None,
-        ConnectTimeout = TimeSpan.FromSeconds(10),
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        MaxConnectionsPerServer = 4,
-        MaxResponseHeadersLength = 16,
-    };
+    private static SocketsHttpHandler CreateSafeHandler(OpenAiCompatibleModelProviderOptions options) =>
+        PolicyBoundSocketsHttpHandler.Create(
+            options.ChatCompletionsEndpoint,
+            options.DestinationDataLocation ?? EndpointDestinationPolicy.Infer(options.ChatCompletionsEndpoint));
 
     private static bool IsExactResponseEndpoint(Uri? actual, Uri expected) =>
         actual is not null && Uri.Compare(

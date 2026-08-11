@@ -443,6 +443,21 @@ public sealed class OpenAiCompatibleModelProviderTests
         Assert.False(capabilityMismatch.IsSuccess);
         Assert.Equal(0, mismatchedStore.MaterializeCalls);
 
+        using var locationHandler = Handler((_, _) => throw new InvalidOperationException("Transport must not run."));
+        var locationMismatch = OpenAiCompatibleModelProvider.CreateHostedForTesting(
+            HostedProfile(mismatchedStore),
+            Descriptor(),
+            new OpenAiCompatibleModelProviderOptions(
+                HttpsEndpoint,
+                DestinationDataLocation: ModelProviderDataLocation.PrivateNetwork),
+            locationHandler,
+            ContextPreparer(),
+            mismatchedStore,
+            new FixedClock());
+
+        Assert.False(locationMismatch.IsSuccess);
+        Assert.Equal(0, mismatchedStore.MaterializeCalls);
+
         var unavailableStore = new TrackingSecretStore("unavailable-secret") { FailMaterialization = true };
         var transportCalls = 0;
         using var unavailableHandler = Handler((request, _) =>
@@ -553,7 +568,22 @@ public sealed class OpenAiCompatibleModelProviderTests
             Evidence(ModelCapability.Streaming),
         };
         capabilities.AddRange(optionalCapabilities.Select(Evidence));
-        return new ModelProviderDescriptor(ProfileId, "openai-compatible", "qwen3.6", capabilities);
+        return new ModelProviderDescriptor(
+            ProfileId,
+            "openai-compatible",
+            "qwen3.6",
+            capabilities,
+            new ModelProviderRoutingEvidence(
+                ModelProviderDataLocation.Cloud,
+                ModelCapabilityEvidenceSource.PolicyApproved,
+                32_768,
+                4_096,
+                9_500,
+                null,
+                null,
+                100,
+                Now.AddMinutes(-5),
+                Now.AddMinutes(5)));
     }
 
     private static ModelCapabilityEvidence Evidence(ModelCapability capability) => new(

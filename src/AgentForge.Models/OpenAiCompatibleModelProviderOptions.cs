@@ -7,4 +7,5 @@ public sealed record OpenAiCompatibleModelProviderOptions(
     bool DisableThinking = false,
     int MaximumEventBytes = 1_048_576,
     long MaximumResponseBytes = 16_777_216,
-    int MaximumRequestBytes = 8_388_608);
+    int MaximumRequestBytes = 8_388_608,
+    AgentForge.Domain.Models.ModelProviderDataLocation? DestinationDataLocation = null);

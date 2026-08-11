@@ -571,5 +571,19 @@ time prevent overflow from restoring authority.
 
 The default executor is deliberately unavailable and no API/CLI mutation exists. Remaining threats
 are a later governed step executor binding raw model/tool artifacts to their evidence hashes,
-lease-based task ownership and automatic recovery, hosted DNS/IP rebinding, and public runtime
-authentication/rate limiting.
+lease-based task ownership and automatic recovery, and public runtime authentication/rate limiting.
+
+## M3 provider-destination update
+
+The production HTTP handler owns DNS resolution and socket creation. It verifies exact host/port,
+rejects the complete DNS answer when any normalized address violates the route's Loopback,
+PrivateNetwork, or Cloud class, then connects directly to an approved IP. TLS continues to validate
+the original host. This prevents hostname re-resolution between a policy check and connection and
+blocks mixed-answer rebinding.
+
+Cloud classification fails closed for private, carrier-NAT, loopback, link-local, multicast,
+benchmark, unspecified, and documentation ranges; private and loopback classes accept only their
+exact address families. Hosted location substitution fails before credential materialization.
+Residual risks are compromised public routing, CA/TLS compromise, OS socket behavior, and already
+approved pooled connections within their five-minute lifetime. Container/firewall egress controls
+remain separate gates.

@@ -395,9 +395,15 @@ dotnet test tests/AgentForge.IntegrationTests --filter FullyQualifiedName~OpenAi
 The test is skipped when either variable is absent. These variables are endpoint/model
 metadata only; this credential-free gate accepts no API key or authorization header.
 
-Before public runtime enablement, add hosted destination DNS/IP controls, automatic expired-lease
-and task scanning, and a governed step executor that binds model/tool artifacts to loop evidence.
+Before public runtime enablement, add automatic expired-lease and task scanning plus a governed step
+executor that binds model/tool artifacts to loop evidence. Provider DNS/IP policy is enforced on
+each new production socket connection and must not be replaced with a default HTTP handler.
 Setup profile acceptance alone does not compose an adapter.
+
+For a provider destination denial, inspect only the configured endpoint, declared data-location
+class, and bounded policy result. Do not log resolved address lists in ordinary audit, change Cloud
+to PrivateNetwork to make a request pass, enable an ambient proxy, or retry through a default
+handler. Correct DNS/profile policy, issue fresh health evidence, and retry through normal routing.
 
 The internal typed loop writes one immutable snapshot and audit event per accepted phase. A worker
 restart must call the same request with the same loop ID, installation/agent version, budget,
