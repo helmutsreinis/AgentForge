@@ -25,6 +25,11 @@ switch (args[0])
     case "sleep":
         await Task.Delay(int.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture));
         return 0;
+    case "write-and-wait":
+        await Console.Out.WriteAsync(args[1]);
+        await Console.Out.FlushAsync();
+        await Task.Delay(int.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture));
+        return 0;
     case "spawn-child":
         return await SpawnChildAsync(args[1], args[2]);
     case "write-after-delay":
