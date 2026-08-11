@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\AgentForge.Persistence\AgentForge.Persistence.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Runtime\AgentForge.Runtime.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Security\AgentForge.Security.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Skills\AgentForge.Skills.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Setup\AgentForge.Setup.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Tools\AgentForge.Tools.csproj" />
   </ItemGroup>

@@ -151,6 +151,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.skills": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.tools": {
         "type": "Project",
         "dependencies": {

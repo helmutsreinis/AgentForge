@@ -13,6 +13,7 @@ using AgentForge.Persistence;
 using AgentForge.Runtime;
 using AgentForge.Security;
 using AgentForge.Setup;
+using AgentForge.Skills;
 using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
@@ -30,6 +31,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddAgentForgeSetup(builder.Configuration);
 builder.Services.AddAgentForgePersistence(builder.Configuration);
 builder.Services.AddAgentForgeSecurity(builder.Configuration);
+builder.Services.AddAgentForgeSkills();
 builder.Services.AddAgentForgeAudit();
 builder.Services.AddAgentForgeEnvironment(builder.Configuration);
 builder.Services.AddAgentForgeTools(builder.Configuration);

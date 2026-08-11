@@ -633,3 +633,24 @@ transition. Worker tokens are random and hash-only. Definitions pin agent and po
 budget/skill evidence so a later configuration change cannot silently widen a schedule. Remaining
 threats are timezone database changes to future calculations and starvation by an authorized flood;
 stored UTC snapshots preserve evidence and bounded scanning/queues limit the latter.
+
+## M5 governed-skills update
+
+Skill directories are untrusted input. Loading rejects linked roots, linked files or parents,
+escapes, invalid UTF-8/JSON, duplicate or unknown manifest properties, excessive files/bytes/depth,
+invalid SemVer/IDs/permissions/requirements, missing exact dependencies, and dependency cycles.
+The default signature verifier rejects signed packages until a trusted-key adapter is configured;
+an untrusted signature can never convert validation into trust.
+
+Only the canonical bundle enters the content-addressed artifact store. Registry rows contain
+descriptors and hashes, never `SKILL.md`; model-visible bodies require an exact immutable run
+snapshot and are re-hashed while opening. Search discloses descriptors only. This bounds prompt
+exposure and prevents an active session from observing a later promotion.
+
+Proposals bind the exact candidate and active-baseline hashes. Deterministic target, holdout, and
+adversarial failure vetoes progress; the proposer cannot approve; stale baseline races deny canary
+completion. A separate relational active pointer enforces one exact version per skill while status,
+pointer, append-only proposal snapshot, and redacted audit commit in one transaction. Failed canaries
+quarantine and rollback restores only the exact prior hash. Remaining risks are compromise of a
+future trusted signing key and malicious content within already granted skill permissions; runtime
+policy and sandbox gates remain authoritative over package declarations.
