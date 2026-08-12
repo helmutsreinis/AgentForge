@@ -71,6 +71,14 @@ public sealed record SkillUsageReceipt(
     DateTimeOffset UsedAt,
     string ReceiptHash);
 
+public sealed record SkillRevisionAuthorization(
+    SkillId SkillId,
+    SkillVersion BaselineVersion,
+    string BaselinePackageHash,
+    ActorId AuthorizedBy,
+    DateTimeOffset ExpiresAt,
+    string EvidenceHash);
+
 public sealed record SkillChainStep(
     int Position,
     SkillId SkillId,
@@ -86,6 +94,7 @@ public sealed record LearningSignal(
     string RedactedSummary,
     string SourceEvidenceHash,
     IReadOnlyList<SkillUsageReceipt> UsageReceipts,
+    IReadOnlyList<SkillRevisionAuthorization> RevisionAuthorizations,
     IReadOnlyList<SkillChainStep> SuccessfulChain,
     int OccurrenceCount,
     ActorId CapturedBy,
@@ -110,6 +119,7 @@ public static class LearningSignalClassifier
         string redactedSummary,
         string sourceEvidenceHash,
         IReadOnlyList<SkillUsageReceipt> usageReceipts,
+        IReadOnlyList<SkillRevisionAuthorization> revisionAuthorizations,
         IReadOnlyList<SkillChainStep> successfulChain,
         int occurrenceCount,
         ActorId capturedBy,
@@ -118,6 +128,7 @@ public static class LearningSignalClassifier
         CorrelationId? causationId)
     {
         usageReceipts ??= [];
+        revisionAuthorizations ??= [];
         successfulChain ??= [];
         var signal = new LearningSignal(
             id,
@@ -126,6 +137,7 @@ public static class LearningSignalClassifier
             redactedSummary,
             sourceEvidenceHash,
             usageReceipts.OrderBy(receipt => receipt.ReceiptHash, StringComparer.Ordinal).ToArray(),
+            revisionAuthorizations.OrderBy(receipt => receipt.EvidenceHash, StringComparer.Ordinal).ToArray(),
             successfulChain.OrderBy(step => step.Position).ToArray(),
             occurrenceCount,
             capturedBy,
@@ -152,8 +164,9 @@ public static class LearningSignalClassifier
         {
             LearningSignalKind.RepeatedSkillChain when signal.OccurrenceCount >= 3 && signal.SuccessfulChain.Count >= 2 =>
                 (LearningAction.Bundle, "repeated-successful-chain"),
-            LearningSignalKind.Correction when signal.UsageReceipts.Any(receipt => receipt.Succeeded) =>
-                (LearningAction.SkillRevision, "correction-with-usage-receipt"),
+            LearningSignalKind.Correction when signal.UsageReceipts.Any(receipt => receipt.Succeeded) ||
+                signal.RevisionAuthorizations.Any(receipt => receipt.ExpiresAt > signal.CapturedAt) =>
+                (LearningAction.SkillRevision, "correction-with-usage-or-operator-authorization"),
             LearningSignalKind.Correction => (LearningAction.Memory, "correction-without-revision-authority"),
             LearningSignalKind.MissingCapability => (LearningAction.NewSkill, "missing-capability"),
             LearningSignalKind.SuccessfulProcedure when signal.OccurrenceCount >= 3 =>
@@ -190,6 +203,12 @@ public static class LearningSignalClassifier
             signal.UsageReceipts.Count &&
         signal.UsageReceipts.SequenceEqual(
             signal.UsageReceipts.OrderBy(receipt => receipt.ReceiptHash, StringComparer.Ordinal)) &&
+        signal.RevisionAuthorizations.Count <= 128 &&
+        signal.RevisionAuthorizations.All(LearningValidation.IsValid) &&
+        signal.RevisionAuthorizations.Select(receipt => receipt.EvidenceHash)
+            .Distinct(StringComparer.Ordinal).Count() == signal.RevisionAuthorizations.Count &&
+        signal.RevisionAuthorizations.SequenceEqual(
+            signal.RevisionAuthorizations.OrderBy(receipt => receipt.EvidenceHash, StringComparer.Ordinal)) &&
         signal.SuccessfulChain.Count <= 128 && signal.SuccessfulChain.All(LearningValidation.IsValid) &&
         signal.SuccessfulChain.Select(step => step.Position).SequenceEqual(Enumerable.Range(0, signal.SuccessfulChain.Count)) &&
         signal.OccurrenceCount is >= 1 and <= 1_000_000 &&
@@ -215,6 +234,16 @@ public static class LearningSignalClassifier
             LearningValidation.Append(builder, receipt.Succeeded);
             LearningValidation.Append(builder, receipt.UsedAt.UtcTicks);
             LearningValidation.Append(builder, receipt.ReceiptHash);
+        }
+
+        foreach (var authorization in signal.RevisionAuthorizations)
+        {
+            LearningValidation.Append(builder, authorization.SkillId);
+            LearningValidation.Append(builder, authorization.BaselineVersion);
+            LearningValidation.Append(builder, authorization.BaselinePackageHash);
+            LearningValidation.Append(builder, authorization.AuthorizedBy);
+            LearningValidation.Append(builder, authorization.ExpiresAt.UtcTicks);
+            LearningValidation.Append(builder, authorization.EvidenceHash);
         }
 
         foreach (var step in signal.SuccessfulChain)
@@ -249,6 +278,11 @@ internal static class LearningValidation
         IsBounded(receipt.RunId, 256) && IsSkillId(receipt.SkillId) &&
         SkillVersion.TryParse(receipt.Version.Value, out _) && IsHash(receipt.PackageHash) &&
         IsHash(receipt.ReceiptHash);
+
+    internal static bool IsValid(SkillRevisionAuthorization authorization) =>
+        IsSkillId(authorization.SkillId) && SkillVersion.TryParse(authorization.BaselineVersion.Value, out _) &&
+        IsHash(authorization.BaselinePackageHash) && IsBounded(authorization.AuthorizedBy.Value, 256) &&
+        IsHash(authorization.EvidenceHash);
 
     internal static bool IsValid(SkillChainStep step) => step.Position is >= 0 and < 128 &&
         IsSkillId(step.SkillId) && SkillVersion.TryParse(step.Version.Value, out _) &&

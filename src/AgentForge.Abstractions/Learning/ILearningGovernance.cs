@@ -27,6 +27,15 @@ public interface ILearningRepository
 
     ValueTask AddBundleAsync(SkillBundleDefinition bundle, CancellationToken cancellationToken);
 
+    ValueTask AppendBundleProposalAsync(
+        SkillBundleProposal proposal,
+        long? expectedVersion,
+        CancellationToken cancellationToken);
+
+    ValueTask<SkillBundleProposal?> FindLatestBundleProposalAsync(
+        SkillBundleProposalId id,
+        CancellationToken cancellationToken);
+
     ValueTask<SkillBundleDefinition?> FindBundleAsync(
         SkillBundleId id,
         SkillVersion version,
@@ -40,6 +49,7 @@ public sealed record CaptureLearningSignalRequest(
     string RedactedSummary,
     string SourceEvidenceHash,
     IReadOnlyList<SkillUsageReceipt> UsageReceipts,
+    IReadOnlyList<SkillRevisionAuthorization> RevisionAuthorizations,
     IReadOnlyList<SkillChainStep> SuccessfulChain,
     int OccurrenceCount,
     ActorId CapturedBy,
@@ -56,6 +66,7 @@ public sealed record ProposeLearningCandidateRequest(
     LearningRoleAssignments Roles);
 
 public sealed record SynthesizeSkillBundleRequest(
+    SkillBundleProposalId ProposalId,
     SkillBundleId BundleId,
     SkillVersion Version,
     LearningSignalId SignalId,
@@ -64,7 +75,9 @@ public sealed record SynthesizeSkillBundleRequest(
     decimal CandidateScore,
     bool TargetPassed,
     bool HoldoutPassed,
-    string EvaluationEvidenceHash);
+    string EvaluationEvidenceHash,
+    LearningRoleAssignments Roles,
+    ActorId ProposedBy);
 
 public interface ILearningGovernanceService
 {
@@ -119,7 +132,33 @@ public interface ILearningGovernanceService
         string evidenceHash,
         CancellationToken cancellationToken);
 
-    Task<DomainResult<SkillBundleDefinition>> SynthesizeBundleAsync(
+    Task<DomainResult<SkillBundleProposal>> SynthesizeBundleAsync(
         SynthesizeSkillBundleRequest request,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<SkillBundleProposal>> VerifyBundleAsync(
+        SkillBundleProposalId id,
+        long expectedVersion,
+        ActorId verifier,
+        string evidenceHash,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<SkillBundleProposal>> CritiqueBundleAsync(
+        SkillBundleProposalId id,
+        long expectedVersion,
+        ActorId critic,
+        LearningCritique critique,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<SkillBundleProposal>> ApproveBundleAsync(
+        SkillBundleProposalId id,
+        long expectedVersion,
+        ActorId governor,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<SkillBundleProposal>> ArchiveBundleAsync(
+        SkillBundleProposalId id,
+        long expectedVersion,
+        ActorId governor,
         CancellationToken cancellationToken);
 }

@@ -66,7 +66,7 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
                     "run-correction", new SkillId("skill:test.review"), new SkillVersion("1.0.0"),
                     (await scope.ServiceProvider.GetRequiredService<ISkillRegistryRepository>().FindActiveAsync(
                         installationId, new SkillId("skill:test.review"), CancellationToken.None))!.Package.PackageHash,
-                    true, DateTimeOffset.UtcNow, HashB)], [], 1, roles.Worker,
+                    true, DateTimeOffset.UtcNow, HashB)], [], [], 1, roles.Worker,
                 new CorrelationId("learning-correction"), null), CancellationToken.None);
             Assert.True(captured.IsSuccess, captured.Failure?.Message);
             Assert.Equal(LearningAction.SkillRevision, captured.Value.Action);
@@ -135,7 +135,7 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
         Assert.True((await learning.CaptureAsync(new CaptureLearningSignalRequest(
             signalId, installationId, LearningSignalKind.Correction, "A deterministic correction receipt.", HashC,
             [new SkillUsageReceipt("run-regression", skillId, active.Package.Version, active.Package.PackageHash,
-                true, DateTimeOffset.UtcNow, HashB)], [], 1, roles.Worker,
+                true, DateTimeOffset.UtcNow, HashB)], [], [], 1, roles.Worker,
             new CorrelationId($"signal-{version}"), null), CancellationToken.None)).IsSuccess);
         await using var bytes = new MemoryStream([5, 6, 7]);
         var workspace = await scope.ServiceProvider.GetRequiredService<IArtifactStore>().PutAsync(
@@ -193,17 +193,33 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
         var captured = await learning.CaptureAsync(new CaptureLearningSignalRequest(
             signalId, installationId, LearningSignalKind.RepeatedSkillChain,
             "The same successful governed build and verification chain completed three times.",
-            HashC, [], chain, 3, roles.Worker, new CorrelationId("bundle-signal"), null),
+            HashC, [], [], chain, 3, roles.Worker, new CorrelationId("bundle-signal"), null),
             CancellationToken.None);
         Assert.Equal(LearningAction.Bundle, captured.Value.Action);
         var synthesized = await learning.SynthesizeBundleAsync(new SynthesizeSkillBundleRequest(
-            new SkillBundleId("bundle:test.release"), new SkillVersion("1.0.0"), signalId,
+            new SkillBundleProposalId(Guid.NewGuid()), new SkillBundleId("bundle:test.release"),
+            new SkillVersion("1.0.0"), signalId,
             versions.ToDictionary(item => item.Package.Id, item => item.Package.Permissions),
-            10, 11, true, true, HashC), CancellationToken.None);
+            10, 11, true, true, HashC, roles, roles.Proposer), CancellationToken.None);
         Assert.True(synthesized.IsSuccess, synthesized.Failure?.Message);
-        Assert.True(SkillBundleSynthesizer.IsConsistent(synthesized.Value));
+        Assert.Equal(SkillBundleProposalState.Proposed, synthesized.Value.State);
+        Assert.False((await learning.VerifyBundleAsync(
+            synthesized.Value.Id, 0, roles.Proposer, HashC, CancellationToken.None)).IsSuccess);
+        Assert.True((await learning.VerifyBundleAsync(
+            synthesized.Value.Id, 0, roles.Verifier, HashC, CancellationToken.None)).IsSuccess);
+        Assert.True((await learning.CritiqueBundleAsync(
+            synthesized.Value.Id, 1, roles.Critic, new LearningCritique(true, [], HashC),
+            CancellationToken.None)).IsSuccess);
+        var active = await learning.ApproveBundleAsync(
+            synthesized.Value.Id, 2, roles.Governor, CancellationToken.None);
+        Assert.True(active.IsSuccess, active.Failure?.Message);
+        Assert.True(SkillBundleSynthesizer.IsConsistent(active.Value.Definition));
         Assert.NotNull(await scope.ServiceProvider.GetRequiredService<ILearningRepository>().FindBundleAsync(
-            synthesized.Value.Id, synthesized.Value.Version, CancellationToken.None));
+            active.Value.Definition.Id, active.Value.Definition.Version, CancellationToken.None));
+        var archived = await learning.ArchiveBundleAsync(
+            synthesized.Value.Id, 3, roles.Governor, CancellationToken.None);
+        Assert.True(archived.IsSuccess, archived.Failure?.Message);
+        Assert.Equal(SkillBundleProposalState.Archived, archived.Value.State);
     }
 
     private static async Task PromoteAsync(

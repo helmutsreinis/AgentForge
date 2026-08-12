@@ -9,6 +9,21 @@ public readonly record struct SkillBundleId(string Value)
     public override string ToString() => Value;
 }
 
+public readonly record struct SkillBundleProposalId(Guid Value)
+{
+    public override string ToString() => Value.ToString("D");
+}
+
+public enum SkillBundleProposalState
+{
+    Proposed,
+    Verified,
+    Critiqued,
+    Active,
+    Rejected,
+    Archived,
+}
+
 public sealed record SkillBundleNode(
     string NodeId,
     SkillId SkillId,
@@ -30,6 +45,131 @@ public sealed record SkillBundleDefinition(
     decimal CandidateScore,
     string EvaluationEvidenceHash,
     string DefinitionHash);
+
+public sealed record SkillBundleProposal(
+    SkillBundleProposalId Id,
+    InstallationId InstallationId,
+    SkillBundleDefinition Definition,
+    LearningRoleAssignments Roles,
+    SkillBundleProposalState State,
+    LearningCritique? Critique,
+    long Version,
+    string PreviousSnapshotHash,
+    string SnapshotHash,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    CorrelationId CorrelationId,
+    CorrelationId? CausationId);
+
+public static class SkillBundleProposalStateMachine
+{
+    public static DomainResult<SkillBundleProposal> Create(
+        SkillBundleProposalId id,
+        InstallationId installationId,
+        SkillBundleDefinition definition,
+        LearningRoleAssignments roles,
+        ActorId proposer,
+        DateTimeOffset createdAt,
+        CorrelationId correlationId,
+        CorrelationId? causationId)
+    {
+        if (id.Value == Guid.Empty || installationId.Value == Guid.Empty ||
+            !SkillBundleSynthesizer.IsConsistent(definition) || !roles.IsSeparated() ||
+            roles.Proposer != proposer || !LearningValidation.IsBounded(correlationId.Value, 128))
+            return Failure("A bundle proposal requires a consistent definition and assigned separated proposer.");
+        var proposal = new SkillBundleProposal(
+            id, installationId, definition, roles, SkillBundleProposalState.Proposed, null, 0,
+            LearningValidation.EmptyHash, LearningValidation.EmptyHash, createdAt, createdAt,
+            correlationId, causationId);
+        return DomainResult.Success(proposal with { SnapshotHash = ComputeHash(proposal) });
+    }
+
+    public static DomainResult<SkillBundleProposal> Verify(
+        SkillBundleProposal current, ActorId verifier, string evidenceHash, DateTimeOffset occurredAt)
+    {
+        if (!CanTransition(current, SkillBundleProposalState.Proposed, verifier, current.Roles.Verifier, occurredAt) ||
+            evidenceHash != current.Definition.EvaluationEvidenceHash)
+            return Failure("Bundle verification requires the assigned verifier and exact deterministic evidence.");
+        return Next(current, SkillBundleProposalState.Verified, occurredAt);
+    }
+
+    public static DomainResult<SkillBundleProposal> Critique(
+        SkillBundleProposal current, ActorId critic, LearningCritique critique, DateTimeOffset occurredAt)
+    {
+        if (!CanTransition(current, SkillBundleProposalState.Verified, critic, current.Roles.Critic, occurredAt) ||
+            !IsValid(critique))
+            return Failure("Bundle critique requires the assigned critic and bounded evidence.");
+        return Next(current, critique.Passed ? SkillBundleProposalState.Critiqued : SkillBundleProposalState.Rejected,
+            occurredAt, critique);
+    }
+
+    public static DomainResult<SkillBundleProposal> Approve(
+        SkillBundleProposal current, ActorId governor, DateTimeOffset occurredAt) =>
+        !CanTransition(current, SkillBundleProposalState.Critiqued, governor, current.Roles.Governor, occurredAt)
+            ? Failure("Only the assigned governor can activate a critiqued bundle.")
+            : Next(current, SkillBundleProposalState.Active, occurredAt);
+
+    public static DomainResult<SkillBundleProposal> Archive(
+        SkillBundleProposal current, ActorId governor, DateTimeOffset occurredAt) =>
+        !CanTransition(current, SkillBundleProposalState.Active, governor, current.Roles.Governor, occurredAt)
+            ? Failure("Only the assigned governor can archive an active bundle.")
+            : Next(current, SkillBundleProposalState.Archived, occurredAt);
+
+    public static bool IsConsistent(SkillBundleProposal? value) => value is not null &&
+        value.Id.Value != Guid.Empty && value.InstallationId.Value != Guid.Empty &&
+        SkillBundleSynthesizer.IsConsistent(value.Definition) && value.Roles.IsSeparated() &&
+        Enum.IsDefined(value.State) && (value.Critique is null || IsValid(value.Critique)) && value.Version >= 0 &&
+        LearningValidation.IsHash(value.PreviousSnapshotHash) && LearningValidation.IsHash(value.SnapshotHash) &&
+        value.UpdatedAt >= value.CreatedAt && LearningValidation.IsBounded(value.CorrelationId.Value, 128) &&
+        string.Equals(value.SnapshotHash, ComputeHash(value), StringComparison.Ordinal);
+
+    private static bool CanTransition(
+        SkillBundleProposal current, SkillBundleProposalState state, ActorId actor, ActorId expectedActor,
+        DateTimeOffset occurredAt) => IsConsistent(current) && current.State == state &&
+        actor == expectedActor && occurredAt >= current.UpdatedAt;
+
+    private static DomainResult<SkillBundleProposal> Next(
+        SkillBundleProposal current, SkillBundleProposalState state, DateTimeOffset occurredAt,
+        LearningCritique? critique = null)
+    {
+        var next = current with
+        {
+            State = state,
+            Critique = critique ?? current.Critique,
+            Version = current.Version + 1,
+            PreviousSnapshotHash = current.SnapshotHash,
+            SnapshotHash = LearningValidation.EmptyHash,
+            UpdatedAt = occurredAt,
+        };
+        return DomainResult.Success(next with { SnapshotHash = ComputeHash(next) });
+    }
+
+    private static string ComputeHash(SkillBundleProposal value)
+    {
+        var builder = new StringBuilder(2048);
+        foreach (var item in new object?[]
+        {
+            value.Id, value.InstallationId, value.Definition.DefinitionHash, value.Roles.Worker,
+            value.Roles.Proposer, value.Roles.Verifier, value.Roles.Critic, value.Roles.Governor,
+            value.State, value.Critique?.Passed ?? false, value.Critique?.EvidenceHash ?? string.Empty,
+        }) LearningValidation.Append(builder, item ?? string.Empty);
+        foreach (var finding in value.Critique?.FindingCodes ?? []) LearningValidation.Append(builder, finding);
+        foreach (var item in new object?[]
+        {
+            value.Version, value.PreviousSnapshotHash, value.CreatedAt.UtcTicks, value.UpdatedAt.UtcTicks,
+            value.CorrelationId, value.CausationId?.Value ?? string.Empty,
+        }) LearningValidation.Append(builder, item ?? string.Empty);
+        return LearningValidation.Hash(builder.ToString());
+    }
+
+    private static bool IsValid(LearningCritique critique) => critique.FindingCodes.Count <= 128 &&
+        critique.FindingCodes.All(code => LearningValidation.IsBounded(code, 128)) &&
+        critique.FindingCodes.Distinct(StringComparer.Ordinal).Count() == critique.FindingCodes.Count &&
+        LearningValidation.IsHash(critique.EvidenceHash);
+
+    private static DomainResult<SkillBundleProposal> Failure(string message) =>
+        DomainResult.Fail<SkillBundleProposal>(new DomainFailure(FailureCode.ValidationFailure, message));
+}
 
 public static class SkillBundleSynthesizer
 {

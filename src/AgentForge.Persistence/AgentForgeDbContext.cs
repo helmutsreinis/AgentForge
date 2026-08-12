@@ -73,6 +73,9 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<SkillBundleEntity> SkillBundles => Set<SkillBundleEntity>();
 
+    internal DbSet<SkillBundleProposalSnapshotEntity> SkillBundleProposalSnapshots =>
+        Set<SkillBundleProposalSnapshotEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -203,6 +206,22 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.DefinitionHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.SourceSignalHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.DefinitionJson).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillBundleProposalSnapshotEntity>(entity =>
+        {
+            entity.ToTable("skill_bundle_proposal_snapshots");
+            entity.HasKey(item => new { item.Id, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.BundleId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.BundleId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.BundleVersion).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.DefinitionHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
         });
 
         modelBuilder.Entity<OutboxMessageEntity>(entity =>

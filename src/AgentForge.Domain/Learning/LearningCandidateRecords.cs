@@ -79,7 +79,10 @@ public static class LearningCandidateStateMachine
     {
         requestedPermissions ??= [];
         var usageAuthority = signal.UsageReceipts.Any(receipt => receipt.Succeeded && receipt.SkillId == skillId &&
-            receipt.Version == baselineVersion && receipt.PackageHash == baselinePackageHash);
+            receipt.Version == baselineVersion && receipt.PackageHash == baselinePackageHash) ||
+            signal.RevisionAuthorizations.Any(authorization => authorization.SkillId == skillId &&
+                authorization.BaselineVersion == baselineVersion &&
+                authorization.BaselinePackageHash == baselinePackageHash && authorization.ExpiresAt > createdAt);
         if (!LearningSignalClassifier.IsConsistent(signal) || classification.SignalId != signal.Id ||
             classification.SignalHash != signal.SignalHash || !LearningValidation.IsHash(classification.ClassificationHash) ||
             classification.Action is not (LearningAction.NewSkill or LearningAction.SkillRevision) ||

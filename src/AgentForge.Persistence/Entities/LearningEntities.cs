@@ -38,3 +38,18 @@ internal sealed class SkillBundleEntity
     public required string SourceSignalHash { get; init; }
     public required string DefinitionJson { get; init; }
 }
+
+internal sealed class SkillBundleProposalSnapshotEntity
+{
+    public Guid Id { get; init; }
+    public long Version { get; init; }
+    public Guid InstallationId { get; init; }
+    public required string BundleId { get; init; }
+    public required string BundleVersion { get; init; }
+    public required string State { get; init; }
+    public required string DefinitionHash { get; init; }
+    public required string PreviousSnapshotHash { get; init; }
+    public required string SnapshotHash { get; init; }
+    public long UpdatedAtUtcTicks { get; init; }
+    public required string SnapshotJson { get; init; }
+}

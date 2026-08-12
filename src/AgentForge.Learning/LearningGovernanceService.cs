@@ -25,7 +25,8 @@ internal sealed class LearningGovernanceService(
         ArgumentNullException.ThrowIfNull(request);
         var created = LearningSignalClassifier.Create(
             request.Id, request.InstallationId, request.Kind, request.RedactedSummary,
-            request.SourceEvidenceHash, request.UsageReceipts, request.SuccessfulChain,
+            request.SourceEvidenceHash, request.UsageReceipts, request.RevisionAuthorizations,
+            request.SuccessfulChain,
             request.OccurrenceCount, request.CapturedBy, clock.UtcNow,
             request.CorrelationId, request.CausationId);
         if (!created.IsSuccess) return DomainResult.Fail<LearningClassification>(created.Failure!);
@@ -161,24 +162,24 @@ internal sealed class LearningGovernanceService(
         return skill.IsSuccess ? next : DomainResult.Fail<LearningCandidate>(skill.Failure!);
     }, governor, "learning.candidate-rolled-back", cancellationToken);
 
-    public async Task<DomainResult<SkillBundleDefinition>> SynthesizeBundleAsync(
+    public async Task<DomainResult<SkillBundleProposal>> SynthesizeBundleAsync(
         SynthesizeSkillBundleRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         var evidence = await repository.FindSignalAsync(request.SignalId, cancellationToken);
-        if (evidence is null) return Invalid<SkillBundleDefinition>("The classified bundle signal does not exist.");
+        if (evidence is null) return Invalid<SkillBundleProposal>("The classified bundle signal does not exist.");
         foreach (var step in evidence.Value.Signal.SuccessfulChain)
         {
             var exact = await skillRegistry.FindAsync(
                 evidence.Value.Signal.InstallationId, step.SkillId, step.Version, cancellationToken);
             if (exact is null || exact.Package.PackageHash != step.PackageHash ||
                 exact.Status is SkillPackageStatus.Quarantined or SkillPackageStatus.Archived)
-                return Conflict<SkillBundleDefinition>("A pinned bundle skill is unavailable or changed.");
+                return Conflict<SkillBundleProposal>("A pinned bundle skill is unavailable or changed.");
             if (!request.ExactPermissions.TryGetValue(step.SkillId, out var declared) ||
                 !declared.Order(StringComparer.Ordinal).SequenceEqual(
                     exact.Package.Permissions.Order(StringComparer.Ordinal), StringComparer.Ordinal))
-                return DomainResult.Fail<SkillBundleDefinition>(new DomainFailure(
+                return DomainResult.Fail<SkillBundleProposal>(new DomainFailure(
                     FailureCode.PolicyDenied, "Bundle permissions must exactly match pinned skill authority."));
         }
 
@@ -186,14 +187,93 @@ internal sealed class LearningGovernanceService(
             request.BundleId, request.Version, evidence.Value.Signal, evidence.Value.Classification,
             request.ExactPermissions, request.BaselineScore, request.CandidateScore,
             request.TargetPassed, request.HoldoutPassed, request.EvaluationEvidenceHash);
-        if (!bundle.IsSuccess) return bundle;
-        await repository.AddBundleAsync(bundle.Value, cancellationToken);
-        await RecordAsync(evidence.Value.Signal.InstallationId, evidence.Value.Signal.CapturedBy,
-            evidence.Value.Signal.CorrelationId, evidence.Value.Signal.CausationId,
-            "learning.bundle-synthesized",
-            new { BundleId = bundle.Value.Id.Value, bundle.Value.Version, bundle.Value.SourceSignalHash },
-            new { bundle.Value.DefinitionHash, NodeCount = bundle.Value.Nodes.Count }, cancellationToken);
-        return await CommitAsync(bundle.Value, cancellationToken);
+        if (!bundle.IsSuccess) return DomainResult.Fail<SkillBundleProposal>(bundle.Failure!);
+        var proposal = SkillBundleProposalStateMachine.Create(
+            request.ProposalId, evidence.Value.Signal.InstallationId, bundle.Value, request.Roles,
+            request.ProposedBy, clock.UtcNow, evidence.Value.Signal.CorrelationId,
+            evidence.Value.Signal.CausationId);
+        if (!proposal.IsSuccess) return proposal;
+        return await AppendBundleProposalAsync(
+            proposal.Value, null, request.ProposedBy, "learning.bundle-proposed", cancellationToken);
+    }
+
+    public Task<DomainResult<SkillBundleProposal>> VerifyBundleAsync(
+        SkillBundleProposalId id, long expectedVersion, ActorId verifier, string evidenceHash,
+        CancellationToken cancellationToken) => TransitionBundleAsync(
+            id, expectedVersion, verifier, "learning.bundle-verified",
+            current => SkillBundleProposalStateMachine.Verify(current, verifier, evidenceHash, clock.UtcNow),
+            cancellationToken);
+
+    public Task<DomainResult<SkillBundleProposal>> CritiqueBundleAsync(
+        SkillBundleProposalId id, long expectedVersion, ActorId critic, LearningCritique critique,
+        CancellationToken cancellationToken) => TransitionBundleAsync(
+            id, expectedVersion, critic, "learning.bundle-critiqued",
+            current => SkillBundleProposalStateMachine.Critique(current, critic, critique, clock.UtcNow),
+            cancellationToken);
+
+    public async Task<DomainResult<SkillBundleProposal>> ApproveBundleAsync(
+        SkillBundleProposalId id, long expectedVersion, ActorId governor, CancellationToken cancellationToken)
+    {
+        var loaded = await LoadBundleProposalAsync(id, expectedVersion, cancellationToken);
+        if (!loaded.IsSuccess) return loaded;
+        var current = loaded.Value;
+        foreach (var node in current.Definition.Nodes)
+        {
+            var exact = await skillRegistry.FindAsync(
+                current.InstallationId, node.SkillId, node.Version, cancellationToken);
+            if (exact is null || exact.Package.PackageHash != node.PackageHash ||
+                exact.Status is SkillPackageStatus.Quarantined or SkillPackageStatus.Archived)
+                return Conflict<SkillBundleProposal>("A pinned bundle skill changed before governor activation.");
+        }
+
+        var next = SkillBundleProposalStateMachine.Approve(current, governor, clock.UtcNow);
+        if (!next.IsSuccess) return next;
+        await repository.AddBundleAsync(next.Value.Definition, cancellationToken);
+        return await AppendBundleProposalAsync(
+            next.Value, current.Version, governor, "learning.bundle-activated", cancellationToken);
+    }
+
+    public Task<DomainResult<SkillBundleProposal>> ArchiveBundleAsync(
+        SkillBundleProposalId id, long expectedVersion, ActorId governor, CancellationToken cancellationToken) =>
+        TransitionBundleAsync(
+            id, expectedVersion, governor, "learning.bundle-archived",
+            current => SkillBundleProposalStateMachine.Archive(current, governor, clock.UtcNow),
+            cancellationToken);
+
+    private async Task<DomainResult<SkillBundleProposal>> TransitionBundleAsync(
+        SkillBundleProposalId id, long expectedVersion, ActorId actor, string operation,
+        Func<SkillBundleProposal, DomainResult<SkillBundleProposal>> transition,
+        CancellationToken cancellationToken)
+    {
+        var loaded = await LoadBundleProposalAsync(id, expectedVersion, cancellationToken);
+        if (!loaded.IsSuccess) return loaded;
+        var next = transition(loaded.Value);
+        return next.IsSuccess
+            ? await AppendBundleProposalAsync(next.Value, loaded.Value.Version, actor, operation, cancellationToken)
+            : next;
+    }
+
+    private async Task<DomainResult<SkillBundleProposal>> LoadBundleProposalAsync(
+        SkillBundleProposalId id, long expectedVersion, CancellationToken cancellationToken)
+    {
+        var current = await repository.FindLatestBundleProposalAsync(id, cancellationToken);
+        return current is null
+            ? Invalid<SkillBundleProposal>("The skill bundle proposal does not exist.")
+            : current.Version != expectedVersion || !SkillBundleProposalStateMachine.IsConsistent(current)
+                ? Conflict<SkillBundleProposal>("The skill bundle proposal version is stale or inconsistent.")
+                : DomainResult.Success(current);
+    }
+
+    private async Task<DomainResult<SkillBundleProposal>> AppendBundleProposalAsync(
+        SkillBundleProposal proposal, long? expectedVersion, ActorId actor, string operation,
+        CancellationToken cancellationToken)
+    {
+        await repository.AppendBundleProposalAsync(proposal, expectedVersion, cancellationToken);
+        await RecordAsync(proposal.InstallationId, actor,
+            proposal.CorrelationId, proposal.CausationId, operation,
+            new { ProposalId = proposal.Id.ToString(), proposal.Version, proposal.Definition.SourceSignalHash },
+            new { proposal.State, proposal.SnapshotHash, proposal.Definition.DefinitionHash }, cancellationToken);
+        return await CommitAsync(proposal, cancellationToken);
     }
 
     private async Task<DomainResult<LearningCandidate>> TransitionAsync(

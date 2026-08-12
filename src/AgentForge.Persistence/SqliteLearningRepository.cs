@@ -118,6 +118,50 @@ internal sealed class SqliteLearningRepository(AgentForgeDbContext dbContext) : 
         }, cancellationToken);
     }
 
+    public async ValueTask AppendBundleProposalAsync(
+        SkillBundleProposal proposal, long? expectedVersion, CancellationToken cancellationToken)
+    {
+        if (!SkillBundleProposalStateMachine.IsConsistent(proposal))
+            throw new InvalidDataException("Skill bundle proposal is inconsistent.");
+        var actual = await dbContext.SkillBundleProposalSnapshots
+            .Where(item => item.Id == proposal.Id.Value)
+            .MaxAsync(item => (long?)item.Version, cancellationToken);
+        if (actual != expectedVersion || proposal.Version != (expectedVersion ?? -1) + 1)
+            throw new InvalidOperationException("Skill bundle proposal version is stale.");
+        await dbContext.SkillBundleProposalSnapshots.AddAsync(new SkillBundleProposalSnapshotEntity
+        {
+            Id = proposal.Id.Value,
+            Version = proposal.Version,
+            InstallationId = proposal.InstallationId.Value,
+            BundleId = proposal.Definition.Id.Value,
+            BundleVersion = proposal.Definition.Version.Value,
+            State = proposal.State.ToString(),
+            DefinitionHash = proposal.Definition.DefinitionHash,
+            PreviousSnapshotHash = proposal.PreviousSnapshotHash,
+            SnapshotHash = proposal.SnapshotHash,
+            UpdatedAtUtcTicks = proposal.UpdatedAt.UtcTicks,
+            SnapshotJson = JsonSerializer.Serialize(proposal, JsonOptions),
+        }, cancellationToken);
+    }
+
+    public async ValueTask<SkillBundleProposal?> FindLatestBundleProposalAsync(
+        SkillBundleProposalId id, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.SkillBundleProposalSnapshots.AsNoTracking()
+            .Where(item => item.Id == id.Value).OrderByDescending(item => item.Version)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (entity is null) return null;
+        var proposal = JsonSerializer.Deserialize<SkillBundleProposal>(entity.SnapshotJson, JsonOptions)
+            ?? throw new InvalidDataException("Persisted skill bundle proposal is empty.");
+        return SkillBundleProposalStateMachine.IsConsistent(proposal) && proposal.Id.Value == entity.Id &&
+            proposal.Version == entity.Version && proposal.InstallationId.Value == entity.InstallationId &&
+            proposal.Definition.Id.Value == entity.BundleId && proposal.Definition.Version.Value == entity.BundleVersion &&
+            proposal.State.ToString() == entity.State && proposal.Definition.DefinitionHash == entity.DefinitionHash &&
+            proposal.PreviousSnapshotHash == entity.PreviousSnapshotHash && proposal.SnapshotHash == entity.SnapshotHash &&
+            proposal.UpdatedAt.UtcTicks == entity.UpdatedAtUtcTicks
+            ? proposal : throw new InvalidDataException("Persisted skill bundle proposal failed integrity validation.");
+    }
+
     public async ValueTask<SkillBundleDefinition?> FindBundleAsync(
         SkillBundleId id, SkillVersion version, CancellationToken cancellationToken)
     {
