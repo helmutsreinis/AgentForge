@@ -19,9 +19,9 @@ passing gate report.
 | AF-SET-005 | Recovery mode repairs provider/plugin/skill configuration without launching autonomous work. | 1 | Verified |
 | AF-SET-006 | Loopback web setup hides bootstrap security controls, resumes the active browser session, discovers a bounded model catalog with an explicit model-ID fallback, verifies the selected model, and supports credential-free private compatible endpoints without weakening CSRF, origin, idempotency, or completion gates. | Post-R1 | Verified |
 | AF-HOST-001 | Liveness remains available during setup or recovery; readiness is healthy only in Ready state. | 0 | Verified |
-| AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit hardened configuration. | 0,10 | Verified |
+| AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit HTTPS, exact origin, bounded temporary access code, authenticated session, and network-policy configuration. | 0,10 | Verified |
 | AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | Verified |
-| AF-ADMIN-001 | A Ready loopback installation exposes a protected single-operator workspace that lists persisted agents, runs an explicit bounded prompt against an agent's pinned loopback/private model with durable completion evidence, lists/cancels durable runs, and installs/lists validated seed skills without disclosing the administrator credential or bypassing tool and promotion gates. | Post-R1 | Verified |
+| AF-ADMIN-001 | A Ready installation exposes a protected single-operator workspace on loopback or explicitly enabled HTTPS remote origin that lists persisted agents, runs an explicit bounded prompt against an agent's pinned loopback/private model with durable completion evidence, lists/cancels durable runs, and installs/lists validated seed skills without disclosing the administrator credential or bypassing tool and promotion gates. | Post-R1 | Verified |
 
 ## Durable state, identity, and security
 

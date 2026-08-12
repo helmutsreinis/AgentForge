@@ -26,6 +26,7 @@ using AgentForge.Setup;
 using AgentForge.Skills;
 using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -44,6 +45,15 @@ builder.WebHost.UseUrls(string.IsNullOrWhiteSpace(configuredUrls)
     : configuredUrls);
 
 builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(System.Net.IPAddress.Loopback);
+    options.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+});
 builder.Services.AddSingleton<IValidateOptions<HostSecurityOptions>, HostSecurityOptionsValidator>();
 builder.Services.AddOptions<HostSecurityOptions>()
     .Bind(builder.Configuration.GetSection(HostSecurityOptions.SectionName))
@@ -101,6 +111,7 @@ await using (var initializationScope = app.Services.CreateAsyncScope())
     await databaseInitializer.InitializeAsync(CancellationToken.None);
 }
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RemoteAccessMiddleware>();

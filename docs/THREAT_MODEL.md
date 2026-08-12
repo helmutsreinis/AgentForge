@@ -796,6 +796,15 @@ packages fail closed. Deterministic end-to-end tests cover hostile origin, secre
 durable create/list/cancel, exact/conflicting prompt replay, hostile emitted tool calls, durable prompt
 completion evidence, and validated seed install/list.
 
+Explicit LAN mode adds the remote client, TLS certificate, exact origin, host firewall, and temporary access
+code as trust boundaries. It is disabled by default. Enabling it requires HTTPS plus a 20-256 character code
+and at least one exact HTTPS origin; missing/incorrect codes cannot mint a session. Subsequent requests require
+the Secure/HttpOnly/SameSite cookie and normal CSRF controls. Safe same-origin GET/HEAD navigation may omit an
+`Origin` header, while remote mutations require the configured exact origin. Forwarded headers are consumed
+only from loopback with a one-hop limit. Operators must constrain the firewall to the private interface/local
+subnet and must not expose the listener through router forwarding. A self-signed certificate is acceptable
+only for an operator-controlled test; production requires a trusted managed certificate.
+
 ## M8 passive serial discovery boundary
 
 Device discovery reads Windows serial registry metadata or Linux sysfs/device-node existence only. The inventory

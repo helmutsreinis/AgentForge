@@ -48,9 +48,16 @@ const elements = {
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
+  accessModeTitle: document.querySelector("#access-mode-title"),
+  accessModeDetail: document.querySelector("#access-mode-detail"),
 };
 
-const admin = { csrfToken: null, installationId: null, actorId: null, agents: [] };
+const admin = { csrfToken: null, installationId: null, actorId: null, remoteAccessCode: "", agents: [] };
+const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
+if (!isLoopbackBrowser) {
+  elements.accessModeTitle.textContent = "Protected LAN control";
+  elements.accessModeDetail.textContent = "HTTPS session · private model route";
+}
 
 const setup = {
   csrfToken: null,
@@ -107,13 +114,22 @@ function workspaceStatus(element, message, state = "") {
 async function ensureAdminSession() {
   let result = await readJson("/api/v1/admin/session");
   if (!result.ok) {
+    if (!isLoopbackBrowser && !admin.remoteAccessCode) {
+      admin.remoteAccessCode = window.prompt("Enter the temporary AgentForge LAN access code shown on the host PC:")?.trim() ?? "";
+      if (!admin.remoteAccessCode) throw new Error("A temporary LAN access code is required.");
+    }
     result = await readJson("/api/v1/admin/session", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: window.location.origin },
+      headers: {
+        "Content-Type": "application/json",
+        Origin: window.location.origin,
+        ...(admin.remoteAccessCode ? { "X-AgentForge-Remote-Access-Code": admin.remoteAccessCode } : {}),
+      },
       body: "{}",
     });
   }
   if (!result.ok) throw new Error(result.payload.detail ?? "The local operator session could not be opened.");
+  admin.remoteAccessCode = "";
   admin.csrfToken = result.payload.csrfToken;
   admin.installationId = result.payload.installationId;
   admin.actorId = result.payload.actorId;

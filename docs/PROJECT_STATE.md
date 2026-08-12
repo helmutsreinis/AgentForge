@@ -153,6 +153,8 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 `artifacts/gates/POST-R1-INTERACTIVE-MVP-20260812.md`: Pass. Explicit bounded local-model interaction is available from Runs with a durable receipt and no tool-authority expansion.
 
+`artifacts/gates/POST-R1-LAN-REMOTE-20260813.md`: Pass. The Ready workspace supports explicitly enabled authenticated HTTPS LAN access while remaining loopback-only by default.
+
 ## Known constraints and risks
 
 - Docker is not installed locally; the equipped release workflow passes both the secure-default image smoke and the real digest-pinned constrained-execution adapter test.

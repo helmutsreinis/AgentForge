@@ -110,6 +110,15 @@ answer. It also lists latest snapshots and can cancel nonterminal definitions. *
 registry versions and can install the packaged C# review seed;
 an installed version remains inactive until the normal evaluation, separate approval, and canary lifecycle.
 
+To use that workspace from another computer, bind the host to a specific LAN HTTPS endpoint, configure that
+exact HTTPS origin, and supply a fresh 20-256 character `AgentForge:Host:RemoteAccessCode` through process or
+protected service configuration. The remote browser prompts once for this temporary code; it is sent only to
+the session-creation endpoint, cleared from browser memory after success, and replaced by the normal 30-minute
+Secure/HttpOnly/SameSite=Strict session cookie. Keep the Windows/Linux firewall rule limited to the exact TCP
+port, program, trusted profile/interface, and local subnet. A self-signed test certificate must be explicitly
+trusted on the client or accepted only for that test session; production remote mode requires a managed trusted
+certificate. Never expose the port through router forwarding or a public interface by default.
+
 If a workspace page reports that its operator session is stale, reload it from loopback. If the protected
 credential cannot be materialized, run `agentforge doctor` as the installing OS user; never copy the secret
 reference or administrator verifier into the browser, configuration, or command line.

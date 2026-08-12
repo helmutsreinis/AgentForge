@@ -16,6 +16,7 @@ using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
+using Microsoft.Extensions.Options;
 
 namespace AgentForge.Host.Http;
 
@@ -50,12 +51,18 @@ internal static class ReadyAdminEndpoints
         ISecretStore secretStore,
         ILocalAdministratorAuthenticator authenticator,
         IClock clock,
+        IOptions<HostSecurityOptions> hostOptions,
         CancellationToken cancellationToken)
     {
         if (!IsTrustedLoopback(context))
         {
-            return Problem(context, 403, "Loopback required",
-                "The local operator session can be created only from this loopback origin.", "loopback-required");
+            if (!IsRemoteConnection(context) || !context.Request.IsHttps ||
+                !ValidRemoteAccessCode(context, hostOptions.Value.RemoteAccessCode))
+            {
+                return Problem(context, 403, "Remote authentication required",
+                    "Enter the temporary access code shown by the AgentForge host operator.",
+                    "remote-authentication-required");
+            }
         }
 
         var state = await stateReader.ReadAsync(cancellationToken);
@@ -641,10 +648,11 @@ internal static class ReadyAdminEndpoints
         bool requireCsrf,
         CancellationToken cancellationToken)
     {
-        if (!IsTrustedLoopback(context))
+        if (!IsTrustedWorkspaceRequest(context))
         {
-            return new(null, Problem(context, 403, "Loopback required",
-                "The operator workspace is available only from this loopback origin.", "loopback-required"));
+            return new(null, Problem(context, 403, "Protected workspace required",
+                "The operator workspace requires loopback or the explicitly enabled HTTPS remote origin.",
+                "workspace-origin-required"));
         }
 
         var session = sessions.Validate(
@@ -804,6 +812,25 @@ internal static class ReadyAdminEndpoints
         return string.IsNullOrEmpty(origin) || Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
             string.Equals(uri.Scheme, context.Request.Scheme, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(uri.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsRemoteConnection(HttpContext context) =>
+        context.Connection.RemoteIpAddress is { } address && !IPAddress.IsLoopback(address);
+
+    private static bool IsTrustedWorkspaceRequest(HttpContext context) =>
+        IsTrustedLoopback(context) || IsRemoteConnection(context) && context.Request.IsHttps;
+
+    private static bool ValidRemoteAccessCode(HttpContext context, string configuredCode)
+    {
+        var supplied = context.Request.Headers["X-AgentForge-Remote-Access-Code"].ToString();
+        if (string.IsNullOrEmpty(configuredCode) || string.IsNullOrEmpty(supplied) || supplied.Length > 256)
+        {
+            return false;
+        }
+
+        var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes(configuredCode));
+        var suppliedHash = SHA256.HashData(Encoding.UTF8.GetBytes(supplied));
+        return CryptographicOperations.FixedTimeEquals(expectedHash, suppliedHash);
     }
 
     private sealed record ReadyAdminAcquisition(ReadyAdminSession? Session, IResult? Failure);

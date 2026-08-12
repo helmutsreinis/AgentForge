@@ -26,6 +26,12 @@ agent's exact credential-free loopback/private compatible provider after context
 or structured-output events, disables fallback, bounds time/tokens/events/output, and stores only hashed
 completion evidence. It deliberately has no autonomous execution, tool-invocation, or skill-promotion shortcut.
 
+Explicit remote mode uses the same workspace contracts but requires HTTPS, one exact allowed origin, a bounded
+temporary access code for session creation, and the existing protected administrator validation. The code is
+fixed-time checked, never persisted, and cleared from browser memory after the server returns a Secure,
+HttpOnly, SameSite=Strict session cookie. Forwarded scheme/host/client headers are honored only from one known
+loopback reverse proxy hop; direct network peers cannot forge them.
+
 ```mermaid
 flowchart LR
   Operator["Local operator"] --> CLI["agentforge CLI/TUI"]
