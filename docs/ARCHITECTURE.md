@@ -446,3 +446,24 @@ The hosted dispatcher scans at most 64 latest due aggregate versions per second.
 a task directly: it appends bounded idempotent occurrence queues through the same versioned service.
 Worker claim/completion, retries, misfire/overlap, pause/resume, run-now, expiry, and dead-letter all
 remain durable domain transitions.
+
+## Governed recursive learning
+
+`AgentForge.Learning` consumes only Domain and Abstractions. Learning input is a redacted immutable signal
+with an exact source hash and typed usage, operator-authorization, or successful-chain receipts. The pure
+classifier maps corrections, procedures, recoveries, missing capabilities, and repeated chains to memory,
+new skill, revision, bundle, or no durable action. Classification is descriptive and cannot grant a tool,
+permission, budget, network route, device operation, or credential.
+
+Learned skill candidates must already exist as immutable `AgentProposal` packages in the skill registry and
+carry a content-addressed isolated-workspace receipt. A revision binds the exact active version and package
+hash through a successful usage receipt or unexpired operator authorization. Five distinct actors own worker,
+proposer, deterministic verifier, critic, and governor transitions. The Learning service mirrors each eligible
+transition through the existing governed skill proposal so evaluation, approval, canary activation, quarantine,
+and rollback cannot bypass Milestone 5 policy.
+
+Bundles copy no skill content. Each node pins one exact skill ID, semantic version, package hash, input contract,
+and output contract; adjacent contracts must match. The bundle permission set is the sorted union of exact
+installed permissions. Deterministic target/holdout/baseline evidence precedes separate proposal, verification,
+critique, activation, and archive snapshots. Activation re-resolves every node and denies quarantined, archived,
+missing, or hash-changed packages.

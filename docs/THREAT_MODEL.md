@@ -777,3 +777,25 @@ append-only hash chain bound to the exact baseline and candidate. Competing cand
 baseline still matches can atomically become active. Failed canaries quarantine without activation. Active candidates can be
 quarantined and rolled back only while their exact hash remains selected. Declarative decoders never inherit device-write
 authority.
+
+## M9 recursive-learning boundary
+
+Learning summaries, trajectory references, usage receipts, procedure chains, package candidates, evaluation
+claims, and role identities are untrusted. Accepted summaries are bounded, reject credential-shaped material,
+and persist beside source, signal, classification, workspace, package, and snapshot hashes. Raw model context,
+tool output, secrets, and candidate source are not relational learning fields. A signal classification is data
+only and cannot alter policy or become executable instructions.
+
+Existing-skill revisions require an exact successful usage receipt or unexpired explicit operator authorization
+for the current skill version and package hash. A candidate must be an immutable agent-proposed package and carry
+a content-addressed isolated-workspace receipt. Worker, proposer, verifier, critic, and governor actors are all
+distinct. Target, holdout, adversarial, permission-diff, critic, baseline, and canary failures deny or quarantine;
+the learner calls the same skill-governance service used by seed and user packages. It has no path to expand
+permissions, approve itself, edit active pointers, or bypass rollback evidence.
+
+Repeated chains create references, not copied instructions. Bundle nodes pin exact package and input/output
+contract hashes, adjacent contracts must match, and authority is only the sorted union of permissions already
+held by the pinned packages. A separate verifier, critic, and governor advance the append-only proposal chain.
+Immediately before activation, every package is re-resolved and a missing, archived, quarantined, or changed pin
+denies the transition. Prompt-injection text therefore cannot mint a capability through either learned skills or
+bundles.
