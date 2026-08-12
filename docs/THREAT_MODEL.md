@@ -815,6 +815,14 @@ directory, starts only against Ready durable state, inherits no web session, and
 stderr so it cannot corrupt or inject JSON-RPC on stdout. MCP results expose readiness metadata only; they cannot
 invoke tools, mutate durable state, materialize secrets, or expand policy.
 
+MCP client profiles are immutable and distinguish loopback HTTP, public HTTPS, and local stdio. Public HTTPS
+requires a secret reference; its value is materialized into one request header and removed immediately after the
+send. Every new socket resolves the configured hostname and rejects the entire answer if any address is outside the
+declared scope, preventing private-address substitution and DNS rebinding. Redirects, cookies, ambient proxies and
+environment variables, relative commands, and missing command paths are not accepted. Remote catalogs are filtered
+to exact configured names, and call/read APIs re-check those names before transport. Results and argument documents
+are bounded so a configured MCP peer cannot turn discovery or invocation into unbounded model context.
+
 Plugin manifests and assemblies are fully untrusted. Discovery walks only direct link-free package directories,
 accepts an exact bounded JSON schema, verifies the entire assembly hash, and never calls reflection or executes a
 candidate. A signature field is not trust; only the configured verifier can mark it valid. The loader re-hashes at

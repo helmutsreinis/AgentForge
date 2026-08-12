@@ -56,5 +56,6 @@
 | D-052 | Derive plugin trust only from signature verification, never manifest claims; permit collectible in-process loading solely for verified low-risk adapters and require a pinned, denied-network container worker protocol with explicit resource isolation for every other plugin. | Accepted |
 | D-053 | Keep SQLite WAL as the local default and select PostgreSQL behind the same DbContext/repository contracts using an environment-only connection secret, advisory-locked R1 schema bootstrap, provider-specific case-insensitive identity, and exact-tool hash-manifested backup/restore. | Accepted |
 | D-054 | Export trajectories only after full audit-chain verification; re-redact bounded event JSON, retain source sequence/hash/correlation/error evidence, store one content-addressed artifact, and bind the durable receipt to exact restart-safe idempotency. | Accepted |
+| D-055 | Treat every remote MCP peer as untrusted: select one exact transport/network scope, materialize public bearer credentials per request, constrain DNS and process authority, filter discovery and invocation by exact allowlists, and bound all arguments/results. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

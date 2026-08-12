@@ -1,6 +1,7 @@
 using AgentForge.Abstractions.Mcp;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.Server;
 
 namespace AgentForge.Mcp;
@@ -23,6 +24,8 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<IMcpCallerContext, McpCallerContext>();
         services.AddSingleton<IMcpExposurePolicy, ConfiguredMcpExposurePolicy>();
+        services.TryAddScoped<IMcpTransportHttpClientFactory, SecureMcpTransportHttpClientFactory>();
+        services.AddScoped<IAgentForgeMcpRemoteClientFactory, AgentForgeMcpRemoteClientFactory>();
         return services.AddMcpServer()
             .WithTools<AgentForgeMcpTools>()
             .WithResources<AgentForgeMcpResources>();

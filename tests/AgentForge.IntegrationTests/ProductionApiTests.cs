@@ -3,9 +3,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using AgentForge.Abstractions.Mcp;
 using AgentForge.Abstractions.Security;
+using AgentForge.Domain.Mcp;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Security;
+using AgentForge.Mcp;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -159,6 +162,46 @@ public sealed class ProductionApiTests : IDisposable
         var result = await mcp.CallToolAsync("agentforge_status", new Dictionary<string, object?>());
         var statusText = Assert.Single(result.Content.OfType<TextContentBlock>()).Text;
         Assert.Contains("\"ready\":true", statusText, StringComparison.Ordinal);
+
+        var remoteServices = new ServiceCollection();
+        remoteServices.AddLogging();
+        remoteServices.AddAgentForgeMcp(new ConfigurationBuilder().Build());
+        remoteServices.Replace(ServiceDescriptor.Scoped<IMcpTransportHttpClientFactory>(_ =>
+            new TestServerMcpHttpClientFactory(_factory, setup.Credential)));
+        await using var remoteProvider = remoteServices.BuildServiceProvider();
+        await using var remoteScope = remoteProvider.CreateAsyncScope();
+        var remoteFactory = remoteScope.ServiceProvider.GetRequiredService<IAgentForgeMcpRemoteClientFactory>();
+        var profile = new McpRemoteServerProfile(
+            "loopback-production-api",
+            McpRemoteTransport.StreamableHttp,
+            new Uri("http://localhost/mcp"),
+            null,
+            Array.Empty<string>(),
+            null,
+            McpRemoteNetworkScope.Loopback,
+            null,
+            ["agentforge_status"],
+            ["agentforge://status"]);
+        var connected = await remoteFactory.ConnectAsync(profile, CancellationToken.None);
+        Assert.True(connected.IsSuccess, connected.Failure?.Message);
+        await using var remote = connected.Value;
+        var remoteTools = await remote.ListToolsAsync(CancellationToken.None);
+        Assert.True(remoteTools.IsSuccess, remoteTools.Failure?.Message);
+        Assert.Equal("agentforge_status", Assert.Single(remoteTools.Value).Name);
+        var remoteResources = await remote.ListResourcesAsync(CancellationToken.None);
+        Assert.True(remoteResources.IsSuccess, remoteResources.Failure?.Message);
+        Assert.Equal("agentforge://status", Assert.Single(remoteResources.Value).Uri);
+        var denied = await remote.CallToolAsync("unlisted_tool",
+            new Dictionary<string, JsonElement>(), CancellationToken.None);
+        Assert.False(denied.IsSuccess);
+        Assert.Equal(FailureCode.PolicyDenied, denied.Failure?.Code);
+        var remoteResult = await remote.CallToolAsync("agentforge_status",
+            new Dictionary<string, JsonElement>(), CancellationToken.None);
+        Assert.True(remoteResult.IsSuccess, remoteResult.Failure?.Message);
+        Assert.Contains("ready", remoteResult.Value.Json, StringComparison.Ordinal);
+        var remoteResource = await remote.ReadResourceAsync("agentforge://status", CancellationToken.None);
+        Assert.True(remoteResource.IsSuccess, remoteResource.Failure?.Message);
+        Assert.Contains("ready", remoteResource.Value.Json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -276,6 +319,21 @@ public sealed class ProductionApiTests : IDisposable
         public Task<DomainResult<bool>> DeleteAsync(
             SecretReference secretReference, CancellationToken cancellationToken) =>
             Task.FromResult(DomainResult.Success(_values.TryRemove(secretReference.Key, out _)));
+    }
+
+    private sealed class TestServerMcpHttpClientFactory(
+        WebApplicationFactory<Program> factory,
+        string credential) : IMcpTransportHttpClientFactory
+    {
+        public HttpClient Create(McpRemoteServerProfile profile)
+        {
+            var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                BaseAddress = new Uri("http://localhost"),
+            });
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+            return client;
+        }
     }
 
     public void Dispose()
