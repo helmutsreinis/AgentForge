@@ -1,6 +1,6 @@
-using AgentForge.Release;
 using System.Text.Json;
 using System.Xml.Linq;
+using AgentForge.Release;
 
 namespace AgentForge.EndToEndTests;
 

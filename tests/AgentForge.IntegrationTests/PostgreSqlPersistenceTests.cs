@@ -139,7 +139,7 @@ public sealed class PostgreSqlPersistenceTests
             "Host=localhost;Database=target;Username=agentforge;Password=target-secret");
         try
         {
-            var executable = FindProcessFixture();
+            var executable = CreatePostgreSqlToolFixture(root);
             var configuration = new ConfigurationBuilder().AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
@@ -310,6 +310,42 @@ public sealed class PostgreSqlPersistenceTests
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
         var name = OperatingSystem.IsWindows() ? "AgentForge.ProcessFixture.exe" : "AgentForge.ProcessFixture";
         return Path.Combine(root!.FullName, "tests", "AgentForge.ProcessFixture", "bin", configuration, "net10.0", name);
+    }
+
+    private static string CreatePostgreSqlToolFixture(string root)
+    {
+        if (OperatingSystem.IsWindows()) return FindProcessFixture();
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, "postgresql-tool-fixture");
+        File.WriteAllText(path, """
+            #!/bin/sh
+            set -eu
+            mode=''
+            output=''
+            last=''
+            while [ "$#" -gt 0 ]; do
+              case "$1" in
+                --format=custom) mode='dump' ;;
+                --clean) mode='restore' ;;
+                --file) shift; output="$1" ;;
+              esac
+              last="$1"
+              shift
+            done
+            [ -n "${PGPASSWORD:-}" ] || exit 4
+            if [ "$mode" = 'dump' ] && [ -n "$output" ]; then
+              printf 'deterministic-postgresql-dump' > "$output"
+              exit 0
+            fi
+            if [ "$mode" = 'restore' ] && [ -f "$last" ] &&
+               [ "$(cat "$last")" = 'deterministic-postgresql-dump' ]; then
+              exit 0
+            fi
+            exit 4
+            """);
+        File.SetUnixFileMode(path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return path;
     }
 }
 
