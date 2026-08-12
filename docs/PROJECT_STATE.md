@@ -129,10 +129,11 @@ hardware/container gates open and every device write disabled by default.
 - Milestone 9 passes locked Release build, format, migration drift, vulnerability and secret scans, 369/369 product tests and 2/2 framework-spike tests on both Windows and Ubuntu.
 - M10 slice 1 hardened the versioned REST control plane with bearer authentication, exact mutation idempotency, RFC Problem Details, correlation/version headers, bounded request bodies, fixed-window rate limits, redacted OpenAPI, and resumable authenticated task SSE. Non-loopback binding now fails startup unless remote mode, HTTPS, and exact origins are all explicit.
 - The official MCP C# SDK 2.0 server exposes only bounded readiness through an exact tool/resource allowlist. Streamable HTTP is stateless, bearer-authenticated, origin/rate constrained, and verified by the official client. `agentforge mcp stdio` starts the same policy-filtered server only for a Ready installation and sends every log to stderr so stdout remains protocol-only.
+- M10 slice 2 added the stable plugin SDK, strict one-directory/one-manifest catalog, duplicate-key and unknown-field rejection, path/link/size/hash bounds, and signature-derived trust. Discovery reads bytes only and never loads an assembly. Only verified low-risk adapters may enter a collectible in-process context; unsigned, untrusted, medium-risk, and high-risk adapters are forced through a pinned one-shot protocol requiring container, network, filesystem, resource, and process isolation. Missing isolation fails typed instead of degrading.
 
 ## Latest gate
 
-`artifacts/gates/M10-01-20260812.md`: Pass. The production REST/SSE and MCP server transport slice is complete.
+`artifacts/gates/M10-02-20260812.md`: Pass. The signed plugin SDK and constrained worker boundary are complete.
 
 ## Known constraints and risks
 

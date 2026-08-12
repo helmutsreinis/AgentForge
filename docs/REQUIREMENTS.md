@@ -74,6 +74,7 @@ passing gate report.
 | AF-DEV-002 | Captures are bounded immutable evidence with raw bytes, timing, hashes, truncation/drop accounting, and deterministic replay. | 8 | Verified |
 | AF-DEV-003 | Decoder proposals preserve unknown fields and pass replay, malformed input, fuzz, holdout, canary, promotion, and rollback gates. | 8 | Verified |
 | AF-MCP-001 | The harness supports MCP client/server stdio and Streamable HTTP with policy-filtered exposure. | 10 | In progress |
+| AF-PLUGIN-001 | Strict content-addressed plugin packages use signature-derived trust; only verified low-risk adapters may load in-process and all other plugins require the constrained worker protocol. | 10 | Complete |
 | AF-DEPLOY-001 | R1 ships self-contained Windows/Linux artifacts, container image, Windows service, systemd unit, checksums, SBOM, and migration/runbook documentation. | 10 | Planned |
 | AF-QUAL-001 | R1 passes all 25 acceptance scenarios and has no unresolved high-severity security finding. | 10 | Planned |
 

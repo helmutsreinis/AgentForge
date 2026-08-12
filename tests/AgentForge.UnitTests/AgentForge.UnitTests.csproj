@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\AgentForge.Environment\AgentForge.Environment.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Learning\AgentForge.Learning.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Models\AgentForge.Models.csproj" />
+    <ProjectReference Include="..\..\src\AgentForge.Plugins\AgentForge.Plugins.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Memory\AgentForge.Memory.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Runtime\AgentForge.Runtime.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Search\AgentForge.Search.csproj" />

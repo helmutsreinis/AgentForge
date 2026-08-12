@@ -18,6 +18,7 @@ using AgentForge.Memory;
 using AgentForge.Models;
 using AgentForge.Orchestration;
 using AgentForge.Persistence;
+using AgentForge.Plugins;
 using AgentForge.Runtime;
 using AgentForge.Search;
 using AgentForge.Security;
@@ -65,6 +66,7 @@ builder.Services.AddCors(options => options.AddPolicy("mcp-browser", policy =>
 }));
 builder.Services.AddAgentForgeSetup(builder.Configuration);
 builder.Services.AddAgentForgePersistence(builder.Configuration);
+builder.Services.AddAgentForgePlugins(builder.Configuration);
 builder.Services.AddAgentForgeSecurity(builder.Configuration);
 builder.Services.AddAgentForgeSkills();
 builder.Services.AddAgentForgeLearning();

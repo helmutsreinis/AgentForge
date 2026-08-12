@@ -814,3 +814,15 @@ entry fails closed. Streamable HTTP is stateless and rate limited. The stdio com
 directory, starts only against Ready durable state, inherits no web session, and routes all diagnostic output to
 stderr so it cannot corrupt or inject JSON-RPC on stdout. MCP results expose readiness metadata only; they cannot
 invoke tools, mutate durable state, materialize secrets, or expand policy.
+
+Plugin manifests and assemblies are fully untrusted. Discovery walks only direct link-free package directories,
+accepts an exact bounded JSON schema, verifies the entire assembly hash, and never calls reflection or executes a
+candidate. A signature field is not trust; only the configured verifier can mark it valid. The loader re-hashes at
+the point of use and denies a changed file. In-process loading requires both verified signature and low risk, checks
+the SDK identity after construction, and uses a collectible context.
+
+All unsigned, untrusted, medium-risk, and high-risk plugins cross a versioned one-shot worker protocol containing
+only exact identity, hashes, entry type, and declared permissions—never secret values. Admission demands a container
+sandbox with denied networking and explicit filesystem, CPU, memory, process-count, output, timeout, and process-tree
+isolation. Restricted-host execution is insufficient and returns a typed unsupported result. The worker independently
+validates the assembly and emits only a bounded identity receipt before exiting.

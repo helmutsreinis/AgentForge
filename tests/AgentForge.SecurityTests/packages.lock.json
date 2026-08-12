@@ -669,6 +669,7 @@
           "AgentForge.Models": "[1.0.0, )",
           "AgentForge.Orchestration": "[1.0.0, )",
           "AgentForge.Persistence": "[1.0.0, )",
+          "AgentForge.Plugins": "[1.0.0, )",
           "AgentForge.Runtime": "[1.0.0, )",
           "AgentForge.Search": "[1.0.0, )",
           "AgentForge.Security": "[1.0.0, )",
@@ -721,6 +722,13 @@
           "AgentForge.Domain": "[1.0.0, )",
           "Microsoft.EntityFrameworkCore.Sqlite": "[10.0.10, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[2.1.12, )"
+        }
+      },
+      "agentforge.plugins": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
         }
       },
       "agentforge.runtime": {

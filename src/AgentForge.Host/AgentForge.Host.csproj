@@ -18,6 +18,7 @@
     <ProjectReference Include="..\AgentForge.Mcp\AgentForge.Mcp.csproj" />
     <ProjectReference Include="..\AgentForge.Orchestration\AgentForge.Orchestration.csproj" />
     <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
+    <ProjectReference Include="..\AgentForge.Plugins\AgentForge.Plugins.csproj" />
     <ProjectReference Include="..\AgentForge.Runtime\AgentForge.Runtime.csproj" />
     <ProjectReference Include="..\AgentForge.Search\AgentForge.Search.csproj" />
     <ProjectReference Include="..\AgentForge.Security\AgentForge.Security.csproj" />
