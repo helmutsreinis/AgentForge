@@ -15,6 +15,43 @@ namespace AgentForge.IntegrationTests;
 public sealed class PostgreSqlPersistenceTests
 {
     [Fact]
+    public async Task Event_outbox_commits_atomically_orders_pending_and_rejects_stale_completion()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"agentforge-outbox-{Guid.NewGuid():N}");
+        try
+        {
+            await using var provider = Build(SqliteConfiguration(root));
+            await using var scope = provider.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+                .InitializeAsync(CancellationToken.None);
+            var outbox = scope.ServiceProvider.GetRequiredService<IEventOutbox>();
+            var first = new OutboxEvent(Guid.NewGuid(), DateTimeOffset.UtcNow, "test.first", "{\"value\":1}",
+                null, 0, 0);
+            var second = new OutboxEvent(Guid.NewGuid(), first.OccurredAt.AddSeconds(1), "test.second",
+                "{\"value\":2}", null, 0, 0);
+            Assert.True((await outbox.EnqueueAsync(second, CancellationToken.None)).IsSuccess);
+            Assert.True((await outbox.EnqueueAsync(first, CancellationToken.None)).IsSuccess);
+            Assert.Empty(await outbox.ReadPendingAsync(10, CancellationToken.None));
+            Assert.True((await scope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+            Assert.Equal([first.Id, second.Id],
+                (await outbox.ReadPendingAsync(10, CancellationToken.None)).Select(item => item.Id));
+            var completed = await outbox.MarkProcessedAsync(
+                first.Id, 0, second.OccurredAt, CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            Assert.True((await scope.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+            var stale = await outbox.MarkProcessedAsync(first.Id, 0, second.OccurredAt, CancellationToken.None);
+            Assert.Equal(FailureCode.ConcurrencyConflict, stale.Failure?.Code);
+            Assert.Equal(second.Id, Assert.Single(await outbox.ReadPendingAsync(10, CancellationToken.None)).Id);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Sqlite_online_backup_verifies_and_restores_database_and_artifacts()
     {
         var root = Path.Combine(Path.GetTempPath(), $"agentforge-backup-{Guid.NewGuid():N}");

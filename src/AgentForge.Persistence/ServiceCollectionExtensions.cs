@@ -74,6 +74,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IInstallationRepository, SqliteInstallationRepository>();
         services.AddScoped<IInstallationStateReader>(provider => provider.GetRequiredService<IInstallationRepository>());
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<IEventOutbox, EventOutbox>();
         services.AddScoped<IDatabaseBackupService, DatabaseBackupService>();
         services.AddScoped<SqliteAuditJournal>();
         services.AddScoped<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditJournal>());

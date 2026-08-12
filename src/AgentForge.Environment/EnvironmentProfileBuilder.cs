@@ -8,6 +8,8 @@ namespace AgentForge.Environment;
 public static class EnvironmentProfileBuilder
 {
     private const int MaximumManagers = 128;
+    private const int MaximumShells = 32;
+    private const int MaximumPackageDatabases = 32;
     private const int MaximumAccelerators = 128;
     private const int MaximumExecutables = 20_000;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -71,6 +73,25 @@ public static class EnvironmentProfileBuilder
         var pathComparer = operatingSystem.Family is HostOperatingSystem.Windows
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
+        var shells = observation.Shells
+            .Select(item => item with
+            {
+                Id = item.Id.Trim().ToLowerInvariant(),
+                FullPath = item.FullPath.Trim(),
+                EvidenceSource = item.EvidenceSource.Trim(),
+            })
+            .DistinctBy(item => item.FullPath, pathComparer)
+            .OrderBy(item => item.FullPath, pathComparer)
+            .ToArray();
+        var packageDatabases = observation.PackageDatabases
+            .Select(item => item with
+            {
+                Id = item.Id.Trim().ToLowerInvariant(),
+                EvidenceSource = item.EvidenceSource.Trim(),
+            })
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(item => item.Id, StringComparer.Ordinal)
+            .ToArray();
         var executables = observation.Executables
             .Select(item => item with
             {
@@ -107,13 +128,19 @@ public static class EnvironmentProfileBuilder
             {
                 EvidenceSource = observation.Privilege.EvidenceSource.Trim(),
             },
+            Shells = shells,
+            PackageDatabases = packageDatabases,
+            Network = observation.Network with
+            {
+                EvidenceSource = observation.Network.EvidenceSource.Trim(),
+            },
             Managers = managers,
             Accelerators = accelerators,
             Executables = executables,
         };
         var fingerprint = ComputeFingerprint(normalized);
         return DomainResult.Success(new EnvironmentProfile(
-            1,
+            2,
             observedAt,
             actorId,
             correlationId,
@@ -124,6 +151,9 @@ public static class EnvironmentProfileBuilder
             normalized.Isolation,
             normalized.FileSystem,
             normalized.Privilege,
+            shells,
+            packageDatabases,
+            normalized.Network,
             managers,
             accelerators,
             executables,
@@ -142,7 +172,8 @@ public static class EnvironmentProfileBuilder
         }
 
         if (observation.OperatingSystem is null || observation.Wsl is null || observation.Isolation is null ||
-            observation.FileSystem is null || observation.Privilege is null || observation.Managers is null ||
+            observation.FileSystem is null || observation.Privilege is null || observation.Shells is null ||
+            observation.PackageDatabases is null || observation.Network is null || observation.Managers is null ||
             observation.Accelerators is null || observation.Executables is null ||
             !IsBounded(observation.OperatingSystem.Description, 512) ||
             !IsBounded(observation.OperatingSystem.KernelVersion, 256) ||
@@ -153,7 +184,13 @@ public static class EnvironmentProfileBuilder
             !IsBounded(observation.FileSystem.TemporaryRoot, 1024) ||
             !IsBounded(observation.FileSystem.EvidenceSource, 128) ||
             !IsBounded(observation.Privilege.EvidenceSource, 128) ||
+            !IsBounded(observation.Network.EvidenceSource, 128) ||
             observation.ProcessorCount is < 1 or > 1_048_576 ||
+            observation.Network.InterfaceCount is < 0 or > 1024 ||
+            observation.Network.ActiveNonLoopbackInterfaceCount < 0 ||
+            observation.Network.ActiveNonLoopbackInterfaceCount > observation.Network.InterfaceCount ||
+            observation.Shells.Count > MaximumShells ||
+            observation.PackageDatabases.Count > MaximumPackageDatabases ||
             observation.Managers.Count > MaximumManagers ||
             observation.Accelerators.Count > MaximumAccelerators ||
             observation.Executables.Count > MaximumExecutables)
@@ -175,7 +212,11 @@ public static class EnvironmentProfileBuilder
             return Invalid("Distribution metadata is invalid or oversized.");
         }
 
-        if (observation.Managers.Any(item => item is null || !IsBounded(item.Id, 128) ||
+        if (observation.Shells.Any(item => item is null || !IsBounded(item.Id, 128) ||
+            !IsBounded(item.FullPath, 2048) || !IsBounded(item.EvidenceSource, 128)) ||
+            observation.PackageDatabases.Any(item => item is null || !IsBounded(item.Id, 128) ||
+            item.InstalledPackageCount is < 0 or > 100_000_000 || !IsBounded(item.EvidenceSource, 128)) ||
+            observation.Managers.Any(item => item is null || !IsBounded(item.Id, 128) ||
             !IsOptionalBounded(item.Path, 1024) || !IsBounded(item.EvidenceSource, 128)) ||
             observation.Accelerators.Any(item => item is null || !IsBounded(item.Vendor, 128) ||
             !IsOptionalBounded(item.DeviceName, 512) || !IsBounded(item.EvidenceSource, 128)) ||
@@ -193,7 +234,7 @@ public static class EnvironmentProfileBuilder
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new
         {
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             observation.OperatingSystem,
             observation.FrameworkDescription,
             observation.ProcessorCount,
@@ -201,6 +242,9 @@ public static class EnvironmentProfileBuilder
             observation.Isolation,
             observation.FileSystem,
             observation.Privilege,
+            observation.Shells,
+            observation.PackageDatabases,
+            observation.Network,
             observation.Managers,
             observation.Accelerators,
             observation.Executables,

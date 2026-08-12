@@ -18,6 +18,10 @@ public sealed class EnvironmentProfileBuilderTests
         Assert.Equal("ubuntu", first.OperatingSystem.Distribution?.Id);
         Assert.False(first.OperatingSystem.Distribution?.IsKali);
         Assert.Equal(["apt", "systemd"], first.Managers.Select(item => item.Id));
+        Assert.Equal(2, first.SchemaVersion);
+        Assert.Equal("bash", Assert.Single(first.Shells).Id);
+        Assert.Equal(1200, Assert.Single(first.PackageDatabases).InstalledPackageCount);
+        Assert.True(first.Network.HasLoopbackInterface);
         Assert.Equal(["/usr/bin/dotnet", "/usr/bin/git"], first.Executables.Select(item => item.FullPath));
         Assert.NotEqual(first.ActorId, second.ActorId);
         Assert.NotEqual(first.ObservedAt, second.ObservedAt);
@@ -148,6 +152,9 @@ public sealed class EnvironmentProfileBuilderTests
             new IsolationProfile(HostIsolationKind.PhysicalOrUnclassified, "linux-passive-markers", "fixture"),
             new FileSystemProfile("/", "/tmp", '/', true, "ext4", "runtime-and-drive-metadata"),
             new PrivilegeProfile(HostPrivilegeLevel.Standard, "proc-self-status-effective-uid"),
+            [new ShellDescriptor("bash", "/usr/bin/bash", true, "fixture")],
+            [new PackageDatabaseDescriptor("dpkg", 1200, "fixture")],
+            new NetworkProfile(3, 1, true, "fixture"),
             managers,
             [new AcceleratorDescriptor("NVIDIA", "fixture-gpu", "linux-sysfs-drm")],
             executables,

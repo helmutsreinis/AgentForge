@@ -35,7 +35,7 @@ internal sealed class EnvironmentInventoryService(
             var redacted = redactor.Redact(new
             {
                 DocumentType = "agentforge.environment-profile",
-                SchemaVersion = 1,
+                SchemaVersion = captured.Value.SchemaVersion,
                 Profile = captured.Value,
             });
             var bytes = Encoding.UTF8.GetBytes(redacted.Data.Json);

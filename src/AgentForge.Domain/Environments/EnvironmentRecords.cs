@@ -94,6 +94,23 @@ public sealed record EnvironmentManagerDescriptor(
     string? Path,
     string EvidenceSource);
 
+public sealed record ShellDescriptor(
+    string Id,
+    string FullPath,
+    bool IsDefault,
+    string EvidenceSource);
+
+public sealed record PackageDatabaseDescriptor(
+    string Id,
+    int? InstalledPackageCount,
+    string EvidenceSource);
+
+public sealed record NetworkProfile(
+    int InterfaceCount,
+    int ActiveNonLoopbackInterfaceCount,
+    bool HasLoopbackInterface,
+    string EvidenceSource);
+
 public sealed record AcceleratorDescriptor(
     string Vendor,
     string? DeviceName,
@@ -117,6 +134,9 @@ public sealed record EnvironmentObservation(
     IsolationProfile Isolation,
     FileSystemProfile FileSystem,
     PrivilegeProfile Privilege,
+    IReadOnlyList<ShellDescriptor> Shells,
+    IReadOnlyList<PackageDatabaseDescriptor> PackageDatabases,
+    NetworkProfile Network,
     IReadOnlyList<EnvironmentManagerDescriptor> Managers,
     IReadOnlyList<AcceleratorDescriptor> Accelerators,
     IReadOnlyList<ExecutableDescriptor> Executables,
@@ -134,6 +154,9 @@ public sealed record EnvironmentProfile(
     IsolationProfile Isolation,
     FileSystemProfile FileSystem,
     PrivilegeProfile Privilege,
+    IReadOnlyList<ShellDescriptor> Shells,
+    IReadOnlyList<PackageDatabaseDescriptor> PackageDatabases,
+    NetworkProfile Network,
     IReadOnlyList<EnvironmentManagerDescriptor> Managers,
     IReadOnlyList<AcceleratorDescriptor> Accelerators,
     IReadOnlyList<ExecutableDescriptor> Executables,

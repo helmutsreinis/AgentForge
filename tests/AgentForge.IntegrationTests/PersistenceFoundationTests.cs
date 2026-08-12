@@ -2716,7 +2716,7 @@ public sealed partial class PersistenceFoundationTests : IDisposable
         new TaskRetryPolicy(2, 0));
 
     private static EnvironmentProfile CreateEnvironmentProfile(string executableName) => new(
-        1,
+        2,
         Now,
         new ActorId("environment-operator"),
         new CorrelationId("environment-redaction"),
@@ -2733,6 +2733,9 @@ public sealed partial class PersistenceFoundationTests : IDisposable
         new IsolationProfile(HostIsolationKind.PhysicalOrUnclassified, "fixture", null),
         new FileSystemProfile("/", "/tmp", '/', true, "ext4", "fixture"),
         new PrivilegeProfile(HostPrivilegeLevel.Standard, "fixture"),
+        [],
+        [],
+        new NetworkProfile(2, 1, true, "fixture"),
         [],
         [],
         [new ExecutableDescriptor(

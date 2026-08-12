@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Principal;
+using System.Net.NetworkInformation;
 using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Environments;
@@ -41,6 +42,9 @@ internal sealed class SystemEnvironmentProfiler(
                 isolation,
                 CaptureFileSystem(operatingSystem.Family),
                 CapturePrivilege(operatingSystem.Family),
+                CaptureShells(operatingSystem.Family, executables.Items),
+                CapturePackageDatabases(operatingSystem.Family),
+                CaptureNetwork(),
                 CaptureManagers(operatingSystem.Family, executables.Items),
                 CaptureAccelerators(operatingSystem.Family),
                 executables.Items,
@@ -296,6 +300,125 @@ internal sealed class SystemEnvironmentProfiler(
         }
 
         return managers;
+    }
+
+    private static ShellDescriptor[] CaptureShells(
+        HostOperatingSystem operatingSystem,
+        IReadOnlyList<ExecutableDescriptor> executables)
+    {
+        var known = operatingSystem is HostOperatingSystem.Windows
+            ? new[] { "pwsh", "powershell", "cmd" }
+            : new[] { "bash", "sh", "zsh", "fish", "dash", "pwsh" };
+        var defaultValue = global::System.Environment.GetEnvironmentVariable(
+            operatingSystem is HostOperatingSystem.Windows ? "COMSPEC" : "SHELL");
+        var pathComparison = operatingSystem is HostOperatingSystem.Windows
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return executables
+            .Where(item => known.Contains(Path.GetFileNameWithoutExtension(item.Name), StringComparer.OrdinalIgnoreCase))
+            .Select(item => new ShellDescriptor(
+                Path.GetFileNameWithoutExtension(item.Name).ToLowerInvariant(),
+                item.FullPath,
+                defaultValue is not null && string.Equals(item.FullPath, defaultValue, pathComparison),
+                "path-inventory-and-process-environment"))
+            .DistinctBy(item => item.FullPath, operatingSystem is HostOperatingSystem.Windows
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal)
+            .Take(32)
+            .ToArray();
+    }
+
+    private static List<PackageDatabaseDescriptor> CapturePackageDatabases(
+        HostOperatingSystem operatingSystem)
+    {
+        if (operatingSystem is HostOperatingSystem.Windows && OperatingSystem.IsWindows())
+        {
+            return
+            [
+                new PackageDatabaseDescriptor(
+                    "windows-uninstall-registry",
+                    CountWindowsInstalledPackages(),
+                    "windows-registry-metadata"),
+            ];
+        }
+
+        if (operatingSystem is not HostOperatingSystem.Linux)
+        {
+            return [];
+        }
+
+        var databases = new List<PackageDatabaseDescriptor>();
+        if (File.Exists("/var/lib/dpkg/status"))
+        {
+            databases.Add(new PackageDatabaseDescriptor(
+                "dpkg",
+                CountBoundedMatchingLines("/var/lib/dpkg/status", "Status: install ok installed"),
+                "dpkg-status-metadata"));
+        }
+
+        if (Directory.Exists("/var/lib/rpm"))
+            databases.Add(new PackageDatabaseDescriptor("rpm", null, "rpm-database-marker"));
+        if (Directory.Exists("/lib/apk/db"))
+            databases.Add(new PackageDatabaseDescriptor("apk", null, "apk-database-marker"));
+        if (Directory.Exists("/var/lib/pacman/local"))
+            databases.Add(new PackageDatabaseDescriptor("pacman", null, "pacman-database-marker"));
+        return databases;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static int? CountWindowsInstalledPackages()
+    {
+        const string uninstall = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+        try
+        {
+            using var registry64 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey(uninstall, writable: false);
+            using var registry32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32)
+                .OpenSubKey(uninstall, writable: false);
+            return Math.Min(100_000, (registry64?.SubKeyCount ?? 0) + (registry32?.SubKeyCount ?? 0));
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            return null;
+        }
+    }
+
+    private static int? CountBoundedMatchingLines(string path, string exactLine)
+    {
+        try
+        {
+            var count = 0;
+            var examined = 0;
+            foreach (var line in File.ReadLines(path))
+            {
+                if (++examined > 1_000_000) return null;
+                if (string.Equals(line, exactLine, StringComparison.Ordinal)) count++;
+            }
+
+            return count;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static NetworkProfile CaptureNetwork()
+    {
+        try
+        {
+            var interfaces = NetworkInterface.GetAllNetworkInterfaces().Take(1024).ToArray();
+            return new NetworkProfile(
+                interfaces.Length,
+                interfaces.Count(item => item.NetworkInterfaceType is not NetworkInterfaceType.Loopback &&
+                    item.OperationalStatus is OperationalStatus.Up),
+                interfaces.Any(item => item.NetworkInterfaceType is NetworkInterfaceType.Loopback),
+                "native-network-interface-metadata");
+        }
+        catch (NetworkInformationException)
+        {
+            return new NetworkProfile(0, 0, false, "native-network-interface-unavailable");
+        }
     }
 
     private (IReadOnlyList<ExecutableDescriptor> Items, bool Truncated) CaptureExecutables(

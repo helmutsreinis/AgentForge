@@ -35,6 +35,14 @@ public sealed class SystemEnvironmentProfilerTests
         Assert.True(result.IsSuccess, result.Failure?.Message);
         Assert.StartsWith("sha256:", result.Value.Fingerprint, StringComparison.Ordinal);
         Assert.Equal(71, result.Value.Fingerprint.Length);
+        Assert.Equal(2, result.Value.SchemaVersion);
+        Assert.InRange(result.Value.Shells.Count, 0, 32);
+        Assert.InRange(result.Value.PackageDatabases.Count, 0, 32);
+        Assert.InRange(result.Value.Network.InterfaceCount, 0, 1024);
+        Assert.InRange(
+            result.Value.Network.ActiveNonLoopbackInterfaceCount,
+            0,
+            result.Value.Network.InterfaceCount);
         Assert.InRange(result.Value.Executables.Count, 0, 1024);
         Assert.All(result.Value.Executables, item => Assert.Equal("PATH", item.Provenance));
         Assert.DoesNotContain(

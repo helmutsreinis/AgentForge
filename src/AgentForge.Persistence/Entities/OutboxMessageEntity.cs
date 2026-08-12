@@ -6,6 +6,8 @@ internal sealed class OutboxMessageEntity
 
     public DateTimeOffset OccurredAt { get; set; }
 
+    public long OccurredAtUtcTicks { get; set; }
+
     public string MessageType { get; set; } = string.Empty;
 
     public string PayloadJson { get; set; } = string.Empty;

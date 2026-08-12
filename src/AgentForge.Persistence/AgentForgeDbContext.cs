@@ -247,7 +247,7 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
         {
             entity.ToTable("outbox_messages");
             entity.HasKey(item => item.Id);
-            entity.HasIndex(item => new { item.ProcessedAt, item.OccurredAt });
+            entity.HasIndex(item => new { item.ProcessedAt, item.OccurredAtUtcTicks, item.Id });
             entity.Property(item => item.MessageType).HasMaxLength(512).IsRequired();
             entity.Property(item => item.PayloadJson).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
