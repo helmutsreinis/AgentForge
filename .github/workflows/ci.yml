@@ -22,7 +22,10 @@ jobs:
           dotnet-version: 10.0.302
       - run: dotnet restore --locked-mode
       - run: dotnet build --no-restore --configuration Release
-      - run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+      - run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage" --results-directory TestResults/coverage
+      - name: Enforce merged product and critical-path coverage
+        shell: pwsh
+        run: ./eng/verify-coverage.ps1 -ResultsDirectory TestResults/coverage
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet list AgentForge.slnx package --vulnerable --include-transitive
       - shell: pwsh
