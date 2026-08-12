@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using AgentForge.Abstractions.Plugins;
+using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Plugins;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Setup;
 using AgentForge.Domain.Tools;
 using AgentForge.Plugins;
 using Microsoft.Extensions.Configuration;
@@ -136,6 +138,24 @@ public sealed class PluginIsolationTests : IDisposable
         Assert.False(await verifier.VerifyAsync(
             signed with { Signature = signed.Signature! with { KeyId = "unknown-key" } },
             "bounded-manifest"u8.ToArray(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Recovery_inspection_fails_closed_until_invalid_plugin_package_is_quarantined()
+    {
+        var invalidPackage = Path.Combine(_root, "invalid-package");
+        Directory.CreateDirectory(invalidPackage);
+        await using var provider = BuildServices(new FakeSignatureVerifier(false), new RecordingWorkerLauncher());
+        var inspector = provider.GetRequiredService<IRecoveryConfigurationInspector>();
+
+        var failed = await inspector.InspectAsync(
+            new InstallationId(Guid.NewGuid()), CancellationToken.None);
+        Assert.Equal(DoctorCheckStatus.Fail, failed.Status);
+
+        Directory.Delete(invalidPackage);
+        var repaired = await inspector.InspectAsync(
+            new InstallationId(Guid.NewGuid()), CancellationToken.None);
+        Assert.Equal(DoctorCheckStatus.Pass, repaired.Status);
     }
 
     private ServiceProvider BuildServices(

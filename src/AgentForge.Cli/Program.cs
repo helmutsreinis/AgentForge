@@ -22,8 +22,10 @@ using AgentForge.Environment;
 using AgentForge.Mcp;
 using AgentForge.Models;
 using AgentForge.Persistence;
+using AgentForge.Plugins;
 using AgentForge.Security;
 using AgentForge.Setup;
+using AgentForge.Skills;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -507,13 +509,16 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
         .AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["AgentForge:Installation:DataDirectory"] = dataDirectory,
+            ["AgentForge:Plugins:Directory"] = Path.Combine(dataDirectory, "plugins"),
         })
         .Build();
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddAgentForgeSetup(configuration);
     services.AddAgentForgePersistence(configuration);
+    services.AddAgentForgePlugins(configuration);
     services.AddAgentForgeSecurity(configuration);
+    services.AddAgentForgeSkills();
     services.AddAgentForgeAudit();
     services.AddAgentForgeModels();
 

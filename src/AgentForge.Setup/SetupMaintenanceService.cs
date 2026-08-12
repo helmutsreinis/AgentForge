@@ -31,6 +31,7 @@ internal sealed class SetupMaintenanceService(
     ISecretStore secretStore,
     ISensitiveDataRedactor redactor,
     ILocalAdministratorAuthenticator authenticator,
+    IEnumerable<IRecoveryConfigurationInspector> recoveryConfigurationInspectors,
     IDataDirectoryProvider dataDirectoryProvider,
     IUnitOfWork unitOfWork,
     IClock clock,
@@ -130,6 +131,11 @@ internal sealed class SetupMaintenanceService(
             administrator is not null
                 ? "A local administrator verifier and OS reference are configured."
                 : "No local administrator is configured."));
+
+        foreach (var inspector in recoveryConfigurationInspectors)
+        {
+            checks.Add(await inspector.InspectAsync(installation.Id, cancellationToken));
+        }
 
         return DomainResult.Success(new SetupDoctorReport(clock.UtcNow, installation, checks));
     }

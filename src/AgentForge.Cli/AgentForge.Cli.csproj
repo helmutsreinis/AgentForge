@@ -17,8 +17,10 @@
     <ProjectReference Include="..\AgentForge.Models\AgentForge.Models.csproj" />
     <ProjectReference Include="..\AgentForge.Mcp\AgentForge.Mcp.csproj" />
     <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
+    <ProjectReference Include="..\AgentForge.Plugins\AgentForge.Plugins.csproj" />
     <ProjectReference Include="..\AgentForge.Security\AgentForge.Security.csproj" />
     <ProjectReference Include="..\AgentForge.Setup\AgentForge.Setup.csproj" />
+    <ProjectReference Include="..\AgentForge.Skills\AgentForge.Skills.csproj" />
   </ItemGroup>
 
 </Project>

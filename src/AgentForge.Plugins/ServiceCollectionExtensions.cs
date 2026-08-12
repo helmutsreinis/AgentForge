@@ -1,4 +1,5 @@
 using AgentForge.Abstractions.Plugins;
+using AgentForge.Abstractions.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -25,6 +26,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IPluginWorkerLauncher, SandboxPluginWorkerLauncher>();
         services.AddSingleton<IPluginCatalog, FilePluginCatalog>();
         services.AddSingleton<IPluginLoader, PluginLoader>();
+        services.AddSingleton<IRecoveryConfigurationInspector, PluginRecoveryConfigurationInspector>();
         return services;
     }
 }

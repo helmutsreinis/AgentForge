@@ -16,7 +16,7 @@ passing gate report.
 | AF-SET-002 | Interactive and non-interactive setup use the same application services and validation rules. | 1 | Verified |
 | AF-SET-003 | Setup validates storage, one text provider/model, policy, audit, and one named agent before Ready. | 1 | Verified |
 | AF-SET-004 | Setup persists a versioned profile containing secret references only and produces a redacted report and rollback snapshot. | 1 | Verified |
-| AF-SET-005 | Recovery mode repairs provider/plugin/skill configuration without launching autonomous work. | 1 | In progress |
+| AF-SET-005 | Recovery mode repairs provider/plugin/skill configuration without launching autonomous work. | 1 | Verified |
 | AF-HOST-001 | Liveness remains available during setup or recovery; readiness is healthy only in Ready state. | 0 | Verified |
 | AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit hardened configuration. | 0,10 | Verified for local default |
 | AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | In progress |
