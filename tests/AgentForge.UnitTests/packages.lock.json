@@ -287,6 +287,13 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       },
+      "agentforge.learning": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.memory": {
         "type": "Project",
         "dependencies": {
