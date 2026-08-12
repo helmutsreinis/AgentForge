@@ -89,6 +89,7 @@ builder.Services.AddAgentForgeSearch();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddSingleton<WebSetupSessionManager>();
+builder.Services.AddSingleton<ReadyAdminSessionManager>();
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 
@@ -246,6 +247,7 @@ app.MapGet("/api/v1/runtime/ping", async (
 });
 
 app.MapAgentForgeWebSetup();
+app.MapReadyAdminApi();
 app.MapProductionApi();
 app.MapMcp("/mcp")
     .RequireCors("mcp-browser")

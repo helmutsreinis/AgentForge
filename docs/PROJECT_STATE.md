@@ -4,8 +4,8 @@ Updated: 2026-08-12
 
 ## Current objective
 
-Begin Milestone 9 governed recursive learning, evidence classification, canaries, and bundles. Keep unavailable live
-hardware/container gates open and every device write disabled by default.
+Deliver a testable post-R1 Ready-state MVP over the completed harness boundaries without exposing administrator
+credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 ## Completed
 
@@ -143,10 +143,13 @@ hardware/container gates open and every device write disabled by default.
 - The five-step web journey now discovers a bounded `/models` catalog through the Models contract, supports an explicit model-ID fallback for servers without a catalog route, verifies every chosen model with one explicit bounded chat probe, previews agent policy, and presents a redacted review. Private vLLM/compatible endpoints can use the typed no-credential sentinel rather than a fabricated key.
 - Bootstrap `LocalOnly` policy now matches runtime routing semantics: in-process, loopback, and literal private-network providers are allowed, while public/cloud endpoints and fallback remain denied. This also makes a failed private-LAN web setup restart-safe because the recovered provider can proceed through agent preview and completion.
 - Deterministic tests cover discovery/probe bounds, hostile public HTTP, refresh resume, missing CSRF, exact replay, credential-free persistence, policy equivalence, completion, and lockout. The in-app browser discovered five live ASUS models, verified `qwen3.6` in 347 ms, passed desktop/mobile layout and back-navigation checks, and reported no console warnings or errors.
+- The Ready loopback page now exposes real Agents, Runs, and Skills workspaces. A separate 30-minute operator session validates the OS-protected administrator credential server-side and returns only an HttpOnly SameSite cookie plus independent CSRF token; browser code never receives the bearer credential.
+- Agents lists durable identity, policy, memory, budgets, child limits, and learning posture. Runs creates, lists, and cancels exact-agent/version durable planned orchestration snapshots while deliberately performing no model or tool execution. Skills validates and installs the packaged C# review seed through the existing artifact/audit/registry service and leaves it awaiting governed promotion.
+- The end-to-end Ready journey covers hostile origin, credential non-disclosure, missing CSRF, installation scope, durable run create/list/cancel, and seed install/list. Live browser smoke confirms all three tabs against the configured `qwen3.6` installation; the smoke run was canceled and the seed remains Installed rather than Active.
 
 ## Latest gate
 
-`artifacts/gates/POST-R1-SETUP-UX-20260812.md`: Pass. Operator-centered setup, live model discovery, session resume, security regression, and visual QA are complete.
+`artifacts/gates/POST-R1-READY-MVP-20260812.md`: Pass. Protected Ready-state Agents, Runs, and Skills MVP behavior is complete and browser-tested.
 
 ## Known constraints and risks
 
@@ -154,7 +157,7 @@ hardware/container gates open and every device write disabled by default.
 - The production task API, authenticated SSE, policy-filtered MCP transports, plugins, backup/restore, and packaging are complete. Broader administration remains deliberately closed for R1.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
-- Web setup is complete for first-run loopback installation. R1 deliberately does not provide a general web dashboard or multi-user administration; explicit hardened remote control-plane mode is supported.
+- Web setup and the initial loopback Ready workspace are complete for the single local operator. The workspace intentionally omits automatic model execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, topology-preserving profile rollback, and full-package restore are authenticated and snapshot/hash backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing profile entities through restore is intentionally denied.
 - SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. Durable DAG and schedule workers own lease scanning/takeover; model-run recovery remains an internal exact-version service rather than an operator API.
@@ -164,4 +167,4 @@ hardware/container gates open and every device write disabled by default.
 
 ## Exact next action
 
-No development action remains for AF-SET-006. The next product slice should add authenticated Ready-state administration without broadening first-run authority.
+The next MVP slice should connect a planned run to the existing internal model route/admission/execution loop behind an explicit operator action, streamed progress, cancellation, and exact current-policy checks. It must not expose tools, external messaging, skill promotion, or device writes as a side effect.

@@ -29,4 +29,12 @@
     <ProjectReference Include="..\AgentForge.Tools\AgentForge.Tools.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\..\skills\seed\csharp-review\**\*">
+      <Link>skills\seed\csharp-review\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

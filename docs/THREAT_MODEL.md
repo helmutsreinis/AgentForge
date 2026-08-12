@@ -766,6 +766,30 @@ The wizard constructs the same conservative defaults as omitted CLI options and 
 provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
 wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.
 
+## Post-R1 Ready operator workspace
+
+The Ready browser workspace treats local pages, origins, cookies, CSRF input, request identifiers, agent/run
+labels, and packaged skill content as untrusted. It is loopback-only and exact-origin checked. To avoid placing
+the random administrator bearer credential in JavaScript or browser storage, the server materializes the
+current OS user's secret reference, authenticates it against the verifier, clears the lease, and issues a
+separate random 30-minute HttpOnly SameSite=Strict cookie. Only one live session is retained for the
+installation. State changes additionally require an independent fixed-time-checked CSRF token and a bounded
+idempotency key; all responses remain `no-store` and rate limited.
+
+The session is bound to the exact Ready installation and becomes stale when installation state or identity
+changes. Agent reads are installation-scoped. Run creation selects an existing exact agent/version and pins
+policy, budget, child, and skill-grant hashes before calling the durable orchestrator; cancellation uses the
+latest concurrency version. The browser cannot claim or execute nodes. Seed installation resolves only the
+packaged fixed directory and calls the same package validator, artifact store, audit, and registry service as
+other provenance. Installation never activates a skill. Model execution, tool calls, promotion, external
+messaging, and device writes remain unavailable from this workspace.
+
+Same-user OS-account compromise remains outside the local single-operator boundary: that user can already
+materialize the protected credential and access AgentForge files. Cross-origin browser requests, non-loopback
+clients, missing/stale cookies, missing CSRF, changed installation scope, unknown agents, and missing seed
+packages fail closed. Deterministic end-to-end tests cover hostile origin, secret non-disclosure, missing CSRF,
+durable create/list/cancel, and validated seed install/list.
+
 ## M8 passive serial discovery boundary
 
 Device discovery reads Windows serial registry metadata or Linux sysfs/device-node existence only. The inventory

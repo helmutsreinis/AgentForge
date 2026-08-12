@@ -16,10 +16,17 @@ compatible endpoint has no catalog route, the operator may enter an exact model 
 same session, but it remains unverified and cannot be persisted until the probe succeeds. The
 durable provider/agent creation still calls the same setup application services as CLI.
 
+After Ready, the same loopback origin can open a separate 30-minute operator session. The server
+materializes the current user's OS-protected administrator credential only long enough to validate it,
+then returns an HttpOnly SameSite cookie plus an independent CSRF token. JavaScript never receives the
+administrator credential. The initial workspace reads existing agent and skill repositories, creates and
+cancels durable orchestration definitions through `ITaskOrchestrator`, and installs the packaged seed through
+`ISkillRegistryService`. It deliberately has no model-execution, tool-invocation, or skill-promotion shortcut.
+
 ```mermaid
 flowchart LR
   Operator["Local operator"] --> CLI["agentforge CLI/TUI"]
-  Operator --> Web["Loopback setup UI (M7)"]
+  Operator --> Web["Loopback setup and Ready workspace"]
   CLI --> API["Authenticated /api/v1 + event stream"]
   Web --> API
   Web --> ModelDiscovery["Bounded model discovery/probe"]

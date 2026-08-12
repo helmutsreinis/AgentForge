@@ -134,6 +134,67 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, status.StatusCode);
         Assert.Contains("\"ready\":true", await status.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        using var foreignSessionRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/admin/session")
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        foreignSessionRequest.Headers.Add("Origin", "https://attacker.example");
+        using var foreignSession = await client.SendAsync(foreignSessionRequest);
+        Assert.Equal(HttpStatusCode.Forbidden, foreignSession.StatusCode);
+        using var adminSession = await client.PostAsJsonAsync("/api/v1/admin/session", new { });
+        Assert.Equal(HttpStatusCode.OK, adminSession.StatusCode);
+        Assert.DoesNotContain("secret-", await adminSession.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var adminCsrf = await ReadPropertyAsync(adminSession, "csrfToken");
+        using var agentList = await client.GetAsync("/api/v1/admin/agents");
+        Assert.Equal(HttpStatusCode.OK, agentList.StatusCode);
+        using var agentListDocument = JsonDocument.Parse(await agentList.Content.ReadAsByteArrayAsync());
+        var agentId = agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("id").GetGuid();
+        Assert.Equal("web-agent", agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("name").GetString());
+
+        using var runWithoutCsrf = await client.PostAsJsonAsync("/api/v1/admin/runs", new
+        {
+            agentId,
+            name = "MVP planned run",
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, runWithoutCsrf.StatusCode);
+        using var createRun = await MutationAsync(client, "/api/v1/admin/runs", "mvp-run-1", adminCsrf, JsonContent.Create(new
+        {
+            agentId,
+            name = "MVP planned run",
+        }));
+        Assert.Equal(HttpStatusCode.Created, createRun.StatusCode);
+        using var runDocument = JsonDocument.Parse(await createRun.Content.ReadAsByteArrayAsync());
+        var runId = runDocument.RootElement.GetProperty("taskId").GetGuid();
+        Assert.Equal("Planned", runDocument.RootElement.GetProperty("state").GetString());
+        using var createRunReplay = await MutationAsync(client, "/api/v1/admin/runs", "mvp-run-1", adminCsrf, JsonContent.Create(new
+        {
+            agentId,
+            name = "MVP planned run",
+        }));
+        Assert.Equal(HttpStatusCode.Created, createRunReplay.StatusCode);
+        Assert.True(createRunReplay.Headers.Contains("Idempotent-Replay"));
+        using var replayDocument = JsonDocument.Parse(await createRunReplay.Content.ReadAsByteArrayAsync());
+        Assert.Equal(runId, replayDocument.RootElement.GetProperty("taskId").GetGuid());
+        using var createRunConflict = await MutationAsync(client, "/api/v1/admin/runs", "mvp-run-1", adminCsrf, JsonContent.Create(new
+        {
+            agentId,
+            name = "Different run",
+        }));
+        Assert.Equal(HttpStatusCode.Conflict, createRunConflict.StatusCode);
+        using var runList = await client.GetAsync("/api/v1/admin/runs");
+        Assert.Equal(HttpStatusCode.OK, runList.StatusCode);
+        Assert.Contains("MVP planned run", await runList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var cancelRun = await MutationAsync(client, $"/api/v1/admin/runs/{runId:D}/cancel", "mvp-run-cancel-1", adminCsrf, JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.OK, cancelRun.StatusCode);
+        Assert.Contains("Canceled", await cancelRun.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var installSkill = await MutationAsync(client, "/api/v1/admin/skills/seed/csharp-review/install", "seed-skill-1", adminCsrf, JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.OK, installSkill.StatusCode);
+        Assert.Contains("skill:csharp.review", await installSkill.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var skillList = await client.GetAsync("/api/v1/admin/skills");
+        Assert.Equal(HttpStatusCode.OK, skillList.StatusCode);
+        Assert.Contains("Installed", await skillList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
         await using var verificationScope = _factory.Services.CreateAsyncScope();
         var configuredAgent = Assert.Single(await verificationScope.ServiceProvider
             .GetRequiredService<IAgentIdentityRepository>().ListAsync(installationId, CancellationToken.None));

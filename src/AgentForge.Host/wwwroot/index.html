@@ -21,30 +21,27 @@
       </a>
 
       <nav>
-        <a class="nav-item active" href="#overview" aria-current="page">
+        <a class="nav-item active" href="#overview" data-view="overview" aria-current="page">
           <span class="nav-icon" aria-hidden="true">⌂</span>
           Overview
         </a>
-        <a class="nav-item" href="#setup">
+        <a class="nav-item" href="#setup" data-view="setup">
           <span class="nav-icon" aria-hidden="true">◇</span>
           Setup
-          <span class="nav-badge">1</span>
+          <span id="setup-badge" class="nav-badge">1</span>
         </a>
-        <span class="nav-item disabled" aria-disabled="true">
+        <a class="nav-item" href="#agents" data-view="agents">
           <span class="nav-icon" aria-hidden="true">⌘</span>
           Agents
-          <span class="soon">Soon</span>
-        </span>
-        <span class="nav-item disabled" aria-disabled="true">
+        </a>
+        <a class="nav-item" href="#runs" data-view="runs">
           <span class="nav-icon" aria-hidden="true">↗</span>
           Runs
-          <span class="soon">Soon</span>
-        </span>
-        <span class="nav-item disabled" aria-disabled="true">
+        </a>
+        <a class="nav-item" href="#skills" data-view="skills">
           <span class="nav-icon" aria-hidden="true">□</span>
           Skills
-          <span class="soon">Soon</span>
-        </span>
+        </a>
       </nav>
 
       <div class="sidebar-footer">
@@ -62,8 +59,8 @@
     <main id="main-content">
       <header class="topbar">
         <div>
-          <span class="eyebrow">CONTROL PLANE</span>
-          <h1>Good evening.</h1>
+          <span id="view-kicker" class="eyebrow">CONTROL PLANE</span>
+          <h1 id="view-title">Good evening.</h1>
         </div>
         <div class="topbar-actions">
           <span id="last-updated" class="last-updated" aria-live="polite">Connecting…</span>
@@ -73,7 +70,8 @@
         </div>
       </header>
 
-      <section id="overview" class="hero" aria-labelledby="hero-title">
+      <div id="overview" class="app-view">
+      <section class="hero" aria-labelledby="hero-title">
         <div class="hero-orb" aria-hidden="true"><span></span></div>
         <div class="hero-copy">
           <div id="state-pill" class="pill warning">
@@ -82,8 +80,8 @@
           </div>
           <h2 id="hero-title">Your local agent harness<br>starts here.</h2>
           <p id="state-description">AgentForge is checking the durable installation state before enabling runtime operations.</p>
-          <a class="primary-action" href="#setup">
-            View setup guide
+          <a id="hero-action" class="primary-action" href="#setup">
+            <span id="hero-action-label">View setup guide</span>
             <span aria-hidden="true">→</span>
           </a>
         </div>
@@ -130,8 +128,9 @@
           </div>
         </article>
       </section>
+      </div>
 
-      <section id="setup" class="setup-panel" aria-labelledby="setup-title">
+      <section id="setup" class="setup-panel app-view" aria-labelledby="setup-title" hidden>
         <div class="setup-copy">
           <span class="section-number">01</span>
           <div>
@@ -245,6 +244,56 @@
 
           <p class="setup-note">API keys are sent only to this loopback origin, never shown in review, and cleared from the page immediately after setup.</p>
         </div>
+      </section>
+
+      <section id="agents" class="workspace-panel app-view" aria-labelledby="agents-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">IDENTITIES &amp; POLICY</span>
+            <h2 id="agents-title">Agents</h2>
+            <p>Inspect the persisted identity, model authority, budgets, and effective safety posture for each local agent.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="agents">Reload agents</button>
+        </div>
+        <div id="agents-message" class="workspace-message" aria-live="polite">Open this page to load agents.</div>
+        <div id="agent-list" class="resource-grid"></div>
+      </section>
+
+      <section id="runs" class="workspace-panel app-view" aria-labelledby="runs-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">DURABLE ORCHESTRATION</span>
+            <h2 id="runs-title">Runs</h2>
+            <p>Create inspectable, restart-safe run definitions and cancel them safely. Model execution is not auto-started in this MVP.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="runs">Reload runs</button>
+        </div>
+        <form id="run-form" class="inline-create-form" autocomplete="off">
+          <label>Agent<select id="run-agent" required></select></label>
+          <label>Run name<input id="run-name" required maxlength="256" placeholder="Review the current solution"></label>
+          <button class="setup-submit" type="submit">Create planned run</button>
+        </form>
+        <div class="scope-notice"><strong>Safe MVP boundary</strong><span>Creation persists the exact agent, policy, budget, and skill snapshot hashes. No model, tool, or process is invoked.</span></div>
+        <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
+        <div id="run-list" class="resource-list"></div>
+      </section>
+
+      <section id="skills" class="workspace-panel app-view" aria-labelledby="skills-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">GOVERNED CAPABILITIES</span>
+            <h2 id="skills-title">Skills</h2>
+            <p>Inspect immutable skill packages and install the bundled C# review seed through the same validated registry as future proposals.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="skills">Reload skills</button>
+        </div>
+        <div class="skill-starter">
+          <div><strong>C# review starter</strong><span>Portable SKILL.md package · immutable hash · declared repository-read authority</span></div>
+          <button id="install-seed-skill" class="setup-submit" type="button">Install starter skill</button>
+        </div>
+        <div class="scope-notice"><strong>Governed by default</strong><span>Installation validates and records the package. Activation still requires the evaluation, approval, and canary promotion lifecycle.</span></div>
+        <div id="skills-message" class="workspace-message" aria-live="polite">Open this page to load skills.</div>
+        <div id="skill-list" class="resource-list"></div>
       </section>
 
       <footer>

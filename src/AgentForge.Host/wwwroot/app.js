@@ -14,6 +14,11 @@ const elements = {
   sandboxIndicator: document.querySelector("#sandbox-indicator"),
   sandboxCopy: document.querySelector("#sandbox-copy"),
   sandboxKind: document.querySelector("#sandbox-kind"),
+  setupBadge: document.querySelector("#setup-badge"),
+  heroAction: document.querySelector("#hero-action"),
+  heroActionLabel: document.querySelector("#hero-action-label"),
+  viewKicker: document.querySelector("#view-kicker"),
+  viewTitle: document.querySelector("#view-title"),
   setupMessage: document.querySelector("#setup-message"),
   progress: document.querySelector("#setup-progress"),
   providerForm: document.querySelector("#provider-form"),
@@ -31,7 +36,18 @@ const elements = {
   modelSummary: document.querySelector("#model-summary"),
   verifySummary: document.querySelector("#verify-summary"),
   reviewSummary: document.querySelector("#review-summary"),
+  agentsMessage: document.querySelector("#agents-message"),
+  agentList: document.querySelector("#agent-list"),
+  runsMessage: document.querySelector("#runs-message"),
+  runList: document.querySelector("#run-list"),
+  runForm: document.querySelector("#run-form"),
+  runAgent: document.querySelector("#run-agent"),
+  skillsMessage: document.querySelector("#skills-message"),
+  skillList: document.querySelector("#skill-list"),
+  installSeedSkill: document.querySelector("#install-seed-skill"),
 };
+
+const admin = { csrfToken: null, installationId: null, actorId: null, agents: [] };
 
 const setup = {
   csrfToken: null,
@@ -69,12 +85,243 @@ function setIndicator(element, state, label) {
 function renderInstallation(result) {
   const state = result.payload.installationState ?? "Unknown";
   const ready = result.payload.ready === true;
+  elements.setupBadge.hidden = ready;
+  elements.heroAction.href = ready ? "#agents" : "#setup";
+  elements.heroActionLabel.textContent = ready ? "Open agent workspace" : "View setup guide";
   elements.stateLabel.textContent = ready ? "Installation ready" : `${state} · Setup required`;
   elements.statePill.classList.toggle("ready", ready);
   elements.stateDescription.textContent = ready
     ? "The durable installation is ready. Runtime operations remain behind authentication and policy."
     : "Connect a provider, choose a model, and create your first local agent to unlock authenticated runtime operations.";
   elements.runtimeMode.textContent = ready ? "Authenticated" : "Setup only";
+}
+
+function workspaceStatus(element, message, state = "") {
+  element.textContent = message;
+  element.className = `workspace-message ${state}`;
+}
+
+async function ensureAdminSession() {
+  let result = await readJson("/api/v1/admin/session");
+  if (!result.ok) {
+    result = await readJson("/api/v1/admin/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: window.location.origin },
+      body: "{}",
+    });
+  }
+  if (!result.ok) throw new Error(result.payload.detail ?? "The local operator session could not be opened.");
+  admin.csrfToken = result.payload.csrfToken;
+  admin.installationId = result.payload.installationId;
+  admin.actorId = result.payload.actorId;
+  return result.payload;
+}
+
+async function adminRead(path) {
+  await ensureAdminSession();
+  const result = await readJson(path);
+  if (!result.ok) throw new Error(result.payload.detail ?? "The operator request failed.");
+  return result.payload;
+}
+
+async function adminMutation(path, payload = {}) {
+  await ensureAdminSession();
+  const result = await readJson(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
+      "X-CSRF-Token": admin.csrfToken,
+      Origin: window.location.origin,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!result.ok) throw new Error(result.payload.detail ?? "The operator mutation failed.");
+  return result.payload;
+}
+
+function makeElement(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function addMeta(container, label, value) {
+  const item = document.createElement("div");
+  item.append(makeElement("span", "", label), makeElement("strong", "", String(value)));
+  container.append(item);
+}
+
+function stateChip(state) {
+  return makeElement("span", `state-chip ${String(state).toLowerCase()}`, state);
+}
+
+async function loadAgents(message = "Loading persisted agent identities…") {
+  workspaceStatus(elements.agentsMessage, message);
+  try {
+    const payload = await adminRead("/api/v1/admin/agents");
+    admin.agents = payload.agents;
+    elements.agentList.replaceChildren();
+    elements.runAgent.replaceChildren();
+    for (const agent of payload.agents) {
+      const option = document.createElement("option");
+      option.value = agent.id;
+      option.textContent = agent.name;
+      elements.runAgent.append(option);
+
+      const card = makeElement("article", "resource-card");
+      const title = makeElement("div", "resource-title");
+      const titleCopy = document.createElement("div");
+      titleCopy.append(
+        makeElement("h3", "", agent.name),
+        makeElement("p", "resource-subtitle", `${agent.id} · version ${agent.version}`));
+      title.append(titleCopy, stateChip("Ready"));
+      const description = makeElement("p", "resource-description", agent.mission || agent.expertise || "No mission recorded.");
+      const meta = makeElement("div", "resource-meta");
+      addMeta(meta, "Data locality", agent.dataLocality);
+      addMeta(meta, "Network", agent.networkPosture);
+      addMeta(meta, "Tool budget", agent.budget.maxToolInvocations);
+      addMeta(meta, "Input / output", `${agent.budget.maxInputTokens.toLocaleString()} / ${agent.budget.maxOutputTokens.toLocaleString()}`);
+      addMeta(meta, "Memory", `${agent.memoryScope} · ${agent.retentionDays} days`);
+      addMeta(meta, "Learning", `${agent.learningMode} · ${agent.mutableSkillScope}`);
+      card.append(title, description, meta);
+      elements.agentList.append(card);
+    }
+    if (!payload.agents.length) elements.agentList.append(makeElement("div", "empty-state", "No agents are configured."));
+    workspaceStatus(elements.agentsMessage, `${payload.agents.length} ${payload.agents.length === 1 ? "agent" : "agents"} loaded from durable state.`, "ok");
+    return payload.agents;
+  } catch (error) {
+    workspaceStatus(elements.agentsMessage, error instanceof Error ? error.message : "Agents could not be loaded.", "error");
+    return [];
+  }
+}
+
+async function loadRuns(message = "Loading durable run snapshots…") {
+  workspaceStatus(elements.runsMessage, message);
+  try {
+    if (!admin.agents.length) await loadAgents();
+    const payload = await adminRead("/api/v1/admin/runs");
+    elements.runList.replaceChildren();
+    for (const run of payload.runs) {
+      const card = makeElement("article", "resource-card compact");
+      const content = document.createElement("div");
+      const title = makeElement("div", "resource-title");
+      const titleCopy = document.createElement("div");
+      const agent = admin.agents.find(item => item.id === run.agentId);
+      titleCopy.append(
+        makeElement("h3", "", run.name),
+        makeElement("p", "resource-subtitle", `${run.taskId} · ${agent?.name || run.agentId}`));
+      title.append(titleCopy, stateChip(run.state));
+      const meta = makeElement("div", "resource-meta");
+      addMeta(meta, "Pattern", run.pattern);
+      addMeta(meta, "Snapshot", `v${run.version} · ${run.snapshotHash.slice(0, 18)}…`);
+      content.append(title, meta);
+      card.append(content);
+      if (!["Completed", "Failed", "Canceled", "DeadLettered"].includes(run.state)) {
+        const actions = makeElement("div", "resource-actions");
+        const cancel = makeElement("button", "secondary-action", "Cancel run");
+        cancel.type = "button";
+        cancel.addEventListener("click", async () => {
+          cancel.disabled = true;
+          try {
+            await adminMutation(`/api/v1/admin/runs/${run.taskId}/cancel`);
+            await loadRuns("Run canceled. Refreshing snapshots…");
+          } catch (error) {
+            workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Run cancellation failed.", "error");
+            cancel.disabled = false;
+          }
+        });
+        actions.append(cancel);
+        card.append(actions);
+      }
+      elements.runList.append(card);
+    }
+    if (!payload.runs.length) elements.runList.append(makeElement("div", "empty-state", "No runs yet. Create a safe planned run above."));
+    workspaceStatus(elements.runsMessage, `${payload.runs.length} latest run ${payload.runs.length === 1 ? "snapshot" : "snapshots"} loaded.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Runs could not be loaded.", "error");
+  }
+}
+
+async function createRun(event) {
+  event.preventDefault();
+  setBusy(elements.runForm, true);
+  try {
+    const name = document.querySelector("#run-name").value.trim();
+    const created = await adminMutation("/api/v1/admin/runs", { agentId: elements.runAgent.value, name });
+    document.querySelector("#run-name").value = "";
+    await loadRuns(`Created ${created.name}. Refreshing durable snapshots…`);
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The run could not be created.", "error");
+  } finally {
+    setBusy(elements.runForm, false);
+  }
+}
+
+async function loadSkills(message = "Loading immutable skill packages…") {
+  workspaceStatus(elements.skillsMessage, message);
+  try {
+    const payload = await adminRead("/api/v1/admin/skills");
+    elements.skillList.replaceChildren();
+    for (const skill of payload.skills) {
+      const card = makeElement("article", "resource-card");
+      const title = makeElement("div", "resource-title");
+      const titleCopy = document.createElement("div");
+      titleCopy.append(
+        makeElement("h3", "", skill.id),
+        makeElement("p", "resource-subtitle", `${skill.version} · ${skill.provenance} · record ${skill.recordVersion}`));
+      title.append(titleCopy, stateChip(skill.status));
+      const meta = makeElement("div", "resource-meta");
+      addMeta(meta, "Permissions", skill.permissions.length ? skill.permissions.join(", ") : "None");
+      addMeta(meta, "Operating systems", skill.operatingSystems.length ? skill.operatingSystems.join(", ") : "Portable");
+      addMeta(meta, "Package hash", `${skill.packageHash.slice(0, 24)}…`);
+      addMeta(meta, "Promotion", skill.status === "Active" ? "Active" : "Evaluation required");
+      card.append(title, makeElement("p", "resource-description", skill.description), meta);
+      elements.skillList.append(card);
+    }
+    if (!payload.skills.length) elements.skillList.append(makeElement("div", "empty-state", "No skills installed. The bundled starter can be validated and installed above."));
+    elements.installSeedSkill.disabled = payload.seedAvailable !== true || payload.skills.some(skill => skill.id === "skill:csharp.review");
+    elements.installSeedSkill.textContent = payload.skills.some(skill => skill.id === "skill:csharp.review") ? "Starter installed" : "Install starter skill";
+    workspaceStatus(elements.skillsMessage, `${payload.skills.length} registered skill ${payload.skills.length === 1 ? "version" : "versions"} loaded.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "Skills could not be loaded.", "error");
+  }
+}
+
+async function installSeedSkill() {
+  elements.installSeedSkill.disabled = true;
+  try {
+    const result = await adminMutation("/api/v1/admin/skills/seed/csharp-review/install");
+    await loadSkills(`${result.skill.id} ${result.skill.version} installed. Refreshing registry…`);
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "The starter skill could not be installed.", "error");
+    elements.installSeedSkill.disabled = false;
+  }
+}
+
+const viewDetails = {
+  overview: ["CONTROL PLANE", "Good evening."],
+  setup: ["FIRST RUN", "Configure AgentForge"],
+  agents: ["IDENTITIES", "Your local agents"],
+  runs: ["ORCHESTRATION", "Durable runs"],
+  skills: ["REGISTRY", "Governed skills"],
+};
+
+async function showCurrentView() {
+  const requested = window.location.hash.slice(1);
+  const view = Object.hasOwn(viewDetails, requested) ? requested : "overview";
+  for (const panel of document.querySelectorAll(".app-view")) panel.hidden = panel.id !== view;
+  for (const link of document.querySelectorAll("[data-view]")) {
+    const active = link.dataset.view === view;
+    link.classList.toggle("active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  [elements.viewKicker.textContent, elements.viewTitle.textContent] = viewDetails[view];
+  if (view === "agents") await loadAgents();
+  if (view === "runs") await loadRuns();
+  if (view === "skills") await loadSkills();
 }
 
 function renderHost(result) {
@@ -447,6 +694,8 @@ elements.modelForm.addEventListener("submit", selectModel);
 elements.verifyForm.addEventListener("submit", verifyModel);
 elements.agentForm.addEventListener("submit", prepareReview);
 elements.reviewForm.addEventListener("submit", completeSetup);
+elements.runForm.addEventListener("submit", createRun);
+elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
 document.querySelector("#refresh-after-setup").addEventListener("click", () => document.querySelector("#overview").scrollIntoView());
 for (const button of document.querySelectorAll("[data-back]")) {
@@ -462,8 +711,17 @@ for (const button of document.querySelectorAll("[data-back]")) {
     setupStatus(messages[stage] || "Continue setup.");
   });
 }
+for (const button of document.querySelectorAll("[data-reload]")) {
+  button.addEventListener("click", () => {
+    if (button.dataset.reload === "agents") loadAgents("Refreshing agent identities…");
+    if (button.dataset.reload === "runs") loadRuns("Refreshing durable snapshots…");
+    if (button.dataset.reload === "skills") loadSkills("Refreshing the skill registry…");
+  });
+}
+window.addEventListener("hashchange", showCurrentView);
 
 document.querySelector("#provider-endpoint").value = setup.provider.endpoint;
 document.querySelector("#agent-timezone").value = setup.agent.timeZone;
 refreshStatus();
 startSetup();
+showCurrentView();
