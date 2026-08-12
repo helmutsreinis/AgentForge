@@ -264,8 +264,10 @@
         "AgentForge.UnitTests.LearningGovernanceTests.Incompatible_chain_or_injected_secret_summary_is_rejected_without_authority_expansion",
         "AgentForge.UnitTests.SerialDecoderTests.Decoder_candidate_cannot_acquire_device_write_or_other_authority",
         "AgentForge.UnitTests.ChannelServiceTests.Invalid_authentication_and_conflicting_replay_fail_closed",
-        "AgentForge.UnitTests.CodingPatchAndVerificationTests.Invalid_second_file_context_leaves_every_file_unchanged"
+        "AgentForge.UnitTests.CodingPatchAndVerificationTests.Invalid_second_file_context_leaves_every_file_unchanged",
+        "AgentForge.CrossPlatformTests.DockerSandboxLiveTests.Configured_digest_pinned_image_runs_with_declared_isolation"
       ],
+      "allowSkippedTests": ["AgentForge.CrossPlatformTests.DockerSandboxLiveTests.Configured_digest_pinned_image_runs_with_declared_isolation"],
       "auditEvidence": "Denied attempts retain bounded source/provenance and decision evidence without hostile payload content.",
       "trajectoryEvidence": "Prepared context hashes and exact authorization contexts prove source content never becomes authority."
     },

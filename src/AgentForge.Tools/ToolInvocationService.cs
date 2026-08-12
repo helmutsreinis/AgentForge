@@ -229,7 +229,10 @@ internal sealed class ToolInvocationService(
             descriptor.Definition.Process.MaximumOutputBytes,
             descriptor.Definition.Process.NetworkPolicy,
             descriptor.Definition.Process.RequiredSandbox,
-            descriptor.Definition.Process.RequiredFeatures);
+            descriptor.Definition.Process.RequiredFeatures,
+            descriptor.Definition.SideEffects.HasFlag(ToolSideEffectKind.WritesFileSystem)
+                ? ProcessFileSystemPolicy.ReadWriteWorkspace
+                : ProcessFileSystemPolicy.ReadOnlyWorkspace);
         try
         {
             var execution = await sandbox.ExecuteAsync(processRequest, observer, cancellationToken);

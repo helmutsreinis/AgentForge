@@ -78,6 +78,9 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.302
       - name: Build and smoke secure-default image
         run: |
           docker build -t agentforge-r1:smoke .
@@ -90,6 +93,15 @@ jobs:
           done
           docker logs agentforge-r1-smoke
           exit 1
+      - name: Build and verify constrained execution image
+        run: |
+          docker build -f packaging/container/Dockerfile.sandbox -t agentforge-sandbox-r1:smoke .
+          image_id=$(docker image inspect --format '{{.Id}}' agentforge-sandbox-r1:smoke)
+          dotnet restore tests/AgentForge.CrossPlatformTests/AgentForge.CrossPlatformTests.csproj --locked-mode
+          AGENTFORGE_TEST_DOCKER_RUNTIME=$(command -v docker) \
+          AGENTFORGE_TEST_DOCKER_IMAGE=$image_id \
+          dotnet test tests/AgentForge.CrossPlatformTests/AgentForge.CrossPlatformTests.csproj \
+            --configuration Release --filter FullyQualifiedName~DockerSandboxLiveTests
       - name: Log in to GHCR
         if: github.event_name == 'push'
         uses: docker/login-action@v3

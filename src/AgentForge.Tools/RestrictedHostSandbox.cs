@@ -11,7 +11,7 @@ namespace AgentForge.Tools;
 
 internal sealed class RestrictedHostSandbox(
     IClock clock,
-    IOptions<RestrictedProcessOptions> options) : ISandbox
+    IOptions<RestrictedProcessOptions> options) : IProcessSandboxAdapter
 {
     private const ProcessIsolationFeature BaseFeatures =
         ProcessIsolationFeature.DirectExecutable |
@@ -190,7 +190,8 @@ internal sealed class RestrictedHostSandbox(
 
     private DomainResult<bool> Validate(ProcessExecutionRequest request)
     {
-        if (!Enum.IsDefined(request.NetworkPolicy) || !Enum.IsDefined(request.RequiredSandbox) ||
+        if (!Enum.IsDefined(request.NetworkPolicy) || !Enum.IsDefined(request.FileSystemPolicy) ||
+            !Enum.IsDefined(request.RequiredSandbox) ||
             request.RequiredSandbox is not ProcessSandboxKind.RestrictedHost)
         {
             return DomainResult.Fail<bool>(new DomainFailure(

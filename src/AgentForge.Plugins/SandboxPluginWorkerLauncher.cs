@@ -17,7 +17,7 @@ internal sealed class SandboxPluginWorkerLauncher(
         ProcessIsolationFeature.ArgumentArray | ProcessIsolationFeature.EnvironmentAllowlist |
         ProcessIsolationFeature.WorkingDirectoryContainment | ProcessIsolationFeature.BoundedOutput |
         ProcessIsolationFeature.WallClockTimeout | ProcessIsolationFeature.ProcessTreeTermination |
-        ProcessIsolationFeature.KillOnControllerExit | ProcessIsolationFeature.NetworkIsolation |
+        ProcessIsolationFeature.NetworkIsolation |
         ProcessIsolationFeature.FileSystemIsolation | ProcessIsolationFeature.CpuLimit |
         ProcessIsolationFeature.MemoryLimit | ProcessIsolationFeature.ProcessLimit;
 
@@ -43,7 +43,8 @@ internal sealed class SandboxPluginWorkerLauncher(
             16_384,
             ProcessNetworkPolicy.Denied,
             ProcessSandboxKind.Container,
-            Required), null, cancellationToken);
+            Required,
+            ProcessFileSystemPolicy.ReadOnlyWorkspace), null, cancellationToken);
         if (!result.IsSuccess) return DomainResult.Fail<IPluginHandle>(result.Failure!);
         if (result.Value.ExitCode != 0 || result.Value.StandardError.Length != 0 ||
             !TryReadReceipt(result.Value.StandardOutput, request, out var receipt))

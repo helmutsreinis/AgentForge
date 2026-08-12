@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302 AS build
+WORKDIR /source
+COPY . .
+RUN dotnet restore src/AgentForge.PluginWorker/AgentForge.PluginWorker.csproj --locked-mode \
+    && dotnet publish src/AgentForge.PluginWorker/AgentForge.PluginWorker.csproj \
+       --configuration Release --no-restore --output /out/worker
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302
+COPY --from=build /out/worker /opt/agentforge
+RUN chmod 0555 /opt/agentforge/agentforge-plugin-worker
+ENV DOTNET_CLI_HOME=/tmp/dotnet-home \
+    DOTNET_NOLOGO=true \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=true \
+    NUGET_XMLDOC_MODE=skip
+USER $APP_UID
+WORKDIR /workspace

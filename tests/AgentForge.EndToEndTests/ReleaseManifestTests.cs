@@ -58,6 +58,10 @@ public sealed class ReleaseManifestTests : IDisposable
         Assert.Contains("AGENTFORGE_ENDPOINT=http://127.0.0.1:5047", dockerfile, StringComparison.Ordinal);
         Assert.Contains("health-probe", dockerfile, StringComparison.Ordinal);
         Assert.DoesNotContain("0.0.0.0", dockerfile, StringComparison.Ordinal);
+        var sandboxDockerfile = File.ReadAllText(Path.Combine(
+            repository, "packaging", "container", "Dockerfile.sandbox"));
+        Assert.Contains("USER $APP_UID", sandboxDockerfile, StringComparison.Ordinal);
+        Assert.Contains("DOTNET_CLI_HOME=/tmp", sandboxDockerfile, StringComparison.Ordinal);
         var systemd = File.ReadAllText(Path.Combine(repository, "packaging", "linux", "agentforge.service"));
         Assert.Contains("NoNewPrivileges=true", systemd, StringComparison.Ordinal);
         Assert.Contains("ProtectSystem=strict", systemd, StringComparison.Ordinal);
@@ -70,6 +74,7 @@ public sealed class ReleaseManifestTests : IDisposable
         var workflow = File.ReadAllText(Path.Combine(repository, ".github", "workflows", "release.yml"));
         Assert.Contains("attest-build-provenance", workflow, StringComparison.Ordinal);
         Assert.Contains("sbom: true", workflow, StringComparison.Ordinal);
+        Assert.Contains("DockerSandboxLiveTests", workflow, StringComparison.Ordinal);
     }
 
     private static string FindRepositoryRoot()

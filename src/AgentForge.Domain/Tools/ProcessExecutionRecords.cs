@@ -13,6 +13,12 @@ public enum ProcessNetworkPolicy
     InheritHost,
 }
 
+public enum ProcessFileSystemPolicy
+{
+    ReadOnlyWorkspace,
+    ReadWriteWorkspace,
+}
+
 [Flags]
 public enum ProcessIsolationFeature
 {
@@ -54,7 +60,8 @@ public sealed record ProcessExecutionRequest(
     int MaximumOutputBytes,
     ProcessNetworkPolicy NetworkPolicy,
     ProcessSandboxKind RequiredSandbox,
-    ProcessIsolationFeature RequiredFeatures = ProcessIsolationFeature.None);
+    ProcessIsolationFeature RequiredFeatures = ProcessIsolationFeature.None,
+    ProcessFileSystemPolicy FileSystemPolicy = ProcessFileSystemPolicy.ReadWriteWorkspace);
 
 public sealed record ProcessOutputChunk(
     long Sequence,

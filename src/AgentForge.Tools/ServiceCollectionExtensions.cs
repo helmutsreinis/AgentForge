@@ -25,7 +25,16 @@ public static class ServiceCollectionExtensions
             .Validate(options => AreValidNames(options.AllowedInheritedEnvironmentVariables))
             .Validate(options => AreValidNames(options.AllowedInvocationEnvironmentVariables))
             .ValidateOnStart();
-        services.AddSingleton<ISandbox, RestrictedHostSandbox>();
+        services.AddOptions<DockerSandboxOptions>()
+            .Bind(configuration.GetSection(DockerSandboxOptions.SectionName))
+            .Validate(options =>
+                (string.IsNullOrWhiteSpace(options.RuntimeExecutable) && string.IsNullOrWhiteSpace(options.ImageReference)) ||
+                DockerContainerSandbox.IsConfigured(options))
+            .ValidateOnStart();
+        services.AddSingleton<RestrictedHostSandbox>();
+        services.AddSingleton<IContainerRuntimeInvoker, RestrictedHostContainerRuntimeInvoker>();
+        services.AddSingleton<DockerContainerSandbox>();
+        services.AddSingleton<ISandbox, SelectingSandbox>();
         services.AddSingleton<IToolCatalog>(_ => ToolCatalog.Create([]).Value);
         services.AddScoped<IToolInvocationService, ToolInvocationService>();
         services.AddScoped<IToolAvailabilityProbeService, ToolAvailabilityProbeService>();
