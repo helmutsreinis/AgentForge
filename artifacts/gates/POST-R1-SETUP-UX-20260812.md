@@ -9,6 +9,7 @@ Decision: **Pass**
 - Discover a bounded model catalog from the configured base endpoint, require exact selection from
   current evidence or an explicit manual-ID fallback, and verify the selected model before durable setup.
 - Support deliberate no-auth loopback/private compatible providers without fabricated credentials.
+- Align bootstrap `LocalOnly` evaluation with runtime loopback/private routing semantics.
 - Deliver and visually verify the five-step Connect, Choose, Verify, Agent, Review journey.
 
 ## Verification evidence
@@ -16,7 +17,7 @@ Decision: **Pass**
 | Command/check | Result |
 |---|---|
 | `dotnet build AgentForge.slnx --no-restore -c Release` | Pass; 0 warnings, 0 errors |
-| `dotnet test AgentForge.slnx --no-build --no-restore -c Release` | Pass; 397 product tests plus 2 framework-spike tests; 4 named live/equipped skips; 0 failures |
+| `dotnet test AgentForge.slnx --no-build --no-restore -c Release -m:1` | Pass; 398 product tests plus 2 framework-spike tests; 4 named live/equipped skips; 0 failures |
 | Focused discovery/setup/provider unit suite | Pass; 21/21 |
 | Focused web-setup end-to-end journeys | Pass; 2/2 including catalog and manual-ID paths |
 | `dotnet format AgentForge.slnx --no-restore --verify-no-changes` | Pass |
@@ -27,6 +28,7 @@ Decision: **Pass**
 | Live ASUS catalog | Pass; five models discovered from `http://192.168.1.89:8000/v1/models` |
 | Live ASUS verification | Pass; `qwen3.6` returned one compatible bounded probe response in 347 ms |
 | Refresh recovery | Pass; active browser resumed at Agent step without nonce re-entry |
+| Private-LAN restart recovery | Pass; persisted `Configuring` installation resumed at Agent, completed with `192.168.1.89`, and reached Ready |
 | Visual comparison | Pass; `design-qa.md` records no remaining P0/P1/P2 finding |
 
 The four skipped cases remain the existing credential-gated compatible-adapter stream, two live
@@ -64,6 +66,7 @@ existing cross-platform destination policy; the complete suites retain Windows/L
 - Combined comparison: `artifacts/gates/POST-R1-SETUP-UX-COMPARISON-FINAL-20260812.png`
 - Implemented Review: `C:\Users\helmu\AppData\Local\Temp\agentforge-setup-audit-20260812\06-implemented-review.png`
 - Implemented mobile: `C:\Users\helmu\AppData\Local\Temp\agentforge-setup-audit-20260812\07-implemented-mobile.png`
+- Recovered private-LAN completion: `artifacts/gates/POST-R1-SETUP-LAN-RECOVERY-20260812.png`
 
 Evidence SHA-256:
 
@@ -78,6 +81,10 @@ Evidence SHA-256:
 - Combined visual comparison: `6e17ec23d4ee03f5a9538073c9ae620d83e7060c7b84632c1083617561015ba0`
 - Implemented Review screenshot: `c710951da08f726e084c7d5e3a465083a9b933143959a9eb2cb3931111f00f5e`
 - Implemented mobile screenshot: `edca1b06e47f1a45d07e3806579ae9d3fec200589557c6eae794265a6e86f62d`
+- `src/AgentForge.Setup/ConservativeAgentDefinitionEvaluator.cs`: `ad135df390dcee64e858446d494b7c3d366114e0f857f83827e3ca62b507c27c`
+- `tests/AgentForge.UnitTests/AgentDefinitionEvaluatorTests.cs`: `501858801250dc655f5803a2d5371c200bff144f3e9dea13f06de04a586d7e20`
+- `tests/AgentForge.EndToEndTests/WebSetupWizardTests.cs`: `f5b71eab763f7e779dc797d43a594fd0c4681944d810bad3fc4a745d43a8524b`
+- Recovered private-LAN completion screenshot: `885810abd77b5362374edcf05f072b256e99237f403b4bf282d34d853b1e8cab`
 
 ## Rollback
 

@@ -74,7 +74,7 @@ public sealed class WebSetupWizardTests : IDisposable
         {
             name = "primary",
             providerType = "openai-compatible",
-            endpoint = "http://127.0.0.1:8000/v1",
+            endpoint = "http://192.168.1.89:8000/v1",
         }));
         Assert.Equal(HttpStatusCode.OK, discovery.StatusCode);
         using var models = await MutationAsync(client, "/api/v1/setup/web/provider/models", "models-1", csrf,
@@ -91,7 +91,7 @@ public sealed class WebSetupWizardTests : IDisposable
         {
             name = "primary",
             providerType = "openai-compatible",
-            endpoint = "http://127.0.0.1:8000/v1",
+            endpoint = "http://192.168.1.89:8000/v1",
             model = "qwen3.6",
         }));
         Assert.Equal(HttpStatusCode.OK, selected.StatusCode);

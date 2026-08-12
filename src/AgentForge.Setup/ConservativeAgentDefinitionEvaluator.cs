@@ -104,11 +104,11 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
         }
 
         if (normalizedCandidate.ModelPolicy.DataLocality is ModelDataLocality.LocalOnly &&
-            !IsLoopback(providerProfile.Endpoint))
+            !IsLocalProvider(providerProfile.Endpoint))
         {
             return DomainResult.Fail<EffectiveAgentDefinition>(new DomainFailure(
                 FailureCode.PolicyDenied,
-                "A LocalOnly agent requires a loopback provider endpoint during bootstrap."));
+                "A LocalOnly agent requires a loopback or private-network provider endpoint during bootstrap."));
         }
 
         var capabilities = new List<EffectiveCapability>
@@ -281,9 +281,34 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool IsLoopback(Uri endpoint) =>
-        endpoint.IsLoopback ||
-        string.Equals(endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLocalProvider(Uri endpoint)
+    {
+        if (endpoint.IsLoopback || string.Equals(endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!System.Net.IPAddress.TryParse(endpoint.IdnHost, out var address))
+        {
+            return false;
+        }
+
+        address = address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+        if (System.Net.IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        var bytes = address.GetAddressBytes();
+        return address.AddressFamily switch
+        {
+            System.Net.Sockets.AddressFamily.InterNetwork => bytes[0] == 10 ||
+                bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
+                bytes[0] == 192 && bytes[1] == 168,
+            System.Net.Sockets.AddressFamily.InterNetworkV6 => (bytes[0] & 0xfe) == 0xfc,
+            _ => false,
+        };
+    }
 
     private static EffectiveCapability Allow(string id, string reason) => new(id, CapabilityDecision.Allow, reason);
 

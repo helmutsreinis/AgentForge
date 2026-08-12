@@ -127,7 +127,8 @@ the protected file for the exact plaintext fixture.
 
 Agent candidates are normalized and structurally validated before durable state is
 read. A selected provider must belong to the same installation and carry observed
-text capability. `LocalOnly` requires a loopback endpoint and forbids fallback.
+text capability. `LocalOnly` permits only in-process, loopback, or explicitly private-network
+provider transport and forbids cloud fallback.
 Child depth, count, concurrency, and token allocation are jointly bounded and cannot
 exceed the parent bootstrap token budget. Learning mode and mutable-skill scope must
 match; bootstrap never grants direct credential access, external messaging, device

@@ -79,7 +79,23 @@ public sealed class AgentDefinitionEvaluatorTests
     }
 
     [Fact]
-    public void Local_only_policy_rejects_non_loopback_provider()
+    public void Local_only_policy_accepts_private_network_provider()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var normalized = evaluator.NormalizeAndValidate(CreateCandidate());
+        Assert.True(normalized.IsSuccess);
+        var provider = CreateProvider() with { Endpoint = new Uri("http://192.168.1.89:8000/v1") };
+
+        var result = evaluator.Evaluate(normalized.Value, provider);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        AssertDecision(result.Value, "model.text", CapabilityDecision.Allow);
+        AssertDecision(result.Value, "network.external", CapabilityDecision.Deny);
+    }
+
+    [Fact]
+    public void Local_only_policy_rejects_public_provider()
     {
         using var services = BuildServices();
         var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
