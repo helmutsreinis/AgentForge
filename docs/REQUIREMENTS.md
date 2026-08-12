@@ -28,7 +28,7 @@ passing gate report.
 | AF-DATA-001 | SQLite is the default durable store with migrations, optimistic concurrency, leases, and transactional inbox/outbox records. | 1 | In progress |
 | AF-DATA-002 | PostgreSQL implements the same repositories and passes migration, backup, and restore tests. | 10 | Verified |
 | AF-AUD-001 | Significant actions append redacted, sequenced, correlated events with actor, versions, hashes, outcome, duration, usage, and approval evidence. | 1 | In progress |
-| AF-AUD-002 | A redacted trajectory can reconstruct context, snapshots, calls, retries, errors, and verification without disclosing credentials. | 1-10 | Planned |
+| AF-AUD-002 | A redacted trajectory can reconstruct context, snapshots, calls, retries, errors, and verification without disclosing credentials. | 1-10 | Verified |
 | AF-ID-001 | Agent identity is distinct from provider selection and includes scope, model policy, budgets, memory, grants, child limits, and learning mode. | 1 | In progress |
 | AF-SEC-001 | Capability policy returns Allow, Deny, or RequireApproval outside model control; missing policy denies. | 2 | In progress |
 | AF-SEC-002 | Sensitive approval binds exact actor, agent, target, parameters, workspace, tool version, expiration, and request hash. | 2 | Verified |

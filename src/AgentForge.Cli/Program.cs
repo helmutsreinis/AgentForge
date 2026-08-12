@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Providers;
@@ -9,6 +10,7 @@ using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Audit;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Environments;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
@@ -82,6 +84,11 @@ if (args is ["setup", "complete", .. var completeArguments])
 if (args is ["doctor", .. var doctorArguments])
 {
     return await DoctorAsync(doctorArguments);
+}
+
+if (args is ["trajectory", "export", .. var trajectoryArguments])
+{
+    return await ExportTrajectoryAsync(trajectoryArguments);
 }
 
 if (args is ["setup", "export", .. var exportArguments])
@@ -834,6 +841,54 @@ static async Task<int> DoctorAsync(string[] arguments)
             checks = result.Value.Checks,
         });
         return result.Value.IsHealthy ? 0 : 2;
+    });
+}
+
+static async Task<int> ExportTrajectoryAsync(string[] arguments)
+{
+    if (!TryParseTrajectoryExportOptions(arguments, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+    return await RunCancellableMaintenanceAsync("Trajectory export", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationStateReader>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider, installation.Id, cancellationToken);
+        if (!materialized.IsSuccess) return await WriteFailureAsync(materialized.Failure!);
+        await using var credential = materialized.Value;
+        var result = await scope.ServiceProvider.GetRequiredService<ITrajectoryExporter>().ExportAsync(
+            new TrajectoryExportRequest(
+                installation.Id, options.AfterSequence, options.MaximumEvents,
+                options.CorrelationFilter is null ? null : new CorrelationId(options.CorrelationFilter),
+                new ActorId(options.ActorId), options.IdempotencyKey,
+                new CorrelationId(options.CorrelationId)), cancellationToken);
+        if (!result.IsSuccess) return await WriteFailureAsync(result.Failure!);
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            result.Value.ExportId,
+            installationId = result.Value.InstallationId.ToString(),
+            result.Value.FirstSequence,
+            result.Value.LastSequence,
+            result.Value.EventCount,
+            result.Value.AuditHeadHash,
+            result.Value.ExportHash,
+            result.Value.Artifact,
+        });
+        GC.KeepAlive(credential);
+        return 0;
     });
 }
 
@@ -2193,6 +2248,35 @@ static bool TryParseDoctorOptions(
     return true;
 }
 
+static bool TryParseTrajectoryExportOptions(
+    string[] arguments,
+    out TrajectoryExportOptions? options,
+    out string? error)
+{
+    options = null;
+    if (!TryParseExactOptions(arguments,
+        ["--actor", "--after-sequence", "--correlation", "--correlation-filter", "--data-directory",
+            "--idempotency-key", "--maximum-events"], out var values, out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error) ||
+        !Require(values, "--actor", out var actorId, out error) ||
+        !Require(values, "--correlation", out var correlationId, out error) ||
+        !Require(values, "--idempotency-key", out var idempotencyKey, out error) ||
+        !TryLong(values, "--after-sequence", 0, out var afterSequence, out error) ||
+        !TryInt(values, "--maximum-events", 100_000, out var maximumEvents, out error))
+        return false;
+    if (afterSequence < 0 || maximumEvents is < 1 or > 100_000)
+    {
+        error = "Trajectory sequence/event bounds are invalid.";
+        return false;
+    }
+    values.TryGetValue("--correlation-filter", out var correlationFilter);
+    options = new TrajectoryExportOptions(
+        dataDirectory, afterSequence, maximumEvents, correlationFilter,
+        actorId, idempotencyKey, correlationId);
+    error = null;
+    return true;
+}
+
 static bool TryParseEnvironmentInspectOptions(
     string[] arguments,
     out EnvironmentInspectOptions? options,
@@ -2555,6 +2639,7 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup agent edit apply <same-options> --preview-hash <sha256>");
     Console.WriteLine("  agentforge setup complete --data-directory <path> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge doctor --data-directory <path> --actor <id> --correlation <id>");
+    Console.WriteLine("  agentforge trajectory export --data-directory <path> --actor <id> --correlation <id> --idempotency-key <key> [--after-sequence <n>] [--maximum-events <n>] [--correlation-filter <id>]");
     Console.WriteLine("  agentforge setup export --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery enter --data-directory <path> --expected-version <n> --reason <text> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery resume --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
@@ -2663,6 +2748,15 @@ internal sealed record SetupCompleteOptions(
 internal sealed record SetupDoctorOptions(
     string DataDirectory,
     string ActorId,
+    string CorrelationId);
+
+internal sealed record TrajectoryExportOptions(
+    string DataDirectory,
+    long AfterSequence,
+    int MaximumEvents,
+    string? CorrelationFilter,
+    string ActorId,
+    string IdempotencyKey,
     string CorrelationId);
 
 internal sealed record SetupMaintenanceOptions(

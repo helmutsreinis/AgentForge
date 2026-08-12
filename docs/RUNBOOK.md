@@ -556,6 +556,22 @@ source and backup until these checks pass. The release live gate uses only dispo
 and target databases through `AGENTFORGE_TEST_POSTGRESQL_CONNECTION` and
 `AGENTFORGE_TEST_POSTGRESQL_RESTORE_CONNECTION`.
 
+## Redacted trajectory export
+
+Run `agentforge trajectory export --data-directory <path> --actor <id> --correlation <id>
+--idempotency-key <key>` as the installation OS user. Optional `--after-sequence`,
+`--maximum-events`, and `--correlation-filter` bounds can select a smaller stream. The command
+must materialize the OS-backed local administrator credential and will fail if audit integrity is
+invalid. It prints the content-addressed artifact reference, event bounds, audit head, and export
+hash; it never prints event payloads or the credential.
+
+Verify the returned artifact content hash before transfer. Inspect `secondaryRedactionCount` and
+the typed `stage` field while reconstructing the sequence. Source `eventHash` values refer to the
+append-only audit bytes; the export may have applied additional redaction and does not claim those
+hashes cover transformed JSON. Reusing an idempotency key with the exact request returns the same
+receipt. A changed request is a conflict. If audit verification fails, preserve the database and
+restore a verified backup—never edit or omit a broken event to force export.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

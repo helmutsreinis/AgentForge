@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<IAuditRecorder, AuditRecorder>();
         services.AddScoped<IAuditIntegrityVerifier, AuditIntegrityVerifier>();
+        services.AddScoped<ITrajectoryExporter, TrajectoryExporter>();
         return services;
     }
 }

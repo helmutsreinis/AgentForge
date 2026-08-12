@@ -835,3 +835,12 @@ source secret name and requires a distinct explicit target, preventing an ordina
 the live database. Backup/restore directories must be separate, empty, contained, and link-free; every database and
 artifact file is length/hash verified before restore. A manifest hash covers provider, time, identity, ordering, and
 all file evidence.
+
+Trajectory exports treat even redacted audit JSON as untrusted input. Export is blocked unless the entire global
+audit sequence and hash chain verifies. Events are bounded, scoped to the current installation, optionally filtered
+by an exact correlation ID, parsed as JSON, and passed through the structured redactor again before serialization.
+The export preserves source event hashes rather than recomputing them over transformed content and records the
+secondary-redaction count. It stores no provider response text, model context, process output, or credential beyond
+what the append-only redacted audit contract already admitted. A content hash binds the exact JSON bytes; a durable
+receipt binds request scope and idempotency. The CLI must materialize the OS-backed local administrator credential
+before it can invoke export, then disposes the lease without including the credential in the request or artifact.

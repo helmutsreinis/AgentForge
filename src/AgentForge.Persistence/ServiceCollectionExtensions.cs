@@ -109,6 +109,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISetupProfileSnapshotRepository, SqliteSetupProfileSnapshotRepository>();
         services.AddScoped<ICapabilityApprovalRepository, SqliteCapabilityApprovalRepository>();
         services.AddScoped<IToolInvocationRepository, SqliteToolInvocationRepository>();
+        services.AddScoped<ITrajectoryExportRepository, SqliteTrajectoryExportRepository>();
         return services;
     }
 

@@ -76,11 +76,28 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
     internal DbSet<SkillBundleProposalSnapshotEntity> SkillBundleProposalSnapshots =>
         Set<SkillBundleProposalSnapshotEntity>();
 
+    internal DbSet<TrajectoryExportEntity> TrajectoryExports => Set<TrajectoryExportEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
 
         if (Database.IsNpgsql()) modelBuilder.HasPostgresExtension("citext");
+
+        modelBuilder.Entity<TrajectoryExportEntity>(entity =>
+        {
+            entity.ToTable("trajectory_exports");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>().WithMany().HasForeignKey(item => item.ArtifactContentHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.RequestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ArtifactContentHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ResultJson).IsRequired();
+        });
 
         modelBuilder.Entity<InstallationEntity>(entity =>
         {
