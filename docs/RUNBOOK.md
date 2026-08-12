@@ -1,5 +1,35 @@
 # Development Runbook
 
+## Production packages and services
+
+Build reproducible self-contained Windows and Linux packages with `eng/build-release.ps1`. The builder recreates only
+the validated `artifacts/release` subtree, runs locked restores, publishes the host/CLI/plugin worker, creates
+deterministic ZIP/tar.gz archives, writes SHA-256 evidence and an SPDX 2.3 SBOM, and verifies the complete manifest.
+Run the release helper's `smoke` command on the matching operating system; it proves the packaged host listens on an
+ephemeral loopback port and that the packaged CLI reaches it without a machine-wide .NET runtime.
+
+The Windows installer must run elevated but configures the service as the same single operator, using a prompted
+`PSCredential`; this preserves current-user DPAPI recovery and never accepts the password as a command argument. The
+Linux package installs a hardened `systemd --user` unit for the same reason: the CLI, service, and Secret Service DBus
+session retain one operator identity. Do not convert either service to LocalSystem, root, a detached system account,
+or another user after setup. Stop the service and perform an authorized full restore if the account is lost.
+
+The container image runs as the .NET non-root application UID and binds loopback only. Its clean-start health check is
+part of release CI. A container has no Linux Secret Service by default, so completing setup requires an explicitly
+provided OS-backed secret facility; absence stays a typed unsupported condition and must never be worked around with a
+plaintext secret file or environment persistence. Remote port publication remains disabled by default.
+
+Release tags run the Windows/Linux package smoke, an equipped-runner container smoke, SBOM generation, checksums, and
+GitHub artifact/image build-provenance attestations before publishing. Verify those attestations at installation time.
+
+## Database backup and restore
+
+The authenticated local backup CLI materializes the administrator credential from its OS reference for one invocation.
+`backup create` uses SQLite online backup or exact configured PostgreSQL tools, then copies content-addressed artifacts,
+protected secret files, and auxiliary state into one hash-manifested package. `backup verify` re-hashes every file.
+`backup restore` accepts only a separate absent/empty directory (and, for PostgreSQL, a distinct target connection
+environment variable). See `docs/UPGRADE.md` for the mandatory pre-upgrade and rollback drill.
+
 ## Schedule recovery
 
 Schedules require the exact configured timezone on the host. Use preview before activation and

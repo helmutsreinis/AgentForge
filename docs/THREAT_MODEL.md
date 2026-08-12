@@ -852,3 +852,16 @@ secondary-redaction count. It stores no provider response text, model context, p
 what the append-only redacted audit contract already admitted. A content hash binds the exact JSON bytes; a durable
 receipt binds request scope and idempotency. The CLI must materialize the OS-backed local administrator credential
 before it can invoke export, then disposes the lease without including the credential in the request or artifact.
+
+Release inputs, package trees, archives, service definitions, and backup packages are untrusted. Release output is
+restricted to one validated artifact subtree; links and traversal are rejected, files are ordered, timestamps are
+commit-derived, and a complete SHA-256 manifest includes the SPDX document. GitHub OIDC attestations bind workflow
+identity to archives and image digests without a repository signing secret. The container runs as the platform app UID,
+binds loopback only, and has no plaintext fallback when an OS secret facility is unavailable.
+
+R1 secret references are user-scoped, so a service identity change is an authority and recoverability change. Windows
+installation requires the current operator's prompted `PSCredential`; Linux uses the operator's systemd user manager.
+LocalSystem, root, or a detached account is not the supplied topology. Backups include the online database, artifacts,
+protected secret files, and auxiliary state, verify every hash, and restore only into a separate empty target. PostgreSQL
+also requires a target connection variable distinct from the configured source. A destructive down migration is never
+used as rollback.

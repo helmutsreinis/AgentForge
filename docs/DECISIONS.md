@@ -57,5 +57,6 @@
 | D-053 | Keep SQLite WAL as the local default and select PostgreSQL behind the same DbContext/repository contracts using an environment-only connection secret, advisory-locked R1 schema bootstrap, provider-specific case-insensitive identity, and exact-tool hash-manifested backup/restore. | Accepted |
 | D-054 | Export trajectories only after full audit-chain verification; re-redact bounded event JSON, retain source sequence/hash/correlation/error evidence, store one content-addressed artifact, and bind the durable receipt to exact restart-safe idempotency. | Accepted |
 | D-055 | Treat every remote MCP peer as untrusted: select one exact transport/network scope, materialize public bearer credentials per request, constrain DNS and process authority, filter discovery and invocation by exact allowlists, and bound all arguments/results. | Accepted |
+| D-056 | Ship deterministic self-contained OS packages and a non-root loopback container; preserve user-scoped secrets with same-operator native services; attest release subjects keylessly; and use hash-verified full-installation restore rather than destructive schema downgrade for rollback. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

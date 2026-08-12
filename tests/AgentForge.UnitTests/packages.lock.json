@@ -404,6 +404,8 @@
         "resolved": "10.0.10",
         "contentHash": "BKt0SQgq2lq3ESE68jkeLwv95ypANrPDtkTOIFGcnhg2aRUeUUBDrQlkVDZctrg1WenVcvn5P5XZnuYI7q6rFQ=="
       }
-    }
+    },
+    "net10.0/linux-x64": {},
+    "net10.0/win-x64": {}
   }
 }

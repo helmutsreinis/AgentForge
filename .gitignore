@@ -13,6 +13,7 @@
 artifacts/gates/*.tmp
 artifacts/trajectories/*
 artifacts/evaluations/*
+artifacts/release/*
 !artifacts/**/.gitkeep
 data/
 secrets/

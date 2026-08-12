@@ -53,6 +53,8 @@ internal sealed class DatabaseBackupService(
             }
             var artifacts = await CopyArtifactsAsync(source, destination!, evidence, cancellationToken);
             if (!artifacts.IsSuccess) return DomainResult.Fail<DatabaseBackupManifest>(artifacts.Failure!);
+            var auxiliary = await CopyAuxiliaryDataAsync(source, destination!, evidence, cancellationToken);
+            if (!auxiliary.IsSuccess) return DomainResult.Fail<DatabaseBackupManifest>(auxiliary.Failure!);
             evidence.Sort((left, right) => StringComparer.Ordinal.Compare(left.RelativePath, right.RelativePath));
             var manifest = new DatabaseBackupManifest(
                 1, Guid.NewGuid(), provider, clock.UtcNow, evidence,
@@ -126,6 +128,14 @@ internal sealed class DatabaseBackupService(
                 var relative = item.RelativePath["artifacts/".Length..];
                 var destination = Path.Combine(target!, options.Value.ArtifactDirectoryName,
                     relative.Replace('/', Path.DirectorySeparatorChar));
+                await CopyFileAsync(source, destination, cancellationToken);
+            }
+            foreach (var item in request.Manifest.Files.Where(item =>
+                         item.RelativePath.StartsWith("data/", StringComparison.Ordinal)))
+            {
+                var source = ContainedPath(backup, item.RelativePath)!;
+                var relative = item.RelativePath["data/".Length..];
+                var destination = Path.Combine(target!, relative.Replace('/', Path.DirectorySeparatorChar));
                 await CopyFileAsync(source, destination, cancellationToken);
             }
             return DomainResult.Success(true);
@@ -269,6 +279,44 @@ internal sealed class DatabaseBackupService(
         }
         return DomainResult.Success(true);
     }
+
+    private async Task<DomainResult<bool>> CopyAuxiliaryDataAsync(
+        string sourceRoot,
+        string destinationRoot,
+        List<BackupFileEvidence> evidence,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceRoot)) return DomainResult.Success(true);
+        if ((File.GetAttributes(sourceRoot) & FileAttributes.ReparsePoint) != 0 ||
+            Directory.EnumerateDirectories(sourceRoot, "*", SearchOption.AllDirectories).Any(directory =>
+                (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0))
+            return Invalid("Installation backup refuses filesystem links.");
+        foreach (var file in Directory.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
+                     .Order(StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+                return Invalid("Installation backup refuses filesystem links.");
+            var relative = Path.GetRelativePath(sourceRoot, file);
+            if (relative.StartsWith("..", StringComparison.Ordinal) || IsDatabaseFile(relative) ||
+                IsInside(relative, options.Value.ArtifactDirectoryName)) continue;
+            if (evidence.Count >= 131_072) return Invalid("Installation backup exceeds its file-count bound.");
+            var destination = Path.Combine(destinationRoot, "data", relative);
+            await CopyFileAsync(file, destination, cancellationToken);
+            evidence.Add(await EvidenceAsync(destinationRoot, destination, cancellationToken));
+        }
+        return DomainResult.Success(true);
+    }
+
+    private bool IsDatabaseFile(string relative) =>
+        string.Equals(relative, options.Value.DatabaseFileName, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(relative, options.Value.DatabaseFileName + "-wal", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(relative, options.Value.DatabaseFileName + "-shm", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsInside(string relative, string directory) =>
+        string.Equals(relative, directory, StringComparison.OrdinalIgnoreCase) ||
+        relative.StartsWith(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+            Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private static async Task CopyFileAsync(string source, string destination, CancellationToken cancellationToken)
     {

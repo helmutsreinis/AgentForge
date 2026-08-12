@@ -39,6 +39,9 @@ public sealed class PostgreSqlPersistenceTests
                 await using var content = new MemoryStream("artifact-evidence"u8.ToArray());
                 artifact = await scope.ServiceProvider.GetRequiredService<IArtifactStore>()
                     .PutAsync(content, "text/plain", CancellationToken.None);
+                Directory.CreateDirectory(Path.Combine(source, "secrets"));
+                await File.WriteAllTextAsync(Path.Combine(source, "secrets", "protected.bin"), "encrypted-fixture");
+                await File.WriteAllTextAsync(Path.Combine(source, "installation-state.json"), "state-fixture");
                 var commit = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>()
                     .CommitAsync(CancellationToken.None);
                 Assert.True(commit.Succeeded, commit.Failure?.Message);
@@ -65,6 +68,10 @@ public sealed class PostgreSqlPersistenceTests
                     .OpenReadAsync(artifact, CancellationToken.None);
                 using var reader = new StreamReader(content);
                 Assert.Equal("artifact-evidence", await reader.ReadToEndAsync(CancellationToken.None));
+                Assert.Equal("encrypted-fixture", await File.ReadAllTextAsync(
+                    Path.Combine(restored, "secrets", "protected.bin")));
+                Assert.Equal("state-fixture", await File.ReadAllTextAsync(
+                    Path.Combine(restored, "installation-state.json")));
             }
             await File.AppendAllTextAsync(Path.Combine(backup, manifest.Files[0].RelativePath), "tamper");
             await using (var provider = Build(SqliteConfiguration(source)))

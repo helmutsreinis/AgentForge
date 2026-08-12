@@ -32,6 +32,9 @@ using ModelContextProtocol.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Host.UseWindowsService(options => options.ServiceName = "AgentForge");
+builder.Host.UseSystemd();
+
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options => options.IncludeScopes = true);
 

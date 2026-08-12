@@ -136,6 +136,8 @@
           "AgentForge.Domain": "[1.0.0, )"
         }
       }
-    }
+    },
+    "net10.0/linux-x64": {},
+    "net10.0/win-x64": {}
   }
 }

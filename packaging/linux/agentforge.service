@@ -1,0 +1,33 @@
+[Unit]
+Description=Local security-first AgentForge harness
+After=network.target
+
+[Service]
+Type=notify
+WorkingDirectory=%h/.local/opt/agentforge/host
+ExecStart=%h/.local/opt/agentforge/host/AgentForge.Host --AgentForge:Plugins:PluginWorkerExecutable=%h/.local/opt/agentforge/worker/agentforge-plugin-worker
+Environment=DOTNET_ENVIRONMENT=Production
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=%h/.local/share/agentforge
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=default.target

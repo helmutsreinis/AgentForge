@@ -26,4 +26,12 @@ jobs:
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet list AgentForge.slnx package --vulnerable --include-transitive
       - shell: pwsh
+        run: ./eng/verify-release-assets.ps1
+      - name: Build self-contained package
+        shell: pwsh
+        run: |
+          $rid = if ('${{ runner.os }}' -eq 'Windows') { 'win-x64' } else { 'linux-x64' }
+          ./eng/build-release.ps1 -Version 1.0.0 -RuntimeIdentifiers $rid
+          dotnet run --project tools/AgentForge.Release/AgentForge.Release.csproj --configuration Release --no-restore -- smoke --release-directory artifacts/release --rid $rid
+      - shell: pwsh
         run: ./scripts/verify-no-secrets.ps1

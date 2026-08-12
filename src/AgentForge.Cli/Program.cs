@@ -5,6 +5,7 @@ using System.Text.Json;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Environments;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
@@ -12,6 +13,7 @@ using AgentForge.Audit;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Environments;
+using AgentForge.Domain.Persistence;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
@@ -91,6 +93,21 @@ if (args is ["trajectory", "export", .. var trajectoryArguments])
     return await ExportTrajectoryAsync(trajectoryArguments);
 }
 
+if (args is ["backup", "create", .. var backupCreateArguments])
+{
+    return await ManageDatabaseBackupAsync(backupCreateArguments, "create");
+}
+
+if (args is ["backup", "verify", .. var backupVerifyArguments])
+{
+    return await ManageDatabaseBackupAsync(backupVerifyArguments, "verify");
+}
+
+if (args is ["backup", "restore", .. var backupRestoreArguments])
+{
+    return await ManageDatabaseBackupAsync(backupRestoreArguments, "restore");
+}
+
 if (args is ["setup", "export", .. var exportArguments])
 {
     return await ExportSetupAsync(exportArguments);
@@ -145,6 +162,7 @@ if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var baseAddress))
 
 var path = args switch
 {
+    ["health-probe"] => "/health/live",
     ["status"] => "/api/v1/status",
     ["setup", "status"] => "/api/v1/setup/status",
     ["sandbox", "capabilities"] => "/api/v1/sandbox/capabilities",
@@ -892,6 +910,109 @@ static async Task<int> ExportTrajectoryAsync(string[] arguments)
     });
 }
 
+static async Task<int> ManageDatabaseBackupAsync(string[] arguments, string operation)
+{
+    if (!TryParseBackupOptions(arguments, operation, out var options, out var error))
+    {
+        await Console.Error.WriteLineAsync(error);
+        return 1;
+    }
+    if (!TryNormalizeDataDirectory(options!.DataDirectory, out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+    return await RunCancellableMaintenanceAsync("Database backup", async cancellationToken =>
+    {
+        await using var provider = BuildSetupProvider(dataDirectory);
+        await using var scope = provider.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>().InitializeAsync(cancellationToken);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationStateReader>()
+            .ReadAsync(cancellationToken);
+        var materialized = await MaterializeAdministratorAsync(
+            scope.ServiceProvider, installation.Id, cancellationToken);
+        if (!materialized.IsSuccess) return await WriteFailureAsync(materialized.Failure!);
+        await using var credential = materialized.Value;
+        var service = scope.ServiceProvider.GetRequiredService<IDatabaseBackupService>();
+        if (operation == "create")
+        {
+            var created = await service.CreateAsync(
+                new CreateDatabaseBackupRequest(options.DestinationDirectory!), cancellationToken);
+            if (!created.IsSuccess) return await WriteFailureAsync(created.Failure!);
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                operation,
+                created.Value.BackupId,
+                provider = created.Value.Provider.ToString(),
+                created.Value.CreatedAt,
+                created.Value.ManifestHash,
+                fileCount = created.Value.Files.Count,
+            });
+            GC.KeepAlive(credential);
+            return 0;
+        }
+        var manifestResult = await ReadBackupManifestAsync(options.BackupDirectory!, cancellationToken);
+        if (!manifestResult.IsSuccess) return await WriteFailureAsync(manifestResult.Failure!);
+        if (operation == "verify")
+        {
+            var verified = await service.VerifyAsync(
+                options.BackupDirectory!, manifestResult.Value, cancellationToken);
+            if (!verified.IsSuccess) return await WriteFailureAsync(verified.Failure!);
+            await WriteJsonAsync(new
+            {
+                succeeded = true,
+                operation,
+                manifestResult.Value.BackupId,
+                manifestResult.Value.ManifestHash,
+                fileCount = manifestResult.Value.Files.Count,
+            });
+            GC.KeepAlive(credential);
+            return 0;
+        }
+        var restored = await service.RestoreAsync(new RestoreDatabaseBackupRequest(
+            options.BackupDirectory!, manifestResult.Value, options.TargetDataDirectory!,
+            options.PostgreSqlTargetEnvironmentVariable), cancellationToken);
+        if (!restored.IsSuccess) return await WriteFailureAsync(restored.Failure!);
+        await WriteJsonAsync(new
+        {
+            succeeded = true,
+            operation,
+            manifestResult.Value.BackupId,
+            targetDataDirectory = Path.GetFullPath(options.TargetDataDirectory!),
+        });
+        GC.KeepAlive(credential);
+        return 0;
+    });
+}
+
+static async Task<DomainResult<DatabaseBackupManifest>> ReadBackupManifestAsync(
+    string backupDirectory,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var root = Path.GetFullPath(backupDirectory);
+        var path = Path.GetFullPath(Path.Combine(root, "backup.manifest.json"));
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, PathComparison()) || !File.Exists(path) ||
+            (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0 || new FileInfo(path).Length > 16_777_216)
+            return DomainResult.Fail<DatabaseBackupManifest>(new DomainFailure(
+                FailureCode.ValidationFailure, "Backup manifest is missing, linked, or oversized."));
+        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        var manifest = JsonSerializer.Deserialize<DatabaseBackupManifest>(bytes);
+        var validation = DatabaseBackupManifestValidator.Validate(manifest);
+        return validation.IsSuccess
+            ? DomainResult.Success(manifest!)
+            : DomainResult.Fail<DatabaseBackupManifest>(validation.Failure!);
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or
+        NotSupportedException)
+    {
+        return DomainResult.Fail<DatabaseBackupManifest>(new DomainFailure(
+            FailureCode.ValidationFailure, "Backup manifest could not be read safely."));
+    }
+}
+
 static async Task<int> ExportSetupAsync(string[] arguments)
 {
     if (!TryParseMaintenanceOptions(arguments, requireReason: false, out var options, out var error))
@@ -1542,6 +1663,9 @@ static bool TryNormalizeDataDirectory(string value, out string normalized)
         return false;
     }
 }
+
+static StringComparison PathComparison() =>
+    OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
 static async Task<int> WriteFailureAsync(DomainFailure failure)
 {
@@ -2277,6 +2401,40 @@ static bool TryParseTrajectoryExportOptions(
     return true;
 }
 
+static bool TryParseBackupOptions(
+    string[] arguments,
+    string operation,
+    out DatabaseBackupCliOptions? options,
+    out string? error)
+{
+    options = null;
+    error = null;
+    var allowed = operation switch
+    {
+        "create" => new[] { "--data-directory", "--destination" },
+        "verify" => new[] { "--backup-directory", "--data-directory" },
+        "restore" => new[]
+        {
+            "--backup-directory", "--data-directory", "--postgres-target-environment", "--target-data-directory",
+        },
+        _ => Array.Empty<string>(),
+    };
+    if (allowed.Length == 0 || !TryParseExactOptions(arguments, allowed, out var values, out error) ||
+        !Require(values, "--data-directory", out var dataDirectory, out error)) return false;
+    string? destination = null;
+    string? backup = null;
+    string? target = null;
+    if (operation == "create" && !Require(values, "--destination", out destination!, out error)) return false;
+    if (operation is "verify" or "restore" &&
+        !Require(values, "--backup-directory", out backup!, out error)) return false;
+    if (operation == "restore" &&
+        !Require(values, "--target-data-directory", out target!, out error)) return false;
+    values.TryGetValue("--postgres-target-environment", out var targetEnvironment);
+    options = new DatabaseBackupCliOptions(dataDirectory, destination, backup, target, targetEnvironment);
+    error = null;
+    return true;
+}
+
 static bool TryParseEnvironmentInspectOptions(
     string[] arguments,
     out EnvironmentInspectOptions? options,
@@ -2626,6 +2784,7 @@ static void PrintHelp()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  agentforge status");
+    Console.WriteLine("  agentforge health-probe");
     Console.WriteLine("  agentforge setup status");
     Console.WriteLine("  agentforge sandbox capabilities");
     Console.WriteLine("  agentforge setup begin --data-directory <path> --actor <id> --correlation <id> [--installation-id <guid>]");
@@ -2640,6 +2799,9 @@ static void PrintHelp()
     Console.WriteLine("  agentforge setup complete --data-directory <path> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge doctor --data-directory <path> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge trajectory export --data-directory <path> --actor <id> --correlation <id> --idempotency-key <key> [--after-sequence <n>] [--maximum-events <n>] [--correlation-filter <id>]");
+    Console.WriteLine("  agentforge backup create --data-directory <path> --destination <empty-path>");
+    Console.WriteLine("  agentforge backup verify --data-directory <path> --backup-directory <path>");
+    Console.WriteLine("  agentforge backup restore --data-directory <current-path> --backup-directory <path> --target-data-directory <empty-path> [--postgres-target-environment <name>]");
     Console.WriteLine("  agentforge setup export --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery enter --data-directory <path> --expected-version <n> --reason <text> --actor <id> --correlation <id>");
     Console.WriteLine("  agentforge setup recovery resume --data-directory <path> --expected-version <n> --actor <id> --correlation <id>");
@@ -2758,6 +2920,13 @@ internal sealed record TrajectoryExportOptions(
     string ActorId,
     string IdempotencyKey,
     string CorrelationId);
+
+internal sealed record DatabaseBackupCliOptions(
+    string DataDirectory,
+    string? DestinationDirectory,
+    string? BackupDirectory,
+    string? TargetDataDirectory,
+    string? PostgreSqlTargetEnvironmentVariable);
 
 internal sealed record SetupMaintenanceOptions(
     string DataDirectory,

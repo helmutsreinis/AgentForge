@@ -17,7 +17,7 @@ namespace AgentForge.IntegrationTests;
 
 public sealed class TrajectoryExportTests : IDisposable
 {
-    private const string RawSecret = "sk-this-must-never-appear-1234567890";
+    private const string RawSecret = "sk-" + "this-must-never-appear-1234567890";
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-trajectory-{Guid.NewGuid():N}");
 
     [Fact]

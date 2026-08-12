@@ -285,6 +285,8 @@ public sealed class HeadlessSetupCliTests
         var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
         var dataDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
         var backupDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        var onlineBackupDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
+        var onlineRestoreDirectory = Path.Combine(temporaryRoot, $"agentforge-cli-e2e-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataDirectory);
         try
         {
@@ -470,6 +472,27 @@ public sealed class HeadlessSetupCliTests
                 Assert.Equal("Ready", recompletedJson.RootElement.GetProperty("state").GetString());
                 Assert.Equal(10, recompletedJson.RootElement.GetProperty("version").GetInt64());
             }
+            Assert.True(Directory.Exists(Path.Combine(dataDirectory, "secrets")));
+
+            var onlineBackup = await RunMaintenanceCliAsync(
+                dataDirectory, "backup", "create", "--destination", onlineBackupDirectory);
+            Assert.Equal(0, onlineBackup.ExitCode);
+            Assert.Contains("data/secrets/", await File.ReadAllTextAsync(
+                Path.Combine(onlineBackupDirectory, "backup.manifest.json")), StringComparison.Ordinal);
+            using (var backupJson = JsonDocument.Parse(onlineBackup.StandardOutput))
+            {
+                Assert.Equal("create", backupJson.RootElement.GetProperty("operation").GetString());
+                Assert.StartsWith("sha256:", backupJson.RootElement.GetProperty("manifestHash").GetString(),
+                    StringComparison.Ordinal);
+            }
+            Assert.Equal(0, (await RunMaintenanceCliAsync(
+                dataDirectory, "backup", "verify", "--backup-directory", onlineBackupDirectory)).ExitCode);
+            Assert.Equal(0, (await RunMaintenanceCliAsync(
+                dataDirectory, "backup", "restore", "--backup-directory", onlineBackupDirectory,
+                "--target-data-directory", onlineRestoreDirectory)).ExitCode);
+            Assert.True(File.Exists(Path.Combine(onlineRestoreDirectory, "agentforge.db")));
+            Assert.True(Directory.Exists(Path.Combine(onlineRestoreDirectory, "secrets")),
+                string.Join(",", Directory.EnumerateFileSystemEntries(onlineRestoreDirectory, "*", SearchOption.AllDirectories)));
 
             await using (var services = BuildServices(dataDirectory, deterministicSecretStore: false))
             await using (var scope = services.CreateAsyncScope())
@@ -511,6 +534,8 @@ public sealed class HeadlessSetupCliTests
         {
             DeleteTemporaryDirectory(temporaryRoot, dataDirectory);
             DeleteTemporaryDirectory(temporaryRoot, backupDirectory);
+            DeleteTemporaryDirectory(temporaryRoot, onlineBackupDirectory);
+            DeleteTemporaryDirectory(temporaryRoot, onlineRestoreDirectory);
         }
     }
 

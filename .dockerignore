@@ -1,0 +1,17 @@
+.git
+.github
+.vs
+.vscode
+**/bin
+**/obj
+**/TestResults
+.tools
+.nuget
+.dotnet-cli-home*
+artifacts
+data
+secrets
+*.db
+*.db-shm
+*.db-wal
+*.log
