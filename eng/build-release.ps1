@@ -36,6 +36,8 @@ $projects = [ordered]@{
 
 Push-Location $repositoryRoot
 try {
+    & dotnet restore 'tools/AgentForge.Release/AgentForge.Release.csproj' --locked-mode
+    if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed for the release evidence tool.' }
     foreach ($rid in $RuntimeIdentifiers) {
         $ridRoot = Join-Path $outputRoot $rid
         New-Item -ItemType Directory -Path $ridRoot | Out-Null

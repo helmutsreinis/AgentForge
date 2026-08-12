@@ -34,6 +34,7 @@ declare -A projects=(
   [worker]="src/AgentForge.PluginWorker/AgentForge.PluginWorker.csproj"
 )
 cd "$repo_root"
+dotnet restore tools/AgentForge.Release/AgentForge.Release.csproj --locked-mode
 for component in host cli worker; do
   project="${projects[$component]}"
   dotnet restore "$project" --locked-mode

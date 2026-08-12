@@ -118,7 +118,7 @@
       "title": "Authenticated channel event is normalized, identity-bound, durable, and replay-safe",
       "requirements": ["AF-CHAN-001", "AF-DATA-001"],
       "gates": ["M7-03-20260812.md"],
-      "tests": ["AgentForge.IntegrationTests.DurableChannelTests.Authenticated_channel_message_is_durable_identity_bound_and_replay_safe"],
+      "tests": ["AgentForge.IntegrationTests.PersistenceFoundationTests.Authenticated_channel_message_is_durable_identity_bound_and_replay_safe"],
       "auditEvidence": "Inbound event, identity binding, replay key, attachment scan, and task routing are audited.",
       "trajectoryEvidence": "Normalized channel record and inbox identity reconstruct accepted and replayed delivery."
     },
@@ -153,7 +153,7 @@
       "requirements": ["AF-DEV-002"],
       "gates": ["M8-02-20260812.md"],
       "tests": [
-        "AgentForge.IntegrationTests.DurableSerialCaptureTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
+        "AgentForge.IntegrationTests.PersistenceFoundationTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
         "AgentForge.UnitTests.SerialCaptureServiceTests.Drop_and_disconnect_evidence_survives_empty_frame_replay"
       ],
       "auditEvidence": "Capture hash, byte counts, dropped/truncated counts, disconnect, and artifact identity are audited.",
@@ -166,7 +166,7 @@
       "gates": ["M8-03-20260812.md"],
       "tests": [
         "AgentForge.UnitTests.SerialDecoderTests.Evaluation_covers_target_holdout_partial_concat_resync_fuzz_and_performance",
-        "AgentForge.IntegrationTests.DurableDecoderGovernanceTests.Decoder_governance_is_durable_separated_stale_safe_and_atomically_rollbackable"
+        "AgentForge.IntegrationTests.PersistenceFoundationTests.Decoder_governance_is_durable_separated_stale_safe_and_atomically_rollbackable"
       ],
       "auditEvidence": "Proposal, separated actors, evaluations, canary, promotion, and rollback are hash-chained.",
       "trajectoryEvidence": "Decoder, capture set, holdout, unknown fields, and evaluation hashes are pinned."
@@ -178,7 +178,7 @@
       "gates": ["M4-03-20260812.md", "M7-03-20260812.md", "M8-03-20260812.md"],
       "tests": [
         "AgentForge.IntegrationTests.PersistenceFoundationTests.Durable_task_dag_recovers_expired_worker_and_resumes_without_repeating_completion",
-        "AgentForge.IntegrationTests.DurableSerialCaptureTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
+        "AgentForge.IntegrationTests.PersistenceFoundationTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
         "AgentForge.UnitTests.ChannelServiceTests.Outbound_send_requires_exact_approval_then_retries_definite_failure_once"
       ],
       "auditEvidence": "Composite run binds schedule/task, device/capture/decoder, and exact outbound delivery hashes.",

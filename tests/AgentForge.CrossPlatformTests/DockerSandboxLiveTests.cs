@@ -1,3 +1,4 @@
+using AgentForge.Abstractions.Time;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Tools;
 using AgentForge.Tools;
@@ -32,6 +33,7 @@ public sealed class DockerSandboxLiveTests : IDisposable
             ["AgentForge:DockerSandbox:ProcessLimit"] = "64",
         }).Build();
         var services = new ServiceCollection();
+        services.AddSingleton<IClock, LiveClock>();
         services.AddAgentForgeTools(configuration);
         await using var provider = services.BuildServiceProvider(validateScopes: true);
         var workspace = Directory.CreateDirectory(_root).FullName;
@@ -62,6 +64,11 @@ public sealed class DockerSandboxLiveTests : IDisposable
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+    }
+
+    private sealed class LiveClock : IClock
+    {
+        public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
     }
 }
 
