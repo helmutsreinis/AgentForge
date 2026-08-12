@@ -54,6 +54,22 @@ internal static partial class Program
                     Required(options, "--release-directory"),
                     Required(options, "--rid"),
                     CancellationToken.None).GetAwaiter().GetResult();
+            if (args[0] == "acceptance")
+            {
+                AcceptanceEvidenceGenerator.Generate(
+                    Required(options, "--repository-root"),
+                    Required(options, "--results-directory"),
+                    Required(options, "--output-path"),
+                    Required(options, "--commit"),
+                    DateTimeOffset.Parse(Required(options, "--created"),
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind),
+                    Required(options, "--transcript"),
+                    Required(options, "--passed-external-evidence")
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+                Console.WriteLine("{\"status\":\"acceptance-evidence-generated\"}");
+                return 0;
+            }
             return Usage();
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidDataException or IOException or
@@ -84,7 +100,7 @@ internal static partial class Program
 
     private static int Usage()
     {
-        Console.Error.WriteLine("Usage: agentforge-release manifest|verify --release-directory <path> [manifest options]");
+        Console.Error.WriteLine("Usage: agentforge-release manifest|verify|archive|smoke|acceptance [exact options]");
         return 1;
     }
 }
