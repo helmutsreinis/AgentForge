@@ -87,12 +87,22 @@ public sealed class DurableCodingHarnessTests : IDisposable
         [
             new CodingVerificationCommand(
                 CodingVerificationKind.Build, dotnet, ["build", "CodingHarnessFixture.slnx", "--nologo"], ".",
-                new Dictionary<string, string> { ["DOTNET_NOLOGO"] = "1" }, TimeSpan.FromMinutes(2), 262_144,
+                new Dictionary<string, string>
+                {
+                    ["DOTNET_NOLOGO"] = "1",
+                    ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0",
+                    ["UseSharedCompilation"] = "false",
+                }, TimeSpan.FromMinutes(2), 262_144,
                 ProcessSandboxKind.Container, ProcessNetworkPolicy.Denied, true),
             new CodingVerificationCommand(
                 CodingVerificationKind.Test, dotnet,
                 ["run", "--project", "tests/Calculator.Specs/Calculator.Specs.csproj", "--no-build"], ".",
-                new Dictionary<string, string> { ["DOTNET_NOLOGO"] = "1" }, TimeSpan.FromMinutes(2), 262_144,
+                new Dictionary<string, string>
+                {
+                    ["DOTNET_NOLOGO"] = "1",
+                    ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0",
+                    ["UseSharedCompilation"] = "false",
+                }, TimeSpan.FromMinutes(2), 262_144,
                 ProcessSandboxKind.Container, ProcessNetworkPolicy.Denied, true),
         ]);
         Assert.True(verification.IsSuccess);

@@ -48,5 +48,6 @@
 | D-044 | Expose web setup only on loopback through a consumed nonce, short-lived HttpOnly SameSite session, session-bound CSRF, exact idempotency cache, and staged text credential body; construct CLI-equivalent safe defaults and call only shared setup services. | Accepted |
 | D-045 | Discover serial endpoints only through passive registry/sysfs metadata, derive stable physical identities independently from transient paths, keep DTR/RTS disabled by default, and authorize inventory, capture, read, write, command, calibration, firmware, and privilege as distinct capabilities. | Accepted |
 | D-046 | Admit serial I/O only through an exact expiring operation grant and an approved transport catalog that is empty in production; persist capture bytes solely in a versioned content-addressed binary artifact with timing/drop/disconnect evidence and integrity-bound deterministic replay. | Accepted |
+| D-047 | Learn serial protocols first through a bounded declarative fixed-frame decoder that preserves unknown bytes; require exact target/holdout/malformed/partial/concatenated/resync/fuzz/performance evidence, separate proposer/evaluator/approver/governor identities, stale-baseline denial, canary, quarantine, atomic promotion, and rollback. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

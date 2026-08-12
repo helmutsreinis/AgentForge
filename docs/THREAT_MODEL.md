@@ -764,3 +764,16 @@ account zero-byte drop/disconnect evidence, stop at byte/time bounds, and store 
 content-addressed artifact. SQLite and audit retain hashes/counts rather than payload bytes. Replay validates artifact
 length, magic/version, physical-device binding, frame bounds/order, byte/drop totals, and a canonical stream hash before
 yielding data. Artifact tampering is a hard integrity failure.
+
+Decoder definitions are data, not executable plugins. Bounds cover definition size, frame/sync/field counts, input bytes,
+parser operations, evaluation corpus, and deterministic fuzz cases. Known fields are typed, while every unclaimed frame byte,
+pre-sync noise byte, and partial tail remains exact evidence; the raw frame hash prevents decoded values from replacing source
+truth. The evaluation suite hash binds target and holdout bytes plus expectations. Promotion requires passing target, holdout,
+malformed, partial, concatenated, resynchronization, unknown-preservation, fuzz, and operation gates.
+
+Candidates may request only protocol-decode authority; device capture/read/write/firmware, filesystem, and network authority
+make the definition invalid. Proposer cannot evaluate, approve, or govern their candidate. Proposal snapshots form an
+append-only hash chain bound to the exact baseline and candidate. Competing candidates can evaluate, but only the one whose
+baseline still matches can atomically become active. Failed canaries quarantine without activation. Active candidates can be
+quarantined and rolled back only while their exact hash remains selected. Declarative decoders never inherit device-write
+authority.

@@ -510,6 +510,11 @@ production transport catalog is intentionally empty; install a platform adapter 
 gate. Never treat a capture grant as read/write authority, enable DTR/RTS implicitly, retry an uncertain write,
 or edit capture totals/hashes to bypass replay validation.
 
+Migration 0022 adds decoder proposal snapshots and active pointers. Back up the complete stopped data tree
+before upgrade. Verify a deterministic proposal through rollback after restart. Never edit proposal or active
+rows; use quarantine and governed rollback. A decoder definition may hold only protocol-decode authority. Failed
+holdout/fuzz/canary evidence is a promotion veto, not an operator invitation to bypass the gate.
+
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
 SHA-256 for every file, compares the restored set, initializes migrations, verifies

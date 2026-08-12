@@ -77,6 +77,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChannelIdentityResolver>(provider => provider.GetRequiredService<SqliteChannelRepository>());
         services.AddScoped<IChannelIdentityBindingStore>(provider => provider.GetRequiredService<SqliteChannelRepository>());
         services.AddScoped<ISerialCaptureRepository, SqliteSerialCaptureRepository>();
+        services.AddScoped<IDecoderProposalRepository, SqliteDecoderProposalRepository>();
         services.AddScoped<SqliteModelProviderHealthRepository>();
         services.AddScoped<IModelProviderHealthRepository>(provider =>
             provider.GetRequiredService<SqliteModelProviderHealthRepository>());

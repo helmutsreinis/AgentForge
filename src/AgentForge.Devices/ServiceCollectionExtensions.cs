@@ -13,8 +13,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ISerialTransportCatalog>(_ => new SerialTransportCatalog([]));
         services.AddSingleton<ISerialDiscoveryService, PassiveSerialDiscoveryService>();
         services.AddSingleton<IDeviceCapabilityAuthorizer, DeviceCapabilityAuthorizer>();
+        services.AddSingleton<IDeclarativeDecoder, DeclarativeSerialDecoder>();
+        services.AddSingleton<IDecoderEvaluator, DeterministicDecoderEvaluator>();
         services.AddScoped<ISerialCaptureService, SerialCaptureService>();
         services.AddScoped<ISerialSessionService, SerialSessionService>();
+        services.AddScoped<IDecoderGovernanceService, DecoderGovernanceService>();
         return services;
     }
 }
