@@ -137,6 +137,13 @@
           "SQLitePCLRaw.bundle_e_sqlite3": "[2.1.12, )"
         }
       },
+      "agentforge.plugins": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.security": {
         "type": "Project",
         "dependencies": {
@@ -146,6 +153,13 @@
         }
       },
       "agentforge.setup": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
+      "agentforge.skills": {
         "type": "Project",
         "dependencies": {
           "AgentForge.Abstractions": "[1.0.0, )",
