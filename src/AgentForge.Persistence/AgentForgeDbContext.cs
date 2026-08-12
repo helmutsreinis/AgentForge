@@ -66,6 +66,16 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<DecoderActiveVersionEntity> DecoderActiveVersions => Set<DecoderActiveVersionEntity>();
 
+    internal DbSet<LearningSignalEntity> LearningSignals => Set<LearningSignalEntity>();
+
+    internal DbSet<LearningCandidateSnapshotEntity> LearningCandidateSnapshots =>
+        Set<LearningCandidateSnapshotEntity>();
+
+    internal DbSet<SkillBundleEntity> SkillBundles => Set<SkillBundleEntity>();
+
+    internal DbSet<SkillBundleProposalSnapshotEntity> SkillBundleProposalSnapshots =>
+        Set<SkillBundleProposalSnapshotEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -154,6 +164,64 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.DecoderId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CandidateHash).HasMaxLength(71).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
+        });
+
+        modelBuilder.Entity<LearningSignalEntity>(entity =>
+        {
+            entity.ToTable("learning_signals");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.CapturedAtUtcTicks });
+            entity.Property(item => item.Kind).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.Action).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.SignalHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.ClassificationHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SignalJson).IsRequired();
+            entity.Property(item => item.ClassificationJson).IsRequired();
+        });
+
+        modelBuilder.Entity<LearningCandidateSnapshotEntity>(entity =>
+        {
+            entity.ToTable("learning_candidate_snapshots");
+            entity.HasKey(item => new { item.Id, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.SkillId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.SkillId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.CandidatePackageHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.BaselinePackageHash).HasMaxLength(71);
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillBundleEntity>(entity =>
+        {
+            entity.ToTable("skill_bundles");
+            entity.HasKey(item => new { item.Id, item.Version });
+            entity.Property(item => item.Id).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.DefinitionHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SourceSignalHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.DefinitionJson).IsRequired();
+        });
+
+        modelBuilder.Entity<SkillBundleProposalSnapshotEntity>(entity =>
+        {
+            entity.ToTable("skill_bundle_proposal_snapshots");
+            entity.HasKey(item => new { item.Id, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.BundleId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.BundleId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.BundleVersion).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.DefinitionHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
         });
 
         modelBuilder.Entity<OutboxMessageEntity>(entity =>

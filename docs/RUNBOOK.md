@@ -515,6 +515,16 @@ before upgrade. Verify a deterministic proposal through rollback after restart. 
 rows; use quarantine and governed rollback. A decoder definition may hold only protocol-decode authority. Failed
 holdout/fuzz/canary evidence is a promotion veto, not an operator invitation to bypass the gate.
 
+Migrations 0023 and 0024 add immutable learning signals, append-only learned-candidate snapshots, skill bundle
+definitions, and append-only bundle proposal snapshots. Stop AgentForge and back up the SQLite database including
+WAL/SHM plus the artifact directory before upgrade. After migration, run the corrected-skill journey through
+promotion and exact rollback, then synthesize and archive a fixture bundle and verify the audit chain.
+
+Do not edit learning JSON, hashes, role assignments, skill proposal links, bundle pins, or package status rows.
+Failed target, holdout, adversarial, permission, critic, or canary evidence is a veto. Recover by preserving the
+evidence and issuing a new candidate against the current baseline. The generated down migrations destroy learning
+and proposal provenance; restore the complete stopped pre-0023 backup instead of applying them to operator state.
+
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
 SHA-256 for every file, compares the restored set, initializes migrations, verifies

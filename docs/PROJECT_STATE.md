@@ -122,10 +122,15 @@ hardware/container gates open and every device write disabled by default.
 - M8 slice 3 added a declarative fixed-frame decoder with bounded resynchronization, typed numeric/ASCII/byte fields, raw-frame hashes, and exact preservation of unclaimed frame bytes plus unframed noise/partial tails. Deterministic evaluation binds the exact suite and covers target, holdout, malformed, partial, concatenated, resynchronization, 32–4096 seeded fuzz cases, unknown preservation, and operation bounds.
 - Append-only decoder proposals bind the exact active baseline and candidate hash. Proposer, evaluator, approver, and governor separation; permission-escalation rejection; canary quarantine; stale promotion denial; atomic active pointer; restart integrity; and rollback pass. Migration 0022 adds proposal hash chains and active decoder pointers.
 - Milestone 8 passes locked Release build, format, migration drift, vulnerability scan, 362/362 product tests and 2/2 framework-spike tests on both Windows and Ubuntu. A Linux-only redirected-pipe timeout in the inherited coding fixture was fixed by disabling nested shared build servers; focused and full integration regressions pass.
+- M9 added the independent Learning module. Immutable redacted signals cover corrections, successful procedures, recoveries, missing capabilities, and repeated skill chains; a pure deterministic classifier selects memory, new skill, revision, bundle, or no durable action without granting authority.
+- Skill revisions require an exact successful usage receipt or expiring operator authorization bound to the active version/package hash. Candidate packages must already be isolated agent-proposed skill artifacts, and a content-addressed proposal-workspace receipt is mandatory. Worker, proposer, verifier, critic, and governor are five distinct actors.
+- Learned candidates reuse the existing skill registry and append-only promotion service. Target, holdout, adversarial, baseline, and permission evidence can veto; critic and governor transitions are distinct; canary regression quarantines; promoted rollback restores the exact baseline. Migrations 0023 and 0024 persist signals, candidates, immutable bundle definitions, and bundle proposal chains.
+- Repeated successful skill chains synthesize only compatible DAGs referencing exact skill version/package and input/output contract hashes. Their permission set is the union of exact installed authority. Bundle proposal, verification, critique, activation, and archive are separate durable transitions, with every pin revalidated immediately before activation.
+- Milestone 9 passes locked Release build, format, migration drift, vulnerability and secret scans, 369/369 product tests and 2/2 framework-spike tests on both Windows and Ubuntu.
 
 ## Latest gate
 
-`artifacts/gates/M8-03-20260812.md`: Pass. Milestone 8 passive discovery, capture/replay, and governed decoder learning are complete.
+`artifacts/gates/M9-20260812.md`: Pass. Milestone 9 recursive learning and governed bundles are complete.
 
 ## Known constraints and risks
 
@@ -143,4 +148,4 @@ hardware/container gates open and every device write disabled by default.
 
 ## Exact next action
 
-Begin Milestone 8 with passive serial discovery and separately authorized inventory/capture/read/write controls.
+Begin Milestone 10 with the authenticated production REST/SSE contract, then policy-filtered MCP transports and plugin isolation before packaging and release hardening.

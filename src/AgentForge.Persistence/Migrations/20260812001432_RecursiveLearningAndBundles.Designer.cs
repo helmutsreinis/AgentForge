@@ -3,6 +3,7 @@ using System;
 using AgentForge.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AgentForge.Persistence.Migrations
 {
     [DbContext(typeof(AgentForgeDbContext))]
-    partial class AgentForgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812001432_RecursiveLearningAndBundles")]
+    partial class RecursiveLearningAndBundles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -2078,61 +2081,6 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("skill_bundles", (string)null);
                 });
 
-            modelBuilder.Entity("AgentForge.Persistence.Entities.SkillBundleProposalSnapshotEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("Version")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("BundleId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BundleVersion")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DefinitionHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("InstallationId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PreviousSnapshotHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SnapshotHash")
-                        .IsRequired()
-                        .HasMaxLength(71)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SnapshotJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("UpdatedAtUtcTicks")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id", "Version");
-
-                    b.HasIndex("InstallationId", "BundleId", "UpdatedAtUtcTicks");
-
-                    b.ToTable("skill_bundle_proposal_snapshots", (string)null);
-                });
-
             modelBuilder.Entity("AgentForge.Persistence.Entities.SkillProposalSnapshotEntity", b =>
                 {
                     b.Property<Guid>("ProposalId")
@@ -2780,15 +2728,6 @@ namespace AgentForge.Persistence.Migrations
                     b.HasOne("AgentForge.Persistence.Entities.SkillVersionEntity", null)
                         .WithMany()
                         .HasForeignKey("InstallationId", "SkillId", "Version")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("AgentForge.Persistence.Entities.SkillBundleProposalSnapshotEntity", b =>
-                {
-                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
-                        .WithMany()
-                        .HasForeignKey("InstallationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
