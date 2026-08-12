@@ -26,7 +26,7 @@ passing gate report.
 | ID | Requirement and acceptance criterion | Milestone | Status |
 |---|---|---:|---|
 | AF-DATA-001 | SQLite is the default durable store with migrations, optimistic concurrency, leases, and transactional inbox/outbox records. | 1 | In progress |
-| AF-DATA-002 | PostgreSQL implements the same repositories and passes migration, backup, and restore tests. | 10 | Planned |
+| AF-DATA-002 | PostgreSQL implements the same repositories and passes migration, backup, and restore tests. | 10 | Verified |
 | AF-AUD-001 | Significant actions append redacted, sequenced, correlated events with actor, versions, hashes, outcome, duration, usage, and approval evidence. | 1 | In progress |
 | AF-AUD-002 | A redacted trajectory can reconstruct context, snapshots, calls, retries, errors, and verification without disclosing credentials. | 1-10 | Planned |
 | AF-ID-001 | Agent identity is distinct from provider selection and includes scope, model policy, budgets, memory, grants, child limits, and learning mode. | 1 | In progress |
@@ -74,7 +74,7 @@ passing gate report.
 | AF-DEV-002 | Captures are bounded immutable evidence with raw bytes, timing, hashes, truncation/drop accounting, and deterministic replay. | 8 | Verified |
 | AF-DEV-003 | Decoder proposals preserve unknown fields and pass replay, malformed input, fuzz, holdout, canary, promotion, and rollback gates. | 8 | Verified |
 | AF-MCP-001 | The harness supports MCP client/server stdio and Streamable HTTP with policy-filtered exposure. | 10 | In progress |
-| AF-PLUGIN-001 | Strict content-addressed plugin packages use signature-derived trust; only verified low-risk adapters may load in-process and all other plugins require the constrained worker protocol. | 10 | Complete |
+| AF-PLUGIN-001 | Strict content-addressed plugin packages use signature-derived trust; only verified low-risk adapters may load in-process and all other plugins require the constrained worker protocol. | 10 | Verified |
 | AF-DEPLOY-001 | R1 ships self-contained Windows/Linux artifacts, container image, Windows service, systemd unit, checksums, SBOM, and migration/runbook documentation. | 10 | Planned |
 | AF-QUAL-001 | R1 passes all 25 acceptance scenarios and has no unresolved high-severity security finding. | 10 | Planned |
 

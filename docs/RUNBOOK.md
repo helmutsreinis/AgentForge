@@ -532,6 +532,30 @@ the audit chain through doctor, and materializes the restored provider/admin
 references. Use the same OS user; DPAPI data is intentionally not portable to a
 different Windows identity.
 
+## PostgreSQL R1 bootstrap, backup, and restore
+
+Set `AgentForge:Persistence:Provider` to `PostgreSql` and set
+`PostgreSqlConnectionStringEnvironmentVariable` to the name of the process environment
+variable holding the connection string. Do not put the connection string in JSON, command
+arguments, service definitions, or logs. The database principal must be able to create the
+R1 tables and the `citext` extension. Startup takes an advisory lock, creates the current
+schema when absent, and records `r1-20260812` in `agentforge_schema_versions`.
+
+For backup, configure fully qualified trusted `pg_dump` and `pg_restore` paths. Call the
+database backup service with a new empty package directory. Verify `backup.manifest.json`
+and every recorded file hash before copying, signing, or retaining the package. The dump is
+custom format, excludes ownership/privileges, and travels with the artifact tree.
+
+Restore is destructive to the target database. Create a separate empty target database and
+artifact directory, store its connection string in a second environment variable, and pass
+that variable name explicitly. The service rejects the configured source variable, runs
+`pg_restore --clean --if-exists`, verifies the package first, and copies artifacts only after
+the target directory passes emptiness/containment checks. Start the restored host in recovery,
+run `doctor`, verify the audit chain and artifact reads, then enable Ready operation. Retain the
+source and backup until these checks pass. The release live gate uses only disposable source
+and target databases through `AGENTFORGE_TEST_POSTGRESQL_CONNECTION` and
+`AGENTFORGE_TEST_POSTGRESQL_RESTORE_CONNECTION`.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

@@ -54,5 +54,6 @@
 | D-050 | Expose production mutations only through authenticated versioned REST with exact idempotency and correlation, expose progress through authenticated SSE, and deny non-loopback startup unless HTTPS remote mode and exact origins are explicit. | Accepted |
 | D-051 | Use the official MCP C# SDK 2.0 with a single exact allowlist policy for stateless authenticated Streamable HTTP and protocol-clean local stdio; MCP never owns task state, authorization, audit, or secrets. | Accepted |
 | D-052 | Derive plugin trust only from signature verification, never manifest claims; permit collectible in-process loading solely for verified low-risk adapters and require a pinned, denied-network container worker protocol with explicit resource isolation for every other plugin. | Accepted |
+| D-053 | Keep SQLite WAL as the local default and select PostgreSQL behind the same DbContext/repository contracts using an environment-only connection secret, advisory-locked R1 schema bootstrap, provider-specific case-insensitive identity, and exact-tool hash-manifested backup/restore. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

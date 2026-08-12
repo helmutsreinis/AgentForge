@@ -80,6 +80,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
 
+        if (Database.IsNpgsql()) modelBuilder.HasPostgresExtension("citext");
+
         modelBuilder.Entity<InstallationEntity>(entity =>
         {
             entity.ToTable("installations");
@@ -268,7 +270,9 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
                 .HasForeignKey(item => item.PrimaryProviderProfileId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(item => new { item.InstallationId, item.Name }).IsUnique();
-            entity.Property(item => item.Name).UseCollation("NOCASE").HasMaxLength(128).IsRequired();
+            var name = entity.Property(item => item.Name).HasMaxLength(128).IsRequired();
+            if (Database.IsSqlite()) name.UseCollation("NOCASE");
+            else if (Database.IsNpgsql()) name.HasColumnType("citext");
             entity.Property(item => item.Expertise).HasMaxLength(512);
             entity.Property(item => item.Mission).HasMaxLength(4096);
             entity.Property(item => item.PreferredLanguage).HasMaxLength(35).IsRequired();

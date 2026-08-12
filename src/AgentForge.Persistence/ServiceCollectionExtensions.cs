@@ -37,6 +37,12 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(PersistenceOptions.SectionName))
             .Validate(options => IsFileName(options.DatabaseFileName), "DatabaseFileName must be a simple file name")
             .Validate(options => IsDirectoryName(options.ArtifactDirectoryName), "ArtifactDirectoryName must be a relative directory name")
+            .Validate(options => Enum.IsDefined(options.Provider), "Provider must be Sqlite or PostgreSql")
+            .Validate(options => IsEnvironmentVariableName(options.PostgreSqlConnectionStringEnvironmentVariable),
+                "PostgreSqlConnectionStringEnvironmentVariable must be a simple environment variable name")
+            .Validate(options => IsEmptyOrFullyQualifiedPath(options.PostgreSqlDumpExecutable) &&
+                IsEmptyOrFullyQualifiedPath(options.PostgreSqlRestoreExecutable),
+                "PostgreSQL backup tool paths must be empty or fully qualified")
             .ValidateOnStart();
 
         services.AddSingleton<IClock, SystemClock>();
@@ -46,15 +52,29 @@ public static class ServiceCollectionExtensions
             var dataDirectory = serviceProvider.GetRequiredService<IDataDirectoryProvider>().GetDataDirectory();
             Directory.CreateDirectory(dataDirectory);
             var persistence = serviceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PersistenceOptions>>().Value;
-            var databasePath = Path.Combine(dataDirectory, persistence.DatabaseFileName);
-            var pooling = persistence.EnableConnectionPooling ? "True" : "False";
-            dbOptions.UseSqlite($"Data Source={databasePath};Cache=Shared;Pooling={pooling}");
+            if (persistence.Provider == PersistenceProvider.PostgreSql)
+            {
+                var connectionString = System.Environment.GetEnvironmentVariable(
+                    persistence.PostgreSqlConnectionStringEnvironmentVariable);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                    throw new InvalidOperationException(
+                        "The configured PostgreSQL connection-string environment variable is unavailable.");
+                dbOptions.UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(3));
+            }
+            else
+            {
+                var databasePath = Path.Combine(dataDirectory, persistence.DatabaseFileName);
+                var pooling = persistence.EnableConnectionPooling ? "True" : "False";
+                dbOptions.UseSqlite($"Data Source={databasePath};Cache=Shared;Pooling={pooling}");
+            }
+            dbOptions.EnableDetailedErrors(false).EnableSensitiveDataLogging(false);
         });
 
-        services.AddScoped<IDatabaseInitializer, SqliteDatabaseInitializer>();
+        services.AddScoped<IDatabaseInitializer, RelationalDatabaseInitializer>();
         services.AddScoped<IInstallationRepository, SqliteInstallationRepository>();
         services.AddScoped<IInstallationStateReader>(provider => provider.GetRequiredService<IInstallationRepository>());
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
+        services.AddScoped<IDatabaseBackupService, DatabaseBackupService>();
         services.AddScoped<SqliteAuditJournal>();
         services.AddScoped<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditJournal>());
         services.AddScoped<IAuditReader>(provider => provider.GetRequiredService<SqliteAuditJournal>());
@@ -101,4 +121,12 @@ public static class ServiceCollectionExtensions
         !string.IsNullOrWhiteSpace(value) &&
         !Path.IsPathRooted(value) &&
         !value.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Contains("..", StringComparer.Ordinal);
+
+    private static bool IsEnvironmentVariableName(string value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= 128 &&
+        (char.IsAsciiLetter(value[0]) || value[0] == '_') &&
+        value.All(character => char.IsAsciiLetterOrDigit(character) || character == '_');
+
+    private static bool IsEmptyOrFullyQualifiedPath(string value) =>
+        string.IsNullOrEmpty(value) || Path.IsPathFullyQualified(value);
 }

@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\AgentForge.Skills\AgentForge.Skills.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Setup\AgentForge.Setup.csproj" />
     <ProjectReference Include="..\..\src\AgentForge.Tools\AgentForge.Tools.csproj" />
+    <ProjectReference Include="..\AgentForge.ProcessFixture\AgentForge.ProcessFixture.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

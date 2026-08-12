@@ -826,3 +826,12 @@ only exact identity, hashes, entry type, and declared permissions—never secret
 sandbox with denied networking and explicit filesystem, CPU, memory, process-count, output, timeout, and process-tree
 isolation. Restricted-host execution is insufficient and returns a typed unsupported result. The worker independently
 validates the assembly and emits only a bounded identity receipt before exiting.
+
+PostgreSQL connection strings are untrusted secret input and are read only from an explicitly named process
+environment variable. Sensitive EF logging is disabled. Backup removes the password from the `--dbname` argument,
+passes it only as `PGPASSWORD` to an otherwise empty child environment, invokes an exact absolute binary without a
+shell, bounds stdout/stderr and wall time, and kills the process tree on failure. Restore refuses the configured
+source secret name and requires a distinct explicit target, preventing an ordinary verification run from cleaning
+the live database. Backup/restore directories must be separate, empty, contained, and link-free; every database and
+artifact file is length/hash verified before restore. A manifest hash covers provider, time, identity, ordering, and
+all file evidence.

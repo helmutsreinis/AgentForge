@@ -130,10 +130,12 @@ hardware/container gates open and every device write disabled by default.
 - M10 slice 1 hardened the versioned REST control plane with bearer authentication, exact mutation idempotency, RFC Problem Details, correlation/version headers, bounded request bodies, fixed-window rate limits, redacted OpenAPI, and resumable authenticated task SSE. Non-loopback binding now fails startup unless remote mode, HTTPS, and exact origins are all explicit.
 - The official MCP C# SDK 2.0 server exposes only bounded readiness through an exact tool/resource allowlist. Streamable HTTP is stateless, bearer-authenticated, origin/rate constrained, and verified by the official client. `agentforge mcp stdio` starts the same policy-filtered server only for a Ready installation and sends every log to stderr so stdout remains protocol-only.
 - M10 slice 2 added the stable plugin SDK, strict one-directory/one-manifest catalog, duplicate-key and unknown-field rejection, path/link/size/hash bounds, and signature-derived trust. Discovery reads bytes only and never loads an assembly. Only verified low-risk adapters may enter a collectible in-process context; unsigned, untrusted, medium-risk, and high-risk adapters are forced through a pinned one-shot protocol requiring container, network, filesystem, resource, and process isolation. Missing isolation fails typed instead of degrading.
+- M10 slice 3 added Npgsql EF Core 10.0.3 behind the existing repository contracts. PostgreSQL uses an invocation environment secret, retry policy, `citext` case-insensitive identity, an advisory-locked first-release schema bootstrap, and the same optimistic/unit-of-work behavior. SQLite remains the default WAL store and its checked-in migrations are unchanged.
+- A provider-neutral backup service now creates hash-manifested database-and-artifact packages. SQLite uses the online backup API; PostgreSQL uses exact configured `pg_dump`/`pg_restore` paths with argument arrays, cleared environment, password-only `PGPASSWORD`, bounded output/time, tree termination, a distinct explicit restore target, and no connection secret in arguments or evidence. Deterministic protocol tests pass; two credential/tool-gated live PostgreSQL tests are named and skipped when unavailable.
 
 ## Latest gate
 
-`artifacts/gates/M10-02-20260812.md`: Pass. The signed plugin SDK and constrained worker boundary are complete.
+`artifacts/gates/M10-03-20260812.md`: Pass. PostgreSQL parity and verified backup/restore are complete.
 
 ## Known constraints and risks
 

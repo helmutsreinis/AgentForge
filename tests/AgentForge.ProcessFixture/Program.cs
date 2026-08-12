@@ -7,6 +7,31 @@ if (args.Length == 0)
     return 2;
 }
 
+if (args.Contains("--format=custom", StringComparer.Ordinal))
+{
+    var fileIndex = Array.IndexOf(args, "--file");
+    var databaseIndex = Array.IndexOf(args, "--dbname");
+    if (fileIndex < 0 || fileIndex + 1 >= args.Length || databaseIndex < 0 ||
+        databaseIndex + 1 >= args.Length ||
+        string.IsNullOrEmpty(global::System.Environment.GetEnvironmentVariable("PGPASSWORD")) ||
+        args[databaseIndex + 1].Contains("Password", StringComparison.OrdinalIgnoreCase))
+        return 4;
+    await File.WriteAllBytesAsync(args[fileIndex + 1], "deterministic-postgresql-dump"u8.ToArray());
+    return 0;
+}
+
+if (args.Contains("--clean", StringComparer.Ordinal))
+{
+    var databaseIndex = Array.IndexOf(args, "--dbname");
+    var dump = args[^1];
+    if (databaseIndex < 0 || databaseIndex + 1 >= args.Length || !File.Exists(dump) ||
+        string.IsNullOrEmpty(global::System.Environment.GetEnvironmentVariable("PGPASSWORD")) ||
+        args[databaseIndex + 1].Contains("Password", StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(await File.ReadAllTextAsync(dump), "deterministic-postgresql-dump", StringComparison.Ordinal))
+        return 4;
+    return 0;
+}
+
 switch (args[0])
 {
     case "echo-arguments":
