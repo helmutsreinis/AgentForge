@@ -1,0 +1,12 @@
+source commit: 2d798c21612a05282078c2f348138617e16e2f8b
+Windows: ./eng/run-r1-tests.ps1 -ResultsDirectory TestResults/r1-windows-final
+Ubuntu 24.04: DOTNET_COMMAND=./.tools/dotnet-linux/dotnet bash eng/run-r1-tests.sh TestResults/r1-linux-final
+coverage: ./eng/verify-coverage.ps1 -ResultsDirectory TestResults/coverage-calibration
+dependencies: dotnet list AgentForge.slnx package --vulnerable --include-transitive
+secrets: ./scripts/verify-no-secrets.ps1
+release: ./eng/build-release.ps1 -Version 1.0.0 -RuntimeIdentifiers win-x64,linux-x64
+release integrity: dotnet run --project tools/AgentForge.Release/AgentForge.Release.csproj --configuration Release --no-restore -- verify --release-directory artifacts/release
+Windows package smoke: dotnet run --project tools/AgentForge.Release/AgentForge.Release.csproj --configuration Release --no-restore -- smoke --release-directory artifacts/release --rid win-x64
+Linux package smoke: dotnet tools/AgentForge.Release/bin/Release/net10.0/agentforge-release.dll smoke --release-directory artifacts/release --rid linux-x64
+equipped Docker and package workflow: https://github.com/helmutsreinis/AgentForge/actions/runs/31559776310
+Windows and Ubuntu CI workflow: https://github.com/helmutsreinis/AgentForge/actions/runs/31559773267

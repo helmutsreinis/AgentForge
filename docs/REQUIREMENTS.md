@@ -76,7 +76,7 @@ passing gate report.
 | AF-MCP-001 | The harness supports MCP client/server stdio and Streamable HTTP with policy-filtered exposure. | 10 | Verified |
 | AF-PLUGIN-001 | Strict content-addressed plugin packages use signature-derived trust; only verified low-risk adapters may load in-process and all other plugins require the constrained worker protocol. | 10 | Verified |
 | AF-DEPLOY-001 | R1 ships self-contained Windows/Linux artifacts, container image, Windows service, systemd unit, checksums, SBOM, and migration/runbook documentation. | 10 | Verified |
-| AF-QUAL-001 | R1 passes all 25 acceptance scenarios and has no unresolved high-severity security finding. | 10 | Planned |
+| AF-QUAL-001 | R1 passes all 25 acceptance scenarios and has no unresolved high-severity security finding. | 10 | Verified |
 
 ## Definition of done
 

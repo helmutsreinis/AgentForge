@@ -1,0 +1,1084 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-12T03:23:14.5647295+00:00",
+  "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+  "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+  "configurationHashes": {
+    "global.json": "sha256:b132d105648c7dbe49f2c391fe0b9898027e470ddc7cfd4d7239af5df63401fa",
+    "Directory.Build.props": "sha256:7b3fe5a5ddbe33f2d705e5cae5a243ba80f1a2f1dbe70b94d5b8b0809bdfdc82",
+    "Directory.Packages.props": "sha256:6ef99f734c7cffae109bcd920443a580228fb5c0f0175c5230fb60cf9f3ebf39"
+  },
+  "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+  "commandTranscript": [
+    "source commit: 2d798c21612a05282078c2f348138617e16e2f8b",
+    "Windows: ./eng/run-r1-tests.ps1 -ResultsDirectory TestResults/r1-windows-final",
+    "Ubuntu 24.04: DOTNET_COMMAND=./.tools/dotnet-linux/dotnet bash eng/run-r1-tests.sh TestResults/r1-linux-final",
+    "coverage: ./eng/verify-coverage.ps1 -ResultsDirectory TestResults/coverage-calibration",
+    "dependencies: dotnet list AgentForge.slnx package --vulnerable --include-transitive",
+    "secrets: ./scripts/verify-no-secrets.ps1",
+    "release: ./eng/build-release.ps1 -Version 1.0.0 -RuntimeIdentifiers win-x64,linux-x64",
+    "release integrity: dotnet run --project tools/AgentForge.Release/AgentForge.Release.csproj --configuration Release --no-restore -- verify --release-directory artifacts/release",
+    "Windows package smoke: dotnet run --project tools/AgentForge.Release/AgentForge.Release.csproj --configuration Release --no-restore -- smoke --release-directory artifacts/release --rid win-x64",
+    "Linux package smoke: dotnet tools/AgentForge.Release/bin/Release/net10.0/agentforge-release.dll smoke --release-directory artifacts/release --rid linux-x64",
+    "equipped Docker and package workflow: https://github.com/helmutsreinis/AgentForge/actions/runs/31559776310",
+    "Windows and Ubuntu CI workflow: https://github.com/helmutsreinis/AgentForge/actions/runs/31559773267"
+  ],
+  "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+  "externalEvidence": [
+    "linux-x64-package-smoke",
+    "win-x64-package-smoke"
+  ],
+  "scenarios": [
+    {
+      "id": "AC-01",
+      "status": "Pass",
+      "requirements": [
+        "AF-SET-001",
+        "AF-SET-002",
+        "AF-SET-003",
+        "AF-SET-004",
+        "AF-ID-001",
+        "AF-SEC-003"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.EndToEndTests.HeadlessSetupCliTests.Interactive_and_headless_entry_produce_equivalent_complete_profiles",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:023731c970dcee7b44c09eb3825fc2b172dfef1961d38653f9ba830a677603a9",
+            "sha256:bfc4ab8b2a986a498a2ac41725902c233d1e336d996de1c16e567615a8badacd"
+          ]
+        },
+        {
+          "selector": "AgentForge.EndToEndTests.WebSetupWizardTests.Loopback_wizard_enforces_nonce_session_csrf_idempotency_and_completes_shared_setup",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:023731c970dcee7b44c09eb3825fc2b172dfef1961d38653f9ba830a677603a9",
+            "sha256:bfc4ab8b2a986a498a2ac41725902c233d1e336d996de1c16e567615a8badacd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M1-06D-20260810.md": "sha256:a55d9b2b63630f6e83ad78d0f510b58a32f87c6cd57a95ac2c4e67173b3a82c8"
+      },
+      "externalEvidence": [],
+      "auditReference": "Setup integration asserts redacted correlated durable audit and rollback snapshots.",
+      "trajectoryReference": "The setup report and profile snapshot hashes reconstruct the setup outcome.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-02",
+      "status": "Pass",
+      "requirements": [
+        "AF-MODEL-001",
+        "AF-SEC-003"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.ModelProviderProfileValidatorTests.Compatible_wire_adapter_preserves_named_provider_identity",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.AnthropicModelProviderTests.Text_request_and_stream_translate_to_harness_records",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.OpenAiCompatibleModelProviderTests.Text_stream_translates_request_deltas_usage_and_completion",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M3-12B-20260811.md": "sha256:a0a0b32ea8232f62eb1bfaa330f4d052aa46f06263a1bd637273cf427ae03a96"
+      },
+      "externalEvidence": [],
+      "auditReference": "Provider identity and normalized usage evidence are asserted without raw credentials.",
+      "trajectoryReference": "Typed stream and capability evidence reconstruct provider contract behavior.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-03",
+      "status": "Pass",
+      "requirements": [
+        "AF-PLAT-001",
+        "AF-ENV-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.CrossPlatformTests.SystemEnvironmentProfilerTests.Live_capture_is_bounded_and_matches_the_current_platform",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:75da5ab0254dfbcd4b6054e67565d4dd56eb6d43b9d3ba5c846c87999bb9ca25",
+            "sha256:fce99b20a50615f7f21ac66900a1c69fe87186453f145abe60200b4cef3297ce"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.EnvironmentProfileBuilderTests.Windows_fixture_preserves_case_insensitive_path_uniqueness",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.EnvironmentProfileBuilderTests.Ubuntu_fixture_is_normalized_and_fingerprint_ignores_request_metadata_and_input_order",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M10-07-20260812.md": "sha256:6b59b27473a74b5a1f9a85d5b1122a3ec9e20ec95d6b0a6bb95755646b196d5c"
+      },
+      "externalEvidence": [],
+      "auditReference": "Environment inventory persistence test asserts redacted audit and content-addressed evidence.",
+      "trajectoryReference": "Schema-v2 profile fingerprint binds all passive observations.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-04",
+      "status": "Pass",
+      "requirements": [
+        "AF-TOOL-001",
+        "AF-TOOL-002",
+        "AF-SEC-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.OsReleaseParserTests.Parses_Kali_from_distribution_metadata_without_running_a_command",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.ToolCatalogTests.Catalog_admission_does_not_inspect_or_execute_the_candidate_path",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.EndToEndTests.EnvironmentInventoryCliTests.Candidate_in_path_is_inventoried_without_being_executed",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:023731c970dcee7b44c09eb3825fc2b172dfef1961d38653f9ba830a677603a9",
+            "sha256:bfc4ab8b2a986a498a2ac41725902c233d1e336d996de1c16e567615a8badacd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M2-03B-20260811.md": "sha256:1c70bffd3b2ce166894fa62aa969ca3ed5eaaf7c601fbf2a5be85cfd8c4a4f8b"
+      },
+      "externalEvidence": [],
+      "auditReference": "Inventory and approved invocation evidence are separate correlated records.",
+      "trajectoryReference": "Descriptor hashes bind provenance, risk, schema, permissions, and execution bounds.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-05",
+      "status": "Pass",
+      "requirements": [
+        "AF-SKILL-001",
+        "AF-SKILL-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.GovernedSkillPersistenceTests.Seed_and_user_skills_share_governance_snapshots_and_atomic_rollback",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M5-20260812.md": "sha256:8626691921e2cdf37360c43db0cd0793093ec534611425ba67f7c12382fae571"
+      },
+      "externalEvidence": [],
+      "auditReference": "Durable promotion and rollback events bind actors, hashes, canary evidence, and outcomes.",
+      "trajectoryReference": "Immutable package and run-snapshot hashes preserve the full lifecycle.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-06",
+      "status": "Pass",
+      "requirements": [
+        "AF-SCHED-001",
+        "AF-DATA-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.ScheduleStateMachineTests.One_shot_interval_cron_and_calendar_previews_are_deterministic",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Durable_task_dag_recovers_expired_worker_and_resumes_without_repeating_completion",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M4-03-20260812.md": "sha256:5e79f8f356e15766e8aece66bbbb7557752d21a064dfd7f97bc77e0841034130"
+      },
+      "externalEvidence": [],
+      "auditReference": "Schedule creation, claim, recovery, completion, and run-now are hash-bound and audited.",
+      "trajectoryReference": "Versioned schedule snapshots reconstruct recurrence, lease, and misfire decisions.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-07",
+      "status": "Pass",
+      "requirements": [
+        "AF-SEARCH-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.SearchServiceTests.Research_deduplicates_fuses_ranks_preserves_citations_and_caches",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.SearchServiceTests.Throttled_provider_does_not_discard_other_cited_results",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M7-01-20260812.md": "sha256:154ab9ce1cad1ea7c6a3f33246317848b83a4d6fc2eb24bf06c5b7620eb3b56d"
+      },
+      "externalEvidence": [],
+      "auditReference": "Normalized source identity and bounded failure classification are retained.",
+      "trajectoryReference": "Citation URLs, ranks, provider evidence, and cache hashes survive synthesis.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-08",
+      "status": "Pass",
+      "requirements": [
+        "AF-MODEL-001",
+        "AF-MODEL-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.OpenAiCompatibleModelProviderTests.Text_stream_translates_request_deltas_usage_and_completion",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.IntegrationTests.OpenAiCompatibleLiveIntegrationTests.Configured_credential_free_endpoint_streams_through_the_public_adapter",
+          "outcomes": [
+            "NotExecuted"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M3-12B-20260811.md": "sha256:a0a0b32ea8232f62eb1bfaa330f4d052aa46f06263a1bd637273cf427ae03a96"
+      },
+      "externalEvidence": [],
+      "auditReference": "Route and endpoint profile evidence are durable; response content is not persisted by admission.",
+      "trajectoryReference": "Deterministic contract evidence is mandatory; the operator endpoint is an additional named live gate.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-09",
+      "status": "Pass",
+      "requirements": [
+        "AF-MULTI-001",
+        "AF-MODEL-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.ModelRouterTests.Image_content_routes_only_to_capable_provider_and_is_never_omitted",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M3-04-20260811.md": "sha256:c76ff2bfbb9764f29c9d84e85d1c629f6c96863b0231ccee714c63f40b48e9d3"
+      },
+      "externalEvidence": [],
+      "auditReference": "Route evidence binds required modality, locality, exclusions, and selected capability.",
+      "trajectoryReference": "Attachment identity remains in immutable prepared context and route evidence.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-10",
+      "status": "Pass",
+      "requirements": [
+        "AF-CHAN-001",
+        "AF-DATA-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Authenticated_channel_message_is_durable_identity_bound_and_replay_safe",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M7-03-20260812.md": "sha256:047f4213b6316b88361c171d924b3626c31a9978762c846b751cd1d27b91d203"
+      },
+      "externalEvidence": [],
+      "auditReference": "Inbound event, identity binding, replay key, attachment scan, and task routing are audited.",
+      "trajectoryReference": "Normalized channel record and inbox identity reconstruct accepted and replayed delivery.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-11",
+      "status": "Pass",
+      "requirements": [
+        "AF-CHAN-001",
+        "AF-AUD-001",
+        "AF-SEC-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.ChannelServiceTests.Outbound_send_requires_exact_approval_then_retries_definite_failure_once",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.ChannelServiceTests.Quiet_hours_and_rate_limits_precede_adapter_invocation",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.ChannelServiceTests.Uncertain_delivery_dead_letters_and_is_never_replayed",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M7-03-20260812.md": "sha256:047f4213b6316b88361c171d924b3626c31a9978762c846b751cd1d27b91d203"
+      },
+      "externalEvidence": [],
+      "auditReference": "Exact-send approval, recipient, message hash, attempts, outcome, and dead-letter evidence are asserted.",
+      "trajectoryReference": "Normalized delivery transitions reconstruct retry versus uncertain-delivery decisions.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-12",
+      "status": "Pass",
+      "requirements": [
+        "AF-DEV-001",
+        "AF-SEC-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.SerialDiscoveryTests.Passive_inventory_keeps_physical_identity_across_reenumeration",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.SerialCaptureServiceTests.Capture_read_and_write_require_independent_exact_grants",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M8-01-20260812.md": "sha256:1de5b8c6e5d76480e5b12df2a694a810ff6db8311f54d871921a0f556ecbb952"
+      },
+      "externalEvidence": [],
+      "auditReference": "Stable physical identity and exact capability decisions are recorded separately from transient paths.",
+      "trajectoryReference": "Discovery contains no port-open or byte-write transition.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-13",
+      "status": "Pass",
+      "requirements": [
+        "AF-DEV-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.SerialCaptureServiceTests.Drop_and_disconnect_evidence_survives_empty_frame_replay",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M8-02-20260812.md": "sha256:d3497cfcfa3460f7c2ed943e2630b2edf6fead02806927240c10bb0fba613f9b"
+      },
+      "externalEvidence": [],
+      "auditReference": "Capture hash, byte counts, dropped/truncated counts, disconnect, and artifact identity are audited.",
+      "trajectoryReference": "Immutable frame timing and raw artifact hashes reconstruct deterministic replay.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-14",
+      "status": "Pass",
+      "requirements": [
+        "AF-DEV-003"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.SerialDecoderTests.Evaluation_covers_target_holdout_partial_concat_resync_fuzz_and_performance",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Decoder_governance_is_durable_separated_stale_safe_and_atomically_rollbackable",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M8-03-20260812.md": "sha256:5e8377dc806c89625eccc08a3544bda8b1be7ccc96fc8f6a5ff2df319958e26f"
+      },
+      "externalEvidence": [],
+      "auditReference": "Proposal, separated actors, evaluations, canary, promotion, and rollback are hash-chained.",
+      "trajectoryReference": "Decoder, capture set, holdout, unknown fields, and evaluation hashes are pinned.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-15",
+      "status": "Pass",
+      "requirements": [
+        "AF-SCHED-001",
+        "AF-DEV-001",
+        "AF-DEV-002",
+        "AF-DEV-003",
+        "AF-CHAN-001",
+        "AF-AUD-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Durable_task_dag_recovers_expired_worker_and_resumes_without_repeating_completion",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        },
+        {
+          "selector": "AgentForge.IntegrationTests.PersistenceFoundationTests.Serial_capture_persists_restart_safe_artifact_audit_and_exact_replay",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.ChannelServiceTests.Outbound_send_requires_exact_approval_then_retries_definite_failure_once",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M4-03-20260812.md": "sha256:5e79f8f356e15766e8aece66bbbb7557752d21a064dfd7f97bc77e0841034130",
+        "M7-03-20260812.md": "sha256:047f4213b6316b88361c171d924b3626c31a9978762c846b751cd1d27b91d203",
+        "M8-03-20260812.md": "sha256:5e8377dc806c89625eccc08a3544bda8b1be7ccc96fc8f6a5ff2df319958e26f"
+      },
+      "externalEvidence": [],
+      "auditReference": "Composite run binds schedule/task, device/capture/decoder, and exact outbound delivery hashes.",
+      "trajectoryReference": "The scripted acceptance run requires every pinned provenance segment to pass in one configuration.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-16",
+      "status": "Pass",
+      "requirements": [
+        "AF-CODE-001",
+        "AF-CODE-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.DurableCodingHarnessTests.Nontrivial_sample_change_resumes_without_repeating_completed_verifiers",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M6-03-20260812.md": "sha256:9f5b8d6f48e12d7d9e5fe2140f54d14c769d79f9d2962a194d9fb27998b2f704"
+      },
+      "externalEvidence": [],
+      "auditReference": "Plan, baseline, worktree, patch, commands, hashes, results, and review report are durable.",
+      "trajectoryReference": "Before/after hashes and verifier evidence reconstruct the clean diff.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-17",
+      "status": "Pass",
+      "requirements": [
+        "AF-CODE-001",
+        "AF-TASK-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.DurableCodingHarnessTests.Nontrivial_sample_change_resumes_without_repeating_completed_verifiers",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M6-03-20260812.md": "sha256:9f5b8d6f48e12d7d9e5fe2140f54d14c769d79f9d2962a194d9fb27998b2f704"
+      },
+      "externalEvidence": [],
+      "auditReference": "Checkpoint, interruption, restart claim, and verifier non-repetition are recorded.",
+      "trajectoryReference": "Coding session snapshot chain proves exact resume position.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-18",
+      "status": "Pass",
+      "requirements": [
+        "AF-LEARN-001",
+        "AF-LEARN-002",
+        "AF-SKILL-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.RecursiveLearningPersistenceTests.Corrected_skill_is_governed_persisted_and_rolled_back_while_bundle_remains_pinned",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M9-20260812.md": "sha256:b3398e4242f2234a25f94b778c7dea7641543f6755012253a3ed82a11fc4a2bf"
+      },
+      "externalEvidence": [],
+      "auditReference": "Usage receipt, baseline, role separation, evaluation, approval, and promotion are durable.",
+      "trajectoryReference": "Signal, evidence bundle, candidate, and active version hashes reconstruct promotion.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-19",
+      "status": "Pass",
+      "requirements": [
+        "AF-SKILL-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.SkillGovernanceStateMachineTests.Active_run_snapshot_pins_exact_versions_artifacts_permissions_and_hash",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M5-20260812.md": "sha256:8626691921e2cdf37360c43db0cd0793093ec534611425ba67f7c12382fae571"
+      },
+      "externalEvidence": [],
+      "auditReference": "Run snapshot identity and version selection are attributable.",
+      "trajectoryReference": "Snapshot hash pins exact package, artifact, and permissions despite later promotion.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-20",
+      "status": "Pass",
+      "requirements": [
+        "AF-SKILL-002",
+        "AF-LEARN-002"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.SkillGovernanceStateMachineTests.Failed_deterministic_evidence_vetoes_before_approval",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.LearningGovernanceTests.Deterministic_failure_vetoes_and_wrong_roles_cannot_advance_candidate",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M9-20260812.md": "sha256:b3398e4242f2234a25f94b778c7dea7641543f6755012253a3ed82a11fc4a2bf"
+      },
+      "externalEvidence": [],
+      "auditReference": "Failed verifier evidence and veto outcome are durable and cannot be overridden by proposer roles.",
+      "trajectoryReference": "Exact failing target/holdout hashes explain the blocked transition.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-21",
+      "status": "Pass",
+      "requirements": [
+        "AF-SKILL-002",
+        "AF-LEARN-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.LearningGovernanceTests.Passing_candidate_requires_verifier_critic_governor_then_regression_quarantines",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M9-20260812.md": "sha256:b3398e4242f2234a25f94b778c7dea7641543f6755012253a3ed82a11fc4a2bf"
+      },
+      "externalEvidence": [],
+      "auditReference": "Canary regression metrics, rollback, and quarantine transitions are attributed and hash-bound.",
+      "trajectoryReference": "Baseline and canary result hashes explain automatic rollback.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-22",
+      "status": "Pass",
+      "requirements": [
+        "AF-BUNDLE-001",
+        "AF-LEARN-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.UnitTests.LearningGovernanceTests.Repeated_successful_chain_synthesizes_decomposable_pinned_bundle",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.IntegrationTests.RecursiveLearningPersistenceTests.Corrected_skill_is_governed_persisted_and_rolled_back_while_bundle_remains_pinned",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M9-20260812.md": "sha256:b3398e4242f2234a25f94b778c7dea7641543f6755012253a3ed82a11fc4a2bf"
+      },
+      "externalEvidence": [],
+      "auditReference": "Receipts, chain frequency, bundle DAG, comparison, actors, and promotion are durable.",
+      "trajectoryReference": "Bundle references exact existing skill versions without copying mutable content.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-23",
+      "status": "Pass",
+      "requirements": [
+        "AF-SEC-001",
+        "AF-SEC-002",
+        "AF-SEC-003",
+        "AF-SEC-004",
+        "AF-SEC-005"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.SecurityTests.ModelContextSecurityTests.Prepares_an_immutable_snapshot_and_redacts_every_payload_location",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:bb231f167965678dcb0233a0fca319b65b3fc42970081d7477309909cd4ebd25",
+            "sha256:ff90e0277801e724687a5bd2221ff9c9d6f7837fe8fdf956d3d18b7e8c02ffa6"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.CapabilityPolicyTests.Missing_and_ambiguous_policy_fail_closed",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.LearningGovernanceTests.Incompatible_chain_or_injected_secret_summary_is_rejected_without_authority_expansion",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.SerialDecoderTests.Decoder_candidate_cannot_acquire_device_write_or_other_authority",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.ChannelServiceTests.Invalid_authentication_and_conflicting_replay_fail_closed",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.UnitTests.CodingPatchAndVerificationTests.Invalid_second_file_context_leaves_every_file_unchanged",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:24a6236c4a99dc2bcf0c1338287babd44b5495bec187f65406d65bf8ab8e2018",
+            "sha256:677ffce224878088fe0c6420a6c340b782838e5cbc97eb52f1217752daa1860a"
+          ]
+        },
+        {
+          "selector": "AgentForge.CrossPlatformTests.DockerSandboxLiveTests.Configured_digest_pinned_image_runs_with_declared_isolation",
+          "outcomes": [
+            "NotExecuted"
+          ],
+          "resultFiles": [
+            "sha256:75da5ab0254dfbcd4b6054e67565d4dd56eb6d43b9d3ba5c846c87999bb9ca25",
+            "sha256:fce99b20a50615f7f21ac66900a1c69fe87186453f145abe60200b4cef3297ce"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M2-04-20260811.md": "sha256:58c32bdb00a36877cd09c45deb0706e83745406813fa7202a5852feccd955621",
+        "M9-20260812.md": "sha256:b3398e4242f2234a25f94b778c7dea7641543f6755012253a3ed82a11fc4a2bf"
+      },
+      "externalEvidence": [],
+      "auditReference": "Denied attempts retain bounded source/provenance and decision evidence without hostile payload content.",
+      "trajectoryReference": "Prepared context hashes and exact authorization contexts prove source content never becomes authority.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-24",
+      "status": "Pass",
+      "requirements": [
+        "AF-AUD-001",
+        "AF-AUD-002",
+        "AF-SEC-003"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.IntegrationTests.TrajectoryExportTests.Complete_trajectory_is_redacted_reconstructable_integrity_bound_and_idempotent",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:274e572102293cc2e3055b83743e4ae23a34d7373adcc04711346d81fef8c9ab",
+            "sha256:76e8264ed140078a450379dc55194ad8fc8200a04e484fbdd66704cf9088b7cd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M10-05-20260812.md": "sha256:41aaa9f9ae3b81d117361789a3eaf76296440580d9a8d02d266101d2883f7a1d"
+      },
+      "externalEvidence": [],
+      "auditReference": "Export includes verified audit sequence/hash references while all sensitive structures are redacted.",
+      "trajectoryReference": "Canonical export manifest binds context, snapshots, calls, retries, errors, verifiers, and artifacts.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    },
+    {
+      "id": "AC-25",
+      "status": "Pass",
+      "requirements": [
+        "AF-DEPLOY-001"
+      ],
+      "sourceCommit": "2d798c21612a05282078c2f348138617e16e2f8b",
+      "configurationHash": "sha256:c7eec09cd2e46bcb95be145c2d444ffdcf708cbc10cb4ca8f12a0d7b0342be96",
+      "manifestHash": "sha256:89fb0bfdd133cbe61c75243b0aaee3bda19b29a934f156a569f5a4be10570037",
+      "transcriptHash": "sha256:76a093cbb11c43001b18f084cb964cf8cdc6729c164201607614777cac120c5b",
+      "testEvidence": [
+        {
+          "selector": "AgentForge.EndToEndTests.ReleaseManifestTests.Release_manifest_is_deterministic_complete_and_tamper_evident",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:023731c970dcee7b44c09eb3825fc2b172dfef1961d38653f9ba830a677603a9",
+            "sha256:bfc4ab8b2a986a498a2ac41725902c233d1e336d996de1c16e567615a8badacd"
+          ]
+        },
+        {
+          "selector": "AgentForge.EndToEndTests.ReleaseManifestTests.Service_container_and_release_assets_preserve_single_operator_security_defaults",
+          "outcomes": [
+            "Passed"
+          ],
+          "resultFiles": [
+            "sha256:023731c970dcee7b44c09eb3825fc2b172dfef1961d38653f9ba830a677603a9",
+            "sha256:bfc4ab8b2a986a498a2ac41725902c233d1e336d996de1c16e567615a8badacd"
+          ]
+        }
+      ],
+      "gateHashes": {
+        "M10-06-20260812.md": "sha256:89095a6f10655f90bb05d43c909850fe69afe6b9b5fb0603e4b1a410a553c347"
+      },
+      "externalEvidence": [
+        "win-x64-package-smoke",
+        "linux-x64-package-smoke"
+      ],
+      "auditReference": "Release manifest, checksums, SBOM, provenance workflow, and smoke results are integrity-bound.",
+      "trajectoryReference": "Package manifest links release commit, runtime, files, dependencies, checksums, and smoke verifier.",
+      "verifier": "AgentForge.Release.AcceptanceEvidenceGenerator/v1"
+    }
+  ]
+}

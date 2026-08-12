@@ -77,12 +77,13 @@
 | AF-SET-005 (rollback portion) | authenticated hash-bound rollback preview/apply in recovery configuration mode; topology-preserving provider/agent restore with current validation | valid restore/recompletion, wrong/no-op/tampered artifact denial, version assertions, audit and restart checks | `M1-06D-20260810.md` |
 | AF-SET-004 (backup portion) | complete cold backup set retains SQLite, content-addressed artifacts, and OS-protected references with per-file hashes | Windows cold-copy hash equality, restored migration startup, healthy doctor, provider/agent equality | `M1-06D-20260810.md` |
 
-Requirements marked `In progress` have partial gate evidence but remain open until
-every acceptance criterion in the ledger is implemented and verified.
+Every R1 requirement is verified. The machine-generated final execution record is
+`artifacts/acceptance/R1-execution.json`; its source commit, configuration, transcript,
+TRX files, gate files, audit/trajectory references, and all 25 scenario results are hash-bound.
 
 ## R1 acceptance scenarios
 
-| ID | Scenario | Primary requirements | Planned gate |
+| ID | Scenario | Primary requirements | Release evidence |
 |---|---|---|---|
 | AC-01 | Clean setup through provider validation and named agent | AF-SET-002..004, AF-ID-001 | M1 |
 | AC-02 | Unified OpenAI, Anthropic, DeepSeek, compatible/vLLM contracts | AF-MODEL-001 | M3 |
@@ -109,3 +110,5 @@ every acceptance criterion in the ledger is implemented and verified.
 | AC-23 | Cross-source prompt injection cannot expand authority | AF-SEC-001..005 | M2-M9 |
 | AC-24 | Complete redacted trajectory export | AF-AUD-001..002 | M10 |
 | AC-25 | Self-contained Windows/Linux installation smoke tests | AF-DEPLOY-001 | M10 |
+
+All rows above pass Gate `M10-10-20260812.md`; the milestone column identifies the primary implementation gate.

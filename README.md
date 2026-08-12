@@ -2,6 +2,10 @@
 
 AgentForge is a security-first, cross-platform recursive agent harness for .NET 10.
 
+Production R1 (1.0.0) completes Milestones 0–10 and all 25 acceptance scenarios. The
+machine-generated release record is `artifacts/acceptance/R1-execution.json`, and the
+final security/release decision is `artifacts/gates/M10-10-20260812.md`.
+
 The repository is developed through evidence-backed vertical slices. Current status,
 requirements, and verification evidence live in `docs/PROJECT_STATE.md`,
 `docs/REQUIREMENTS.md`, `docs/TRACEABILITY.md`, and `artifacts/gates/`.
@@ -44,8 +48,7 @@ agentforge environment inspect --data-directory <path> --actor local-operator --
 
 The command stores redacted content-addressed evidence and prints only an executable
 count by default. Add `--include-executables true` only when local path disclosure is
-intended. Milestone 7 is the `0.4 Integration Beta` checkpoint; see
-`docs/RUNBOOK.md` for the currently executable commands.
+intended. See `docs/RUNBOOK.md` for the executable R1 commands and operational limits.
 
 Milestone 8 adds passive Windows/Linux serial inventory, stable physical-device identities,
 separate capture/read/write/command/calibration/firmware/privileged grants, bounded immutable
