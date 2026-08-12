@@ -12,6 +12,8 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddSingleton<IModelContextPreparer, ModelContextPreparer>();
         services.AddSingleton<IModelCatalogDiscoveryService, OpenAiCompatibleModelDiscoveryService>();
+        services.AddSingleton<ILocalModelProviderFactory, LocalModelProviderFactory>();
+        services.AddSingleton<ILocalModelInteractionService, LocalModelInteractionService>();
         services.Replace(ServiceDescriptor.Scoped<IProviderProfileValidator, ModelProviderProfileValidator>());
         services.AddSingleton<IModelProviderCatalog>(_ => ModelProviderCatalog.Create([]).Value);
         services.TryAddSingleton<IModelProviderHealthSource>(_ => ModelProviderHealthCatalog.Create([]).Value);

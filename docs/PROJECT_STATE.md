@@ -151,13 +151,15 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 `artifacts/gates/POST-R1-READY-MVP-20260812.md`: Pass. Protected Ready-state Agents, Runs, and Skills MVP behavior is complete and browser-tested.
 
+`artifacts/gates/POST-R1-INTERACTIVE-MVP-20260812.md`: Pass. Explicit bounded local-model interaction is available from Runs with a durable receipt and no tool-authority expansion.
+
 ## Known constraints and risks
 
 - Docker is not installed locally; the equipped release workflow passes both the secure-default image smoke and the real digest-pinned constrained-execution adapter test.
 - The production task API, authenticated SSE, policy-filtered MCP transports, plugins, backup/restore, and packaging are complete. Broader administration remains deliberately closed for R1.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
-- Web setup and the initial loopback Ready workspace are complete for the single local operator. The workspace intentionally omits automatic model execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration.
+- Web setup and the loopback Ready workspace are complete for the single local operator. Runs supports one explicit bounded prompt against the pinned loopback/private model; autonomous or tool-using execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration remain omitted.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, topology-preserving profile rollback, and full-package restore are authenticated and snapshot/hash backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing profile entities through restore is intentionally denied.
 - SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. Durable DAG and schedule workers own lease scanning/takeover; model-run recovery remains an internal exact-version service rather than an operator API.
@@ -167,4 +169,4 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 ## Exact next action
 
-The next MVP slice should connect a planned run to the existing internal model route/admission/execution loop behind an explicit operator action, streamed progress, cancellation, and exact current-policy checks. It must not expose tools, external messaging, skill promotion, or device writes as a side effect.
+The next MVP slice should add authenticated streamed progress and cancellation for longer model interactions, then expose agent editing with an effective-policy preview. Tool grants, external messaging, skill promotion, and device writes must remain separate explicit gates.

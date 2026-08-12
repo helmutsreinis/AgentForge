@@ -21,7 +21,10 @@ materializes the current user's OS-protected administrator credential only long 
 then returns an HttpOnly SameSite cookie plus an independent CSRF token. JavaScript never receives the
 administrator credential. The initial workspace reads existing agent and skill repositories, creates and
 cancels durable orchestration definitions through `ITaskOrchestrator`, and installs the packaged seed through
-`ISkillRegistryService`. It deliberately has no model-execution, tool-invocation, or skill-promotion shortcut.
+`ISkillRegistryService`. An explicit interaction adapter can claim one single-node task and invoke only the
+agent's exact credential-free loopback/private compatible provider after context preparation. It rejects tool
+or structured-output events, disables fallback, bounds time/tokens/events/output, and stores only hashed
+completion evidence. It deliberately has no autonomous execution, tool-invocation, or skill-promotion shortcut.
 
 ```mermaid
 flowchart LR

@@ -10,7 +10,14 @@ internal sealed record ReadyAdminSession(
     string CsrfToken,
     InstallationId InstallationId,
     ActorId ActorId,
-    DateTimeOffset ExpiresAtUtc);
+    DateTimeOffset ExpiresAtUtc)
+{
+    public ConcurrentDictionary<string, ReadyAdminIdempotencyResult> Results { get; } = new(StringComparer.Ordinal);
+
+    public SemaphoreSlim MutationGate { get; } = new(1, 1);
+}
+
+internal sealed record ReadyAdminIdempotencyResult(string RequestHash, object Response);
 
 internal sealed record CreatedReadyAdminSession(string Token, ReadyAdminSession Session);
 

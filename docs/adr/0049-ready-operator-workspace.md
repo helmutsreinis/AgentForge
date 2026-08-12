@@ -21,16 +21,20 @@ rate-limited, and rechecks exact Ready scope on every request.
 The first workspace slice exposes only existing harness-owned boundaries:
 
 - `IAgentIdentityRepository` for installation-scoped agent policy summaries.
-- `ITaskOrchestrator` and latest-snapshot repository queries for durable planned run create/list/cancel.
+- `ITaskOrchestrator` and latest-snapshot repository queries for durable run create/list/cancel.
 - `ISkillRegistryService` and the registry repository for validated packaged-seed install/list.
 
-Run creation pins exact agent version plus policy, budget, child, and skill-grant hashes. It does not claim a
-node or invoke a model/tool. Seed installation does not activate or promote the skill.
+Run creation pins exact agent version plus policy, budget, child, and skill-grant hashes. A follow-up
+interactive slice may claim its single node only for an explicit operator prompt against the agent's exact
+credential-free loopback/private compatible provider. That path prepares/redacts context, accepts text only,
+uses no tools or fallback, applies token/event/time/output bounds, and persists only completion/failure evidence;
+the raw answer is returned to the active browser session but is not written to the durable task. Seed
+installation does not activate or promote the skill.
 
 ## Consequences
 
 The single local operator can test meaningful persisted behavior without handling a bearer secret. Cross-
 origin, non-loopback, stale installation, missing-CSRF, and missing-idempotency requests fail closed. Existing
-audit and transaction behavior stays inside orchestration and skill services. Automatic model execution,
-agent editing, skill promotion, remote administration, messaging, and physical-control UI remain later
-independently gated slices.
+audit and transaction behavior stays inside orchestration and skill services. An explicit bounded local-model
+test is available, but autonomous or tool-using execution, agent editing, skill promotion, remote
+administration, messaging, and physical-control UI remain later independently gated slices.

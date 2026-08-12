@@ -42,6 +42,9 @@ const elements = {
   runList: document.querySelector("#run-list"),
   runForm: document.querySelector("#run-form"),
   runAgent: document.querySelector("#run-agent"),
+  runOutput: document.querySelector("#run-output"),
+  runOutputText: document.querySelector("#run-output-text"),
+  runOutputMeta: document.querySelector("#run-output-meta"),
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
@@ -180,7 +183,7 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       const description = makeElement("p", "resource-description", agent.mission || agent.expertise || "No mission recorded.");
       const meta = makeElement("div", "resource-meta");
       addMeta(meta, "Data locality", agent.dataLocality);
-      addMeta(meta, "Network", agent.networkPosture);
+      addMeta(meta, "Tool network", `${agent.networkPosture} · model route separate`);
       addMeta(meta, "Tool budget", agent.budget.maxToolInvocations);
       addMeta(meta, "Input / output", `${agent.budget.maxInputTokens.toLocaleString()} / ${agent.budget.maxOutputTokens.toLocaleString()}`);
       addMeta(meta, "Memory", `${agent.memoryScope} · ${agent.retentionDays} days`);
@@ -237,7 +240,7 @@ async function loadRuns(message = "Loading durable run snapshots…") {
       }
       elements.runList.append(card);
     }
-    if (!payload.runs.length) elements.runList.append(makeElement("div", "empty-state", "No runs yet. Create a safe planned run above."));
+    if (!payload.runs.length) elements.runList.append(makeElement("div", "empty-state", "No runs yet. Send a bounded local-model prompt above."));
     workspaceStatus(elements.runsMessage, `${payload.runs.length} latest run ${payload.runs.length === 1 ? "snapshot" : "snapshots"} loaded.`, "ok");
   } catch (error) {
     workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Runs could not be loaded.", "error");
@@ -247,13 +250,20 @@ async function loadRuns(message = "Loading durable run snapshots…") {
 async function createRun(event) {
   event.preventDefault();
   setBusy(elements.runForm, true);
+  elements.runOutput.hidden = true;
   try {
-    const name = document.querySelector("#run-name").value.trim();
-    const created = await adminMutation("/api/v1/admin/runs", { agentId: elements.runAgent.value, name });
-    document.querySelector("#run-name").value = "";
-    await loadRuns(`Created ${created.name}. Refreshing durable snapshots…`);
+    const prompt = document.querySelector("#run-prompt").value.trim();
+    workspaceStatus(elements.runsMessage, "Invoking the pinned local model with tools and fallback disabled…");
+    const result = await adminMutation(`/api/v1/admin/agents/${elements.runAgent.value}/test-chat`, { prompt });
+    elements.runOutputText.textContent = result.output;
+    const usage = result.usage
+      ? `${result.usage.inputTokens.toLocaleString()} input · ${result.usage.outputTokens.toLocaleString()} output tokens`
+      : "Provider did not report token usage";
+    elements.runOutputMeta.textContent = `${result.provider.name} · ${result.provider.model} · ${usage} · ${result.finishReason}`;
+    elements.runOutput.hidden = false;
+    await loadRuns("Local model answered. Durable completion receipt loaded below.");
   } catch (error) {
-    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The run could not be created.", "error");
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The local model test failed.", "error");
   } finally {
     setBusy(elements.runForm, false);
   }

@@ -21,7 +21,7 @@ passing gate report.
 | AF-HOST-001 | Liveness remains available during setup or recovery; readiness is healthy only in Ready state. | 0 | Verified |
 | AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit hardened configuration. | 0,10 | Verified |
 | AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | Verified |
-| AF-ADMIN-001 | A Ready loopback installation exposes a protected single-operator workspace that lists persisted agents, creates/lists/cancels durable planned runs, and installs/lists validated seed skills without disclosing the administrator credential or bypassing execution and promotion gates. | Post-R1 | Verified |
+| AF-ADMIN-001 | A Ready loopback installation exposes a protected single-operator workspace that lists persisted agents, runs an explicit bounded prompt against an agent's pinned loopback/private model with durable completion evidence, lists/cancels durable runs, and installs/lists validated seed skills without disclosing the administrator credential or bypassing tool and promotion gates. | Post-R1 | Verified |
 
 ## Durable state, identity, and security
 

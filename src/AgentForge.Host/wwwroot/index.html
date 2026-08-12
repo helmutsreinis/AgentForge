@@ -48,8 +48,8 @@
         <div class="local-status">
           <span class="status-dot good" aria-hidden="true"></span>
           <span>
-            <strong>Local mode</strong>
-            <small>Loopback only</small>
+            <strong>Local control plane</strong>
+            <small>Loopback UI · private model route</small>
           </span>
         </div>
         <p>Production R1 preview</p>
@@ -264,16 +264,21 @@
           <div>
             <span class="stage-kicker">DURABLE ORCHESTRATION</span>
             <h2 id="runs-title">Runs</h2>
-            <p>Create inspectable, restart-safe run definitions and cancel them safely. Model execution is not auto-started in this MVP.</p>
+            <p>Send a bounded prompt to an agent's pinned local model, inspect its answer, and retain a durable completion receipt.</p>
           </div>
           <button class="secondary-action" type="button" data-reload="runs">Reload runs</button>
         </div>
         <form id="run-form" class="inline-create-form" autocomplete="off">
           <label>Agent<select id="run-agent" required></select></label>
-          <label>Run name<input id="run-name" required maxlength="256" placeholder="Review the current solution"></label>
-          <button class="setup-submit" type="submit">Create planned run</button>
+          <label>Prompt<textarea id="run-prompt" required maxlength="16384" rows="3" placeholder="Reply with a one-sentence description of your role."></textarea></label>
+          <button class="setup-submit" type="submit">Run local model</button>
         </form>
-        <div class="scope-notice"><strong>Safe MVP boundary</strong><span>Creation persists the exact agent, policy, budget, and skill snapshot hashes. No model, tool, or process is invoked.</span></div>
+        <div class="scope-notice"><strong>Explicit local test</strong><span>Only the pinned loopback/private model may receive the redacted prompt. Tools, browsing, fallback, external messaging, files, and device access remain denied.</span></div>
+        <article id="run-output" class="interaction-output" aria-live="polite" hidden>
+          <div class="resource-title"><h3>Agent response</h3><span id="run-output-state" class="state-chip completed">Completed</span></div>
+          <pre id="run-output-text"></pre>
+          <p id="run-output-meta" class="resource-subtitle"></p>
+        </article>
         <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
         <div id="run-list" class="resource-list"></div>
       </section>

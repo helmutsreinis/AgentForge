@@ -102,9 +102,12 @@ The CLI remains the recovery surface when the daemon or wizard is unavailable.
 When setup reaches `Ready`, use **Agents**, **Runs**, and **Skills** in the same loopback page. Opening
 one of these pages creates a 30-minute local operator session by validating the current user's protected
 administrator credential on the server; the credential is never returned to the browser. **Agents** shows
-the persisted identity and its policy/budget summary. **Runs** creates durable `Planned` orchestration
-definitions, lists their latest snapshots, and can cancel nonterminal definitions. It does not yet dispatch
-the model loop. **Skills** lists immutable registry versions and can install the packaged C# review seed;
+the persisted identity and its policy/budget summary. **Runs** accepts one explicit bounded prompt and sends
+it only to the agent's pinned credential-free loopback/private compatible provider. Context is redacted;
+tools, browsing, fallback, files, messaging, and devices remain unavailable. The page displays the answer and
+token usage while the orchestrator retains a durable Completed/Failed evidence receipt rather than the raw
+answer. It also lists latest snapshots and can cancel nonterminal definitions. **Skills** lists immutable
+registry versions and can install the packaged C# review seed;
 an installed version remains inactive until the normal evaluation, separate approval, and canary lifecycle.
 
 If a workspace page reports that its operator session is stale, reload it from loopback. If the protected

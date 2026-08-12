@@ -779,16 +779,22 @@ idempotency key; all responses remain `no-store` and rate limited.
 The session is bound to the exact Ready installation and becomes stale when installation state or identity
 changes. Agent reads are installation-scoped. Run creation selects an existing exact agent/version and pins
 policy, budget, child, and skill-grant hashes before calling the durable orchestrator; cancellation uses the
-latest concurrency version. The browser cannot claim or execute nodes. Seed installation resolves only the
-packaged fixed directory and calls the same package validator, artifact store, audit, and registry service as
-other provenance. Installation never activates a skill. Model execution, tool calls, promotion, external
+latest concurrency version. Only the explicit interactive prompt endpoint may claim a node. It requires a
+local-only/no-fallback/zero-tool agent and its exact credential-free loopback/private compatible profile,
+prepares and redacts the two-message context, rejects any tool or structured-output event, applies hard
+token/event/time/character bounds, and persists only a response evidence hash. The raw prompt exists in the
+browser/request and the raw response exists only in the response plus a bounded in-memory idempotency cache;
+neither is written to the durable orchestration record. Seed installation resolves only the packaged fixed
+directory and calls the same package validator, artifact store, audit, and registry service as other
+provenance. Installation never activates a skill. Autonomous execution, tool calls, promotion, external
 messaging, and device writes remain unavailable from this workspace.
 
 Same-user OS-account compromise remains outside the local single-operator boundary: that user can already
 materialize the protected credential and access AgentForge files. Cross-origin browser requests, non-loopback
 clients, missing/stale cookies, missing CSRF, changed installation scope, unknown agents, and missing seed
 packages fail closed. Deterministic end-to-end tests cover hostile origin, secret non-disclosure, missing CSRF,
-durable create/list/cancel, and validated seed install/list.
+durable create/list/cancel, exact/conflicting prompt replay, hostile emitted tool calls, durable prompt
+completion evidence, and validated seed install/list.
 
 ## M8 passive serial discovery boundary
 

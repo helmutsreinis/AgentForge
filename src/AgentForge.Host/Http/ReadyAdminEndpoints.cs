@@ -1,14 +1,18 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Orchestration;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
@@ -16,6 +20,7 @@ using AgentForge.Domain.Skills;
 namespace AgentForge.Host.Http;
 
 internal sealed record CreateMvpRunRequest(Guid AgentId, string Name);
+internal sealed record TestAgentChatRequest(string Prompt);
 
 internal static class ReadyAdminEndpoints
 {
@@ -32,6 +37,7 @@ internal static class ReadyAdminEndpoints
         group.MapGet("/runs", ListRunsAsync);
         group.MapPost("/runs", CreateRunAsync);
         group.MapPost("/runs/{taskId:guid}/cancel", CancelRunAsync);
+        group.MapPost("/agents/{agentId:guid}/test-chat", TestAgentChatAsync);
         group.MapGet("/skills", ListSkillsAsync);
         group.MapPost("/skills/seed/csharp-review/install", InstallSeedSkillAsync);
     }
@@ -236,8 +242,8 @@ internal static class ReadyAdminEndpoints
         }
 
         var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
-        var stableRequestIdentity = SHA256.HashData(Encoding.UTF8.GetBytes(
-            $"{acquired.Session.InstallationId.Value:D}\n{idempotencyKey}"));
+        var stableRequestIdentity = StableRequestIdentity(
+            acquired.Session.InstallationId, "planned-run", idempotencyKey);
         var definition = new OrchestrationTaskDefinition(
             new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16))),
             acquired.Session.InstallationId,
@@ -265,7 +271,7 @@ internal static class ReadyAdminEndpoints
         var result = await orchestrator.CreateAsync(
             definition,
             acquired.Session.ActorId,
-            idempotencyKey,
+            StoredIdempotencyKey("planned-run", idempotencyKey),
             new CorrelationId($"admin-run:{Convert.ToHexStringLower(stableRequestIdentity)}"),
             null,
             cancellationToken);
@@ -281,6 +287,223 @@ internal static class ReadyAdminEndpoints
         return Results.Created(
             $"/api/v1/admin/runs/{result.Value.Snapshot.Definition.Id.Value:D}",
             RunResponse(result.Value.Snapshot, result.Value.WasReplay));
+    }
+
+    private static async Task<IResult> TestAgentChatAsync(
+        Guid agentId,
+        HttpContext context,
+        TestAgentChatRequest request,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IAgentIdentityRepository agents,
+        IProviderProfileRepository providers,
+        ITaskOrchestrator orchestrator,
+        ILocalModelInteractionService interactions,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(
+            context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            return acquired.Failure;
+        }
+        if (agentId == Guid.Empty || request is null || !PromptText(request.Prompt, 16_384))
+        {
+            return Problem(context, 400, "Invalid prompt",
+                "Choose an agent and enter a prompt of at most 16,384 printable characters.", "validation-failure");
+        }
+
+        var session = acquired.Session!;
+        var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+        var scopedKey = $"agent-chat:{agentId:D}:{idempotencyKey}";
+        var requestHash = SnapshotHash(new { agentId, request.Prompt });
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (session.Results.TryGetValue(scopedKey, out var existing))
+            {
+                return string.Equals(existing.RequestHash, requestHash, StringComparison.Ordinal)
+                    ? Replay(context, existing.Response)
+                    : Problem(context, 409, "Idempotency conflict",
+                        "The idempotency key is already bound to a different prompt.", "idempotency-conflict");
+            }
+
+            var agent = await agents.FindByIdAsync(new AgentIdentityId(agentId), cancellationToken);
+            if (agent is null || agent.InstallationId != session.InstallationId)
+            {
+                return Problem(context, 404, "Agent not found",
+                    "The selected agent does not belong to this installation.", "not-found");
+            }
+            if (agent.ModelPolicy.DataLocality is not ModelDataLocality.LocalOnly ||
+                agent.ModelPolicy.AllowFallback || agent.Budget.MaxToolInvocations != 0)
+            {
+                return Problem(context, 403, "Agent policy denied",
+                    "Interactive MVP testing requires a local-only, no-fallback agent with a zero tool budget.", "policy-denied");
+            }
+
+            var provider = await providers.FindByIdAsync(
+                agent.ModelPolicy.PrimaryProviderProfileId, cancellationToken);
+            if (provider is null || provider.InstallationId != session.InstallationId)
+            {
+                return Problem(context, 409, "Provider unavailable",
+                    "The agent's pinned provider profile is missing or outside this installation.", "provider-unavailable");
+            }
+
+            var stableRequestIdentity = StableRequestIdentity(
+                session.InstallationId, $"agent-chat:{agentId:D}", idempotencyKey);
+            var taskId = new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16)));
+            var correlation = new CorrelationId($"admin-chat:{Convert.ToHexStringLower(stableRequestIdentity)}");
+            var maximumOutputTokens = (int)Math.Clamp(agent.Budget.MaxOutputTokens, 1L, 2_048L);
+            var maximumWallClockSeconds = Math.Clamp(agent.Budget.MaxWallClockSeconds, 1, 120);
+            var definition = new OrchestrationTaskDefinition(
+                taskId,
+                session.InstallationId,
+                agent.Id,
+                agent.Version,
+                OrchestrationPattern.Sequential,
+                [new TaskNodeDefinition(
+                    new TaskNodeId("local-model"),
+                    "Interactive local model test",
+                    [],
+                    [],
+                    [],
+                    new TaskExecutionBudget(
+                        0,
+                        agent.Budget.MaxInputTokens,
+                        maximumOutputTokens,
+                        maximumWallClockSeconds),
+                    new TaskRetryPolicy(1, 0))],
+                1,
+                0,
+                0,
+                SnapshotHash(new { agent.CapabilityPolicy, agent.Version }),
+                SnapshotHash(new { agent.Budget, agent.Version, InteractiveMaximumOutputTokens = maximumOutputTokens }),
+                SnapshotHash(new { agent.CapabilityPolicy.SkillGrants, agent.Version }));
+            var created = await orchestrator.CreateAsync(
+                definition,
+                session.ActorId,
+                StoredIdempotencyKey("agent-chat", idempotencyKey),
+                correlation,
+                null,
+                cancellationToken);
+            if (!created.IsSuccess)
+            {
+                return DomainProblem(context, created.Failure!, "Agent test failed");
+            }
+            if (created.Value.WasReplay && created.Value.Snapshot.State is not OrchestrationTaskState.Planned)
+            {
+                return Problem(context, 409, "Prior test cannot be replayed",
+                    "The durable test already advanced, but its transient response is no longer in this operator session.",
+                    "response-not-retained");
+            }
+
+            const string owner = "ready-ui:local-model-test";
+            var claimed = await orchestrator.ClaimAsync(
+                taskId,
+                created.Value.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                owner,
+                TimeSpan.FromMinutes(2),
+                cancellationToken);
+            if (!claimed.IsSuccess)
+            {
+                return DomainProblem(context, claimed.Failure!, "Agent test could not start");
+            }
+
+            var systemInstruction = BuildSystemInstruction(agent);
+            DomainResult<LocalModelInteractionResult> interaction;
+            try
+            {
+                interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
+                    new ModelRequestId(taskId.Value),
+                    provider,
+                    systemInstruction,
+                    request.Prompt,
+                    new ModelInvocationLimits(
+                        maximumOutputTokens,
+                        0,
+                        4_096,
+                        maximumWallClockSeconds),
+                    correlation), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                await orchestrator.FailAsync(
+                    taskId,
+                    claimed.Value.Snapshot.Version,
+                    new TaskNodeId("local-model"),
+                    owner,
+                    claimed.Value.LeaseToken,
+                    OrchestrationTaskStateMachine.EmptyHash,
+                    FailureCode.RecoverableExternalFailure,
+                    retryable: false,
+                    CancellationToken.None);
+                throw;
+            }
+
+            if (!interaction.IsSuccess)
+            {
+                var failureEvidence = SnapshotHash(new
+                {
+                    taskId = taskId.Value,
+                    code = interaction.Failure!.Code.ToString(),
+                    interaction.Failure.IsRetryable,
+                });
+                await orchestrator.FailAsync(
+                    taskId,
+                    claimed.Value.Snapshot.Version,
+                    new TaskNodeId("local-model"),
+                    owner,
+                    claimed.Value.LeaseToken,
+                    failureEvidence,
+                    interaction.Failure.Code,
+                    interaction.Failure.IsRetryable,
+                    CancellationToken.None);
+                return DomainProblem(context, interaction.Failure, "Local model test failed");
+            }
+
+            var completed = await orchestrator.CompleteAsync(
+                taskId,
+                claimed.Value.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                owner,
+                claimed.Value.LeaseToken,
+                interaction.Value.EvidenceHash,
+                CancellationToken.None);
+            if (!completed.IsSuccess)
+            {
+                return DomainProblem(context, completed.Failure!, "Agent test completion failed");
+            }
+
+            var response = new
+            {
+                requestId = interaction.Value.RequestId.Value,
+                output = interaction.Value.Text,
+                usage = interaction.Value.Usage,
+                finishReason = interaction.Value.FinishReason.ToString(),
+                interaction.Value.ContextRedactionCount,
+                interaction.Value.EventCount,
+                interaction.Value.EvidenceHash,
+                provider = new
+                {
+                    id = provider.Id.Value,
+                    provider.Name,
+                    provider.ProviderType,
+                    endpoint = provider.Endpoint.ToString(),
+                    provider.Model,
+                },
+                run = RunResponse(completed.Value.Snapshot),
+                correlationId = correlation.Value,
+            };
+            RetainBoundedSessionResults(session.Results, 31);
+            session.Results[scopedKey] = new ReadyAdminIdempotencyResult(requestHash, response);
+            return Results.Ok(response);
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
     }
 
     private static async Task<IResult> CancelRunAsync(
@@ -513,6 +736,49 @@ internal static class ReadyAdminEndpoints
         type: $"urn:agentforge:problem:{code}",
         extensions: new Dictionary<string, object?> { ["correlationId"] = context.TraceIdentifier });
 
+    private static IResult Replay(HttpContext context, object response)
+    {
+        context.Response.Headers["Idempotent-Replay"] = "true";
+        return Results.Ok(response);
+    }
+
+    private static byte[] StableRequestIdentity(
+        InstallationId installationId,
+        string operation,
+        string idempotencyKey) => SHA256.HashData(Encoding.UTF8.GetBytes(
+        $"{installationId.Value:D}\n{operation}\n{idempotencyKey}"));
+
+    private static string StoredIdempotencyKey(string operation, string idempotencyKey) =>
+        $"ready-{operation}:{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(idempotencyKey)))}";
+
+    private static void RetainBoundedSessionResults(
+        ConcurrentDictionary<string, ReadyAdminIdempotencyResult> results,
+        int maximumBeforeInsert)
+    {
+        foreach (var key in results.Keys.Take(Math.Max(0, results.Count - maximumBeforeInsert)))
+        {
+            results.TryRemove(key, out _);
+        }
+    }
+
+    private static string BuildSystemInstruction(AgentIdentity agent)
+    {
+        var builder = new StringBuilder(1024);
+        builder.Append("You are ").Append(agent.Name).Append(". ");
+        if (!string.IsNullOrWhiteSpace(agent.Expertise))
+        {
+            builder.Append("Expertise: ").Append(agent.Expertise).Append(". ");
+        }
+        if (!string.IsNullOrWhiteSpace(agent.Mission))
+        {
+            builder.Append("Mission: ").Append(agent.Mission).Append(". ");
+        }
+        builder.Append("Respond in ").Append(agent.PreferredLanguage)
+            .Append(" using this style: ").Append(agent.ResponseStyle)
+            .Append(". Do not claim to have used tools, network resources, files, memory, or external systems; none are available in this interactive test.");
+        return builder.ToString();
+    }
+
     private static string SnapshotHash<T>(T value) =>
         $"sha256:{Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, HashJson)))}";
 
@@ -521,6 +787,10 @@ internal static class ReadyAdminEndpoints
 
     private static bool Text(string? value, int maximum) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(char.IsControl);
+
+    private static bool PromptText(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= maximum &&
+        !value.Any(character => char.IsControl(character) && character is not ('\r' or '\n' or '\t'));
 
     private static bool IsTrustedLoopback(HttpContext context)
     {

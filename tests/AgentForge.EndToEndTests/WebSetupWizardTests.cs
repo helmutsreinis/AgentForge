@@ -40,6 +40,8 @@ public sealed class WebSetupWizardTests : IDisposable
                 services.AddSingleton<ISecretStore, WebFakeSecretStore>();
                 services.RemoveAll<IModelCatalogDiscoveryService>();
                 services.AddSingleton<IModelCatalogDiscoveryService, WebFakeModelDiscovery>();
+                services.RemoveAll<ILocalModelInteractionService>();
+                services.AddSingleton<ILocalModelInteractionService, WebFakeLocalInteraction>();
             });
         });
     }
@@ -188,6 +190,25 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, cancelRun.StatusCode);
         Assert.Contains("Canceled", await cancelRun.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        using var chat = await MutationAsync(client, $"/api/v1/admin/agents/{agentId:D}/test-chat", "mvp-chat-1", adminCsrf, JsonContent.Create(new
+        {
+            prompt = "Describe your role.",
+        }));
+        Assert.Equal(HttpStatusCode.OK, chat.StatusCode);
+        Assert.Contains("I am the bounded AgentForge test agent.", await chat.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("Completed", await chat.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var chatReplay = await MutationAsync(client, $"/api/v1/admin/agents/{agentId:D}/test-chat", "mvp-chat-1", adminCsrf, JsonContent.Create(new
+        {
+            prompt = "Describe your role.",
+        }));
+        Assert.Equal(HttpStatusCode.OK, chatReplay.StatusCode);
+        Assert.True(chatReplay.Headers.Contains("Idempotent-Replay"));
+        using var chatConflict = await MutationAsync(client, $"/api/v1/admin/agents/{agentId:D}/test-chat", "mvp-chat-1", adminCsrf, JsonContent.Create(new
+        {
+            prompt = "Use a different prompt.",
+        }));
+        Assert.Equal(HttpStatusCode.Conflict, chatConflict.StatusCode);
+
         using var installSkill = await MutationAsync(client, "/api/v1/admin/skills/seed/csharp-review/install", "seed-skill-1", adminCsrf, JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.OK, installSkill.StatusCode);
         Assert.Contains("skill:csharp.review", await installSkill.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -320,6 +341,21 @@ public sealed class WebSetupWizardTests : IDisposable
                 request.Model,
                 new Uri(request.BaseEndpoint, request.BaseEndpoint.AbsolutePath.TrimEnd('/') + "/chat/completions"),
                 TimeSpan.FromMilliseconds(12),
-                "web-fake-probe")));
+            "web-fake-probe")));
+    }
+
+    private sealed class WebFakeLocalInteraction : ILocalModelInteractionService
+    {
+        public Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
+            LocalModelInteractionRequest request,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(
+            new LocalModelInteractionResult(
+                request.RequestId,
+                "I am the bounded AgentForge test agent.",
+                new ModelUsage(12, 9, 0, null, null),
+                ModelFinishReason.Stop,
+                0,
+                4,
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
     }
 }
