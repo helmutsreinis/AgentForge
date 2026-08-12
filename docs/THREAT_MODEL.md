@@ -355,6 +355,13 @@ container/namespace adapter and equipped CI runner remain required before produc
 descriptors can be composed. Executable replacement between admission and process open is
 also unresolved; immutable images or executable evidence are required for higher-risk use.
 
+The R1 container gate closes the higher-risk portion of this finding. A digest-pinned Docker
+adapter now supplies denied networking, an immutable image identity, contained workspace
+mounts, non-root/read-only execution, dropped capabilities, no-new-privileges, resource/PID
+bounds, and forced cleanup. High-risk requests cannot fall back to restricted host. The
+same-user restricted-host replacement race remains an accepted Medium limitation only for
+requests whose declared policy permits that weaker capability.
+
 ## M3 provider-neutral-contract update
 
 Vendor SDK types, raw HTTP responses, and provider-specific finish/error records are not
@@ -865,3 +872,16 @@ LocalSystem, root, or a detached account is not the supplied topology. Backups i
 protected secret files, and auxiliary state, verify every hash, and restore only into a separate empty target. PostgreSQL
 also requires a target connection variable distinct from the configured source. A destructive down migration is never
 used as rollback.
+
+## R1 final disposition
+
+The final review re-evaluated every trust boundary above against production composition rather than the milestone in
+which it first appeared. The earlier High dependency advisory, missing strong-isolation adapter, unsigned production
+plugin trust, and incomplete remote-mode controls are resolved. The restricted-host same-user replacement race remains
+Medium and explicitly cannot satisfy requests that require filesystem, network, credential, privilege, or container
+isolation. Same-user OS-account compromise and Docker-daemon compromise remain outside the R1 single-operator boundary.
+
+The locked dependency audit, secret scan, architecture/security suites, critical-path coverage gate, release-default
+validation, dual-platform runs, and equipped Docker workflow are release requirements. The detailed finding table and
+release conditions are in `SECURITY_REVIEW_R1.md`. No High or Critical finding remains open under the documented local,
+single-operator R1 posture.

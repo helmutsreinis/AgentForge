@@ -18,8 +18,8 @@ passing gate report.
 | AF-SET-004 | Setup persists a versioned profile containing secret references only and produces a redacted report and rollback snapshot. | 1 | Verified |
 | AF-SET-005 | Recovery mode repairs provider/plugin/skill configuration without launching autonomous work. | 1 | Verified |
 | AF-HOST-001 | Liveness remains available during setup or recovery; readiness is healthy only in Ready state. | 0 | Verified |
-| AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit hardened configuration. | 0,10 | Verified for local default |
-| AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | In progress |
+| AF-HOST-002 | The default control plane is loopback-only; remote binding requires explicit hardened configuration. | 0,10 | Verified |
+| AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | Verified |
 
 ## Durable state, identity, and security
 
@@ -27,22 +27,22 @@ passing gate report.
 |---|---|---:|---|
 | AF-DATA-001 | SQLite is the default durable store with migrations, optimistic concurrency, leases, and transactional inbox/outbox records. | 1 | Verified |
 | AF-DATA-002 | PostgreSQL implements the same repositories and passes migration, backup, and restore tests. | 10 | Verified |
-| AF-AUD-001 | Significant actions append redacted, sequenced, correlated events with actor, versions, hashes, outcome, duration, usage, and approval evidence. | 1 | In progress |
+| AF-AUD-001 | Significant actions append redacted, sequenced, correlated events with actor, versions, hashes, outcome, duration, usage, and approval evidence. | 1 | Verified |
 | AF-AUD-002 | A redacted trajectory can reconstruct context, snapshots, calls, retries, errors, and verification without disclosing credentials. | 1-10 | Verified |
-| AF-ID-001 | Agent identity is distinct from provider selection and includes scope, model policy, budgets, memory, grants, child limits, and learning mode. | 1 | In progress |
-| AF-SEC-001 | Capability policy returns Allow, Deny, or RequireApproval outside model control; missing policy denies. | 2 | In progress |
+| AF-ID-001 | Agent identity is distinct from provider selection and includes scope, model policy, budgets, memory, grants, child limits, and learning mode. | 1 | Verified |
+| AF-SEC-001 | Capability policy returns Allow, Deny, or RequireApproval outside model control; missing policy denies. | 2 | Verified |
 | AF-SEC-002 | Sensitive approval binds exact actor, agent, target, parameters, workspace, tool version, expiration, and request hash. | 2 | Verified |
-| AF-SEC-003 | Secrets use references, invocation-scoped materialization, and pre-persistence/model/export redaction. | 1 | In progress |
-| AF-SEC-004 | Untrusted processes use argument arrays, containment, limits, cancellation, process-tree termination, and declared network/filesystem policy. | 2 | In progress |
-| AF-SEC-005 | No agent or child can increase its own permissions, budgets, recursion, network, credentials, or mutable-skill scope. | 2,4 | In progress |
+| AF-SEC-003 | Secrets use references, invocation-scoped materialization, and pre-persistence/model/export redaction. | 1 | Verified |
+| AF-SEC-004 | Untrusted processes use argument arrays, containment, limits, cancellation, process-tree termination, and declared network/filesystem policy. | 2 | Verified |
+| AF-SEC-005 | No agent or child can increase its own permissions, budgets, recursion, network, credentials, or mutable-skill scope. | 2,4 | Verified |
 
 ## Runtime, tools, and orchestration
 
 | ID | Requirement and acceptance criterion | Milestone | Status |
 |---|---|---:|---|
 | AF-ENV-001 | A hashed environment profile describes OS, runtime, shells, packages, services, privilege, container/VM/WSL, filesystem, network, and accelerators. | 2 | Verified |
-| AF-TOOL-001 | Discovery inventories Windows, Linux, and Kali tools without executing or authorizing them. | 2 | In progress |
-| AF-TOOL-002 | Every callable tool has typed schemas, provenance, risk, permissions, timeout, output bound, side effects, and progressive discovery. | 2 | In progress |
+| AF-TOOL-001 | Discovery inventories Windows, Linux, and Kali tools without executing or authorizing them. | 2 | Verified |
+| AF-TOOL-002 | Every callable tool has typed schemas, provenance, risk, permissions, timeout, output bound, side effects, and progressive discovery. | 2 | Verified |
 | AF-MODEL-001 | Provider-neutral contracts support streaming, structured output, tools, usage, cancellation, fallback, and hosted/local providers. | 3 | Verified |
 | AF-MODEL-002 | Routing uses the intersection of declared, observed, configured, and policy-approved capabilities and respects data locality. | 3 | Verified |
 | AF-MULTI-001 | Media is routed only to an approved capable model/extractor or returns typed UnsupportedCapability; media is never silently dropped. | 3 | Verified |
