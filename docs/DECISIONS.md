@@ -51,5 +51,7 @@
 | D-047 | Learn serial protocols first through a bounded declarative fixed-frame decoder that preserves unknown bytes; require exact target/holdout/malformed/partial/concatenated/resync/fuzz/performance evidence, separate proposer/evaluator/approver/governor identities, stale-baseline denial, canary, quarantine, atomic promotion, and rollback. | Accepted |
 | D-048 | Classify recursive-learning signals deterministically from immutable redacted evidence; require exact usage or expiring operator authority for revisions; keep worker, proposer, verifier, critic, and governor distinct; and route learned skills through the existing governed registry rather than a privileged learning path. | Accepted |
 | D-049 | Represent learned bundles as immutable decomposable DAGs of exact skill/package/contract pins with permission union and baseline evidence; persist separate proposal, verification, critique, activation, and archive transitions and revalidate every pin before activation. | Accepted |
+| D-050 | Expose production mutations only through authenticated versioned REST with exact idempotency and correlation, expose progress through authenticated SSE, and deny non-loopback startup unless HTTPS remote mode and exact origins are explicit. | Accepted |
+| D-051 | Use the official MCP C# SDK 2.0 with a single exact allowlist policy for stateless authenticated Streamable HTTP and protocol-clean local stdio; MCP never owns task state, authorization, audit, or secrets. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

@@ -799,3 +799,18 @@ held by the pinned packages. A separate verifier, critic, and governor advance t
 Immediately before activation, every package is re-resolved and a missing, archived, quarantined, or changed pin
 denies the transition. Prompt-injection text therefore cannot mint a capability through either learned skills or
 bundles.
+
+## M10 production API and MCP boundary
+
+Every `/api/v1` mutation requires the local administrator and an exact bounded idempotency key. Correlation IDs
+are normalized at ingress; problem responses, event streams, and OpenAPI omit credential material and raw task
+content. Request size and request rate are bounded. A non-loopback URL is invalid unless remote mode, HTTPS, and
+an exact non-wildcard origin list are configured together. Browser MCP requests inherit the same exact-origin
+policy and remote-address guard.
+
+MCP advertises a deliberately tiny server surface and evaluates the exact tool or resource again at invocation.
+An installation that is not Ready, an unauthenticated HTTP caller, an unbounded identity, or an absent allowlist
+entry fails closed. Streamable HTTP is stateless and rate limited. The stdio command accepts only an explicit data
+directory, starts only against Ready durable state, inherits no web session, and routes all diagnostic output to
+stderr so it cannot corrupt or inject JSON-RPC on stdout. MCP results expose readiness metadata only; they cannot
+invoke tools, mutate durable state, materialize secrets, or expand policy.

@@ -13,6 +13,7 @@ using AgentForge.Host.Health;
 using AgentForge.Host.Http;
 using AgentForge.Host.Setup;
 using AgentForge.Learning;
+using AgentForge.Mcp;
 using AgentForge.Memory;
 using AgentForge.Models;
 using AgentForge.Orchestration;
@@ -26,6 +27,7 @@ using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.Server;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +55,14 @@ builder.Services.AddRateLimiter(options => options.AddPolicy("production-api", c
             Window = TimeSpan.FromMinutes(1),
             AutoReplenishment = true,
         })));
+var allowedOrigins = builder.Configuration.GetSection("AgentForge:Host:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddPolicy("mcp-browser", policy =>
+{
+    if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins);
+    else policy.SetIsOriginAllowed(_ => false);
+    policy.WithMethods("POST", "OPTIONS")
+        .WithHeaders("Content-Type", "Authorization", "MCP-Protocol-Version");
+}));
 builder.Services.AddAgentForgeSetup(builder.Configuration);
 builder.Services.AddAgentForgePersistence(builder.Configuration);
 builder.Services.AddAgentForgeSecurity(builder.Configuration);
@@ -66,6 +76,8 @@ builder.Services.AddAgentForgeEnvironment(builder.Configuration);
 builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddAgentForgeModels();
 builder.Services.AddAgentForgeMemory();
+builder.Services.AddAgentForgeMcp(builder.Configuration)
+    .WithHttpTransport(options => options.Stateless = true);
 builder.Services.AddAgentForgeOrchestration();
 builder.Services.AddAgentForgeRuntime();
 builder.Services.AddAgentForgeSearch();
@@ -86,7 +98,9 @@ await using (var initializationScope = app.Services.CreateAsyncScope())
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RemoteAccessMiddleware>();
+app.UseMiddleware<McpAuthenticationMiddleware>();
 app.UseRateLimiter();
+app.UseCors();
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/api/v1"))
@@ -228,6 +242,9 @@ app.MapGet("/api/v1/runtime/ping", async (
 
 app.MapAgentForgeWebSetup();
 app.MapProductionApi();
+app.MapMcp("/mcp")
+    .RequireCors("mcp-browser")
+    .RequireRateLimiting("production-api");
 
 await app.RunAsync();
 

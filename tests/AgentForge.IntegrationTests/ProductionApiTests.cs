@@ -12,6 +12,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace AgentForge.IntegrationTests;
 
@@ -137,6 +139,26 @@ public sealed class ProductionApiTests : IDisposable
         client.DefaultRequestHeaders.Authorization = null;
         using var unauthenticated = await client.GetAsync($"/api/v1/tasks/{task.taskId:D}/events");
         Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        using var mcpHttp = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost"),
+        });
+        mcpHttp.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", setup.Credential);
+        await using var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri("http://localhost/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            EnableStandaloneGetStream = false,
+        }, mcpHttp, loggerFactory: null, ownsHttpClient: false);
+        await using var mcp = await McpClient.CreateAsync(transport);
+        var tools = await mcp.ListToolsAsync();
+        Assert.Equal("agentforge_status", Assert.Single(tools).Name);
+        var resources = await mcp.ListResourcesAsync();
+        Assert.Equal("agentforge://status", Assert.Single(resources).Uri);
+        var result = await mcp.CallToolAsync("agentforge_status", new Dictionary<string, object?>());
+        var statusText = Assert.Single(result.Content.OfType<TextContentBlock>()).Text;
+        Assert.Contains("\"ready\":true", statusText, StringComparison.Ordinal);
     }
 
     [Fact]

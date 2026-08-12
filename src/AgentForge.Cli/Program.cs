@@ -15,12 +15,16 @@ using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Environment;
+using AgentForge.Mcp;
 using AgentForge.Models;
 using AgentForge.Persistence;
 using AgentForge.Security;
 using AgentForge.Setup;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
 
 Console.OutputEncoding = Encoding.UTF8;
 
@@ -118,6 +122,11 @@ if (args is ["policy", "approval", "preview", .. var approvalPreviewArguments])
 if (args is ["policy", "approval", "apply", .. var approvalApplyArguments])
 {
     return await ManageCapabilityApprovalAsync(approvalApplyArguments, apply: true);
+}
+
+if (args is ["mcp", "stdio", .. var mcpArguments])
+{
+    return await RunMcpStdioAsync(mcpArguments);
 }
 
 var endpoint = Environment.GetEnvironmentVariable("AGENTFORGE_ENDPOINT") ?? "http://127.0.0.1:5047";
@@ -2475,6 +2484,58 @@ static Task WriteJsonAsync(object value) => Console.Out.WriteLineAsync(JsonSeria
     value,
     new JsonSerializerOptions(JsonSerializerDefaults.Web)));
 
+static async Task<int> RunMcpStdioAsync(string[] arguments)
+{
+    if (arguments.Length != 2 || !string.Equals(arguments[0], "--data-directory", StringComparison.Ordinal))
+    {
+        await Console.Error.WriteLineAsync("Usage: agentforge mcp stdio --data-directory <path>");
+        return 1;
+    }
+
+    if (!TryNormalizeDataDirectory(arguments[1], out var dataDirectory))
+    {
+        await Console.Error.WriteLineAsync("--data-directory is not a valid filesystem path.");
+        return 1;
+    }
+
+    var settings = new Dictionary<string, string?>
+    {
+        ["AgentForge:Installation:DataDirectory"] = dataDirectory,
+        ["AgentForge:Mcp:AllowedTools:0"] = "agentforge_status",
+        ["AgentForge:Mcp:AllowedResources:0"] = "agentforge://status",
+        ["AgentForge:Mcp:MaximumResultCharacters"] = "16384",
+    };
+    var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+    {
+        Args = [],
+        DisableDefaults = true,
+        Configuration = new ConfigurationManager(),
+    });
+    builder.Configuration.AddInMemoryCollection(settings);
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+    builder.Services.AddAgentForgeSetup(builder.Configuration);
+    builder.Services.AddAgentForgePersistence(builder.Configuration);
+    builder.Services.AddAgentForgeMcp(builder.Configuration).WithStdioServerTransport();
+
+    using var host = builder.Build();
+    await using (var scope = host.Services.CreateAsyncScope())
+    {
+        await scope.ServiceProvider.GetRequiredService<IDatabaseInitializer>()
+            .InitializeAsync(CancellationToken.None);
+        var installation = await scope.ServiceProvider.GetRequiredService<IInstallationStateReader>()
+            .ReadAsync(CancellationToken.None);
+        if (!installation.IsReady)
+        {
+            await Console.Error.WriteLineAsync("MCP stdio requires a Ready AgentForge installation.");
+            return 2;
+        }
+    }
+
+    await host.RunAsync();
+    return 0;
+}
+
 static void PrintHelp()
 {
     Console.WriteLine("AgentForge CLI");
@@ -2502,6 +2563,7 @@ static void PrintHelp()
     Console.WriteLine("  agentforge environment inspect --data-directory <path> --actor <id> --correlation <id> [--include-executables true|false]");
     Console.WriteLine("  agentforge policy approval preview --data-directory <path> --agent-id <guid> --agent-version <n> --request-actor <id> --capability <id> --risk <class> --disposition <Grant|Deny> --expires-at <ISO-8601> --actor <admin> --correlation <id> --parameters-stdin [target/tool options]");
     Console.WriteLine("  agentforge policy approval apply <same-options> --preview-hash <sha256> --idempotency-key <key>");
+    Console.WriteLine("  agentforge mcp stdio --data-directory <path>");
 }
 
 internal sealed record SetupBeginOptions(

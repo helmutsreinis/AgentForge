@@ -127,15 +127,17 @@ hardware/container gates open and every device write disabled by default.
 - Learned candidates reuse the existing skill registry and append-only promotion service. Target, holdout, adversarial, baseline, and permission evidence can veto; critic and governor transitions are distinct; canary regression quarantines; promoted rollback restores the exact baseline. Migrations 0023 and 0024 persist signals, candidates, immutable bundle definitions, and bundle proposal chains.
 - Repeated successful skill chains synthesize only compatible DAGs referencing exact skill version/package and input/output contract hashes. Their permission set is the union of exact installed authority. Bundle proposal, verification, critique, activation, and archive are separate durable transitions, with every pin revalidated immediately before activation.
 - Milestone 9 passes locked Release build, format, migration drift, vulnerability and secret scans, 369/369 product tests and 2/2 framework-spike tests on both Windows and Ubuntu.
+- M10 slice 1 hardened the versioned REST control plane with bearer authentication, exact mutation idempotency, RFC Problem Details, correlation/version headers, bounded request bodies, fixed-window rate limits, redacted OpenAPI, and resumable authenticated task SSE. Non-loopback binding now fails startup unless remote mode, HTTPS, and exact origins are all explicit.
+- The official MCP C# SDK 2.0 server exposes only bounded readiness through an exact tool/resource allowlist. Streamable HTTP is stateless, bearer-authenticated, origin/rate constrained, and verified by the official client. `agentforge mcp stdio` starts the same policy-filtered server only for a Ready installation and sends every log to stderr so stdout remains protocol-only.
 
 ## Latest gate
 
-`artifacts/gates/M9-20260812.md`: Pass. Milestone 9 recursive learning and governed bundles are complete.
+`artifacts/gates/M10-01-20260812.md`: Pass. The production REST/SSE and MCP server transport slice is complete.
 
 ## Known constraints and risks
 
 - Docker is not installed locally; container sandbox and image tests require an equipped CI runner until resolved.
-- Local bearer authentication exists for the runtime ping, but request idempotency, rate limiting, authenticated mutations, session handling, and remote-mode controls remain later gates.
+- The production task API, authenticated SSE, and MCP server transports are active. Broader administration remains closed while plugin, database, backup, and release gates are completed.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
 - Web setup is complete for first-run loopback installation. General authenticated administration and remote-mode browser access remain disabled until Milestone 10.
@@ -148,4 +150,4 @@ hardware/container gates open and every device write disabled by default.
 
 ## Exact next action
 
-Begin Milestone 10 with the authenticated production REST/SSE contract, then policy-filtered MCP transports and plugin isolation before packaging and release hardening.
+Complete the policy-filtered MCP client adapter, then plugin isolation, PostgreSQL/backup parity, trajectory export, packaging, and release hardening.

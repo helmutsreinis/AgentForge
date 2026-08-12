@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AgentForge.Abstractions\AgentForge.Abstractions.csproj" />
     <ProjectReference Include="..\AgentForge.Audit\AgentForge.Audit.csproj" />
     <ProjectReference Include="..\AgentForge.Coding\AgentForge.Coding.csproj" />
@@ -11,6 +15,7 @@
     <ProjectReference Include="..\AgentForge.Learning\AgentForge.Learning.csproj" />
     <ProjectReference Include="..\AgentForge.Models\AgentForge.Models.csproj" />
     <ProjectReference Include="..\AgentForge.Memory\AgentForge.Memory.csproj" />
+    <ProjectReference Include="..\AgentForge.Mcp\AgentForge.Mcp.csproj" />
     <ProjectReference Include="..\AgentForge.Orchestration\AgentForge.Orchestration.csproj" />
     <ProjectReference Include="..\AgentForge.Persistence\AgentForge.Persistence.csproj" />
     <ProjectReference Include="..\AgentForge.Runtime\AgentForge.Runtime.csproj" />
