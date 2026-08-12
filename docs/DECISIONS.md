@@ -58,5 +58,6 @@
 | D-054 | Export trajectories only after full audit-chain verification; re-redact bounded event JSON, retain source sequence/hash/correlation/error evidence, store one content-addressed artifact, and bind the durable receipt to exact restart-safe idempotency. | Accepted |
 | D-055 | Treat every remote MCP peer as untrusted: select one exact transport/network scope, materialize public bearer credentials per request, constrain DNS and process authority, filter discovery and invocation by exact allowlists, and bound all arguments/results. | Accepted |
 | D-056 | Ship deterministic self-contained OS packages and a non-root loopback container; preserve user-scoped secrets with same-operator native services; attest release subjects keylessly; and use hash-verified full-installation restore rather than destructive schema downgrade for rollback. | Accepted |
+| D-057 | Keep the one-time web-setup bootstrap grant entirely server-side; create or resume the protected loopback session automatically, discover models only through a bounded destination-policy transport with an explicit model-ID fallback, require the same selected-model probe in either path, and represent no-auth private compatible profiles with a typed non-secret sentinel. | Accepted |
 
 Detailed technical rationale is recorded in `docs/adr/`.

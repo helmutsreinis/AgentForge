@@ -13,6 +13,17 @@ public interface IModelProvider
         CancellationToken cancellationToken);
 }
 
+public interface IModelCatalogDiscoveryService
+{
+    Task<DomainResult<ModelCatalogDiscoveryResult>> DiscoverAsync(
+        ModelCatalogDiscoveryRequest request,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<ModelConnectionProbeResult>> ProbeAsync(
+        ModelConnectionProbeRequest request,
+        CancellationToken cancellationToken);
+}
+
 public interface IModelProviderCatalog
 {
     DomainResult<IModelProvider> Resolve(ProviderProfileId profileId);

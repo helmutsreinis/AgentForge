@@ -139,10 +139,13 @@ hardware/container gates open and every device write disabled by default.
 - The authenticated backup CLI now creates, verifies, and restores separate full installation packages. Online SQLite/PostgreSQL database evidence is combined with artifacts, protected secret files, and auxiliary installation state; every file is length/hash checked and restore can target only a separate empty directory. The upgrade guide makes complete forward migration plus verified restore the rollback path.
 - Production R1 closes the remaining recovery, outbox, environment-profile, production plugin-signing, container-isolation, critical-coverage, security-review, and acceptance-evidence gates. The exact AC-01 through AC-25 set is machine-verified against authoritative Windows/Ubuntu TRX, hashed gate/configuration/transcript evidence, and both native package smokes.
 - Final hosted CI passes on Windows and Ubuntu. The equipped release workflow passes both packages, provenance and artifact upload, the secure-default container, and the real digest-pinned denied-network sandbox. Milestones 0–10 and every requirement in the R1 ledger are Verified.
+- Post-R1 setup UX replaces the operator-entered nonce with an automatic resumable 30-minute loopback session while preserving HttpOnly SameSite cookies, session-bound CSRF, exact idempotency, origin checks, serialized mutation, and Ready lockout.
+- The five-step web journey now discovers a bounded `/models` catalog through the Models contract, supports an explicit model-ID fallback for servers without a catalog route, verifies every chosen model with one explicit bounded chat probe, previews agent policy, and presents a redacted review. Private vLLM/compatible endpoints can use the typed no-credential sentinel rather than a fabricated key.
+- Deterministic tests cover discovery/probe bounds, hostile public HTTP, refresh resume, missing CSRF, exact replay, credential-free persistence, policy equivalence, completion, and lockout. The in-app browser discovered five live ASUS models, verified `qwen3.6` in 652 ms, passed desktop/mobile layout and back-navigation checks, and reported no console warnings or errors.
 
 ## Latest gate
 
-`artifacts/gates/M10-10-20260812.md`: Pass. Production R1, all 25 scenarios, dual-platform CI, equipped container isolation, security review, packages, and provenance are complete.
+`artifacts/gates/POST-R1-SETUP-UX-20260812.md`: Pass. Operator-centered setup, live model discovery, session resume, security regression, and visual QA are complete.
 
 ## Known constraints and risks
 
@@ -160,4 +163,4 @@ hardware/container gates open and every device write disabled by default.
 
 ## Exact next action
 
-R1 has no remaining milestone action. Any post-R1 feature begins with new requirement IDs, threat-model review, deterministic acceptance evidence, and an independent passing gate.
+No development action remains for AF-SET-006. The next product slice should add authenticated Ready-state administration without broadening first-run authority.

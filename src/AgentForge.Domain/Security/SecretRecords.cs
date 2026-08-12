@@ -2,7 +2,17 @@ using AgentForge.Domain.Primitives;
 
 namespace AgentForge.Domain.Security;
 
-public sealed record SecretReference(string Store, string Key);
+public sealed record SecretReference(string Store, string Key)
+{
+    public const string NoCredentialStore = "agentforge-no-credential";
+    public const string NoCredentialKey = "none";
+
+    public static SecretReference NoCredential { get; } = new(NoCredentialStore, NoCredentialKey);
+
+    public bool IsNoCredential =>
+        string.Equals(Store, NoCredentialStore, StringComparison.Ordinal) &&
+        string.Equals(Key, NoCredentialKey, StringComparison.Ordinal);
+}
 
 public sealed class SecretLease : IAsyncDisposable, IDisposable
 {

@@ -5,6 +5,33 @@ using AgentForge.Domain.Providers;
 
 namespace AgentForge.Domain.Models;
 
+public sealed record ModelCatalogEntry(
+    string Id,
+    string? OwnedBy,
+    int? MaximumContextTokens);
+
+public sealed record ModelCatalogDiscoveryRequest(
+    Uri BaseEndpoint,
+    string ProviderType,
+    ReadOnlyMemory<char> Credential);
+
+public sealed record ModelCatalogDiscoveryResult(
+    IReadOnlyList<ModelCatalogEntry> Models,
+    Uri CatalogEndpoint,
+    DateTimeOffset ObservedAtUtc);
+
+public sealed record ModelConnectionProbeRequest(
+    Uri BaseEndpoint,
+    string ProviderType,
+    string Model,
+    ReadOnlyMemory<char> Credential);
+
+public sealed record ModelConnectionProbeResult(
+    string Model,
+    Uri ProbeEndpoint,
+    TimeSpan Duration,
+    string Evidence);
+
 public readonly record struct ModelRequestId(Guid Value)
 {
     public override string ToString() => Value.ToString("D");

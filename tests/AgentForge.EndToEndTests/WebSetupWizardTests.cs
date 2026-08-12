@@ -3,8 +3,12 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -34,22 +38,26 @@ public sealed class WebSetupWizardTests : IDisposable
             {
                 services.RemoveAll<ISecretStore>();
                 services.AddSingleton<ISecretStore, WebFakeSecretStore>();
+                services.RemoveAll<IModelCatalogDiscoveryService>();
+                services.AddSingleton<IModelCatalogDiscoveryService, WebFakeModelDiscovery>();
             });
         });
     }
 
     [Fact]
-    public async Task Loopback_wizard_enforces_nonce_session_csrf_idempotency_and_completes_shared_setup()
+    public async Task Loopback_wizard_hides_bootstrap_security_discovers_models_resumes_and_completes_shared_setup()
     {
         using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("http://localhost"),
             HandleCookies = true,
         });
-        var nonce = await ReadPropertyAsync(await client.GetAsync("/api/v1/setup/web/nonce"), "nonce");
-        using var sessionResponse = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { nonce });
+        using var nonceResponse = await client.GetAsync("/api/v1/setup/web/nonce");
+        Assert.Equal(HttpStatusCode.NotFound, nonceResponse.StatusCode);
+        using var sessionResponse = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { });
         Assert.Equal(HttpStatusCode.OK, sessionResponse.StatusCode);
         var csrf = await ReadPropertyAsync(sessionResponse, "csrfToken");
+        Assert.Equal("1", await ReadRawPropertyAsync(sessionResponse, "currentStep"));
 
         using var missingCsrf = await client.PostAsync("/api/v1/setup/web/begin", JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.Unauthorized, missingCsrf.StatusCode);
@@ -62,16 +70,36 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, beginReplay.StatusCode);
         Assert.Equal(await begin.Content.ReadAsStringAsync(), await beginReplay.Content.ReadAsStringAsync());
 
-        using var provider = await MutationAsync(client, "/api/v1/setup/web/provider", "provider-1", csrf, JsonContent.Create(new
+        using var discovery = await MutationAsync(client, "/api/v1/setup/web/provider/discover", "provider-discover-1", csrf, JsonContent.Create(new
         {
             name = "primary",
-            providerType = "deterministic",
-            endpoint = "http://127.0.0.1:9000/v1",
-            model = "deterministic-text-v1",
+            providerType = "openai-compatible",
+            endpoint = "http://127.0.0.1:8000/v1",
         }));
-        Assert.Equal(HttpStatusCode.OK, provider.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, discovery.StatusCode);
+        using var models = await MutationAsync(client, "/api/v1/setup/web/provider/models", "models-1", csrf,
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "text/plain"));
+        Assert.Equal(HttpStatusCode.OK, models.StatusCode);
+        Assert.Contains("qwen3.6", await models.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var resumed = await client.GetAsync("/api/v1/setup/web/session");
+        Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
+        Assert.Equal("true", await ReadRawPropertyAsync(resumed, "resumed"));
+        Assert.Equal("2", await ReadRawPropertyAsync(resumed, "currentStep"));
+
+        using var selected = await MutationAsync(client, "/api/v1/setup/web/provider/select", "model-select-1", csrf, JsonContent.Create(new
+        {
+            name = "primary",
+            providerType = "openai-compatible",
+            endpoint = "http://127.0.0.1:8000/v1",
+            model = "qwen3.6",
+        }));
+        Assert.Equal(HttpStatusCode.OK, selected.StatusCode);
+        using var tested = await MutationAsync(client, "/api/v1/setup/web/provider/test", "model-test-1", csrf,
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "text/plain"));
+        Assert.Equal(HttpStatusCode.OK, tested.StatusCode);
         using var credential = await MutationAsync(client, "/api/v1/setup/web/provider/credential", "credential-1", csrf,
-            new StringContent("web-provider-secret", System.Text.Encoding.UTF8, "text/plain"));
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "text/plain"));
         Assert.Equal(HttpStatusCode.OK, credential.StatusCode);
 
         var agent = new
@@ -96,10 +124,12 @@ public sealed class WebSetupWizardTests : IDisposable
         using var completeReplay = await MutationAsync(client, "/api/v1/setup/web/complete", "complete-1", csrf, JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.OK, completeReplay.StatusCode);
 
-        using var consumedNonce = await client.GetAsync("/api/v1/setup/web/nonce");
-        Assert.Equal(HttpStatusCode.Conflict, consumedNonce.StatusCode);
         using var completedSession = await MutationAsync(client, "/api/v1/setup/web/begin", "after-complete", csrf, JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.Conflict, completedSession.StatusCode);
+        using var completedSessionRead = await client.GetAsync("/api/v1/setup/web/session");
+        Assert.Equal(HttpStatusCode.Conflict, completedSessionRead.StatusCode);
+        using var completedSessionCreate = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { });
+        Assert.Equal(HttpStatusCode.Conflict, completedSessionCreate.StatusCode);
         using var status = await client.GetAsync("/api/v1/setup/status");
         Assert.Equal(HttpStatusCode.OK, status.StatusCode);
         Assert.Contains("\"ready\":true", await status.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -114,6 +144,56 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(0, configuredAgent.ChildLimits.MaxChildren);
         Assert.Equal(AgentForge.Domain.Agents.NetworkPosture.Denied, configuredAgent.CapabilityPolicy.NetworkPosture);
         Assert.Equal(AgentForge.Domain.Agents.LearningMode.Propose, configuredAgent.LearningPolicy.Mode);
+        var provider = Assert.Single(await verificationScope.ServiceProvider
+            .GetRequiredService<IProviderProfileRepository>().ListAsync(installationId, CancellationToken.None));
+        Assert.Equal("qwen3.6", provider.Model);
+        Assert.True(provider.SecretReference.IsNoCredential);
+    }
+
+    [Fact]
+    public async Task Loopback_wizard_accepts_an_explicit_manual_model_but_still_requires_selection_and_probe()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost"),
+            HandleCookies = true,
+        });
+        using var sessionResponse = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { });
+        Assert.Equal(HttpStatusCode.OK, sessionResponse.StatusCode);
+        var csrf = await ReadPropertyAsync(sessionResponse, "csrfToken");
+        var provider = new
+        {
+            name = "primary",
+            providerType = "openai-compatible",
+            endpoint = "http://127.0.0.1:8000/v1",
+        };
+        using var discovery = await MutationAsync(client, "/api/v1/setup/web/provider/discover", "manual-discover", csrf, JsonContent.Create(provider));
+        Assert.Equal(HttpStatusCode.OK, discovery.StatusCode);
+        using var manual = await MutationAsync(client, "/api/v1/setup/web/provider/model/manual", "manual-model", csrf, JsonContent.Create(new
+        {
+            provider.name,
+            provider.providerType,
+            provider.endpoint,
+            model = "qwen3.6-manual",
+        }));
+        Assert.Equal(HttpStatusCode.OK, manual.StatusCode);
+        Assert.Contains("manual-entry", await manual.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var resumed = await client.GetAsync("/api/v1/setup/web/session");
+        Assert.Equal("2", await ReadRawPropertyAsync(resumed, "currentStep"));
+        using var rejectedProbe = await MutationAsync(client, "/api/v1/setup/web/provider/test", "manual-probe-before-select", csrf,
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "text/plain"));
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedProbe.StatusCode);
+        using var selected = await MutationAsync(client, "/api/v1/setup/web/provider/select", "manual-select", csrf, JsonContent.Create(new
+        {
+            provider.name,
+            provider.providerType,
+            provider.endpoint,
+            model = "qwen3.6-manual",
+        }));
+        Assert.Equal(HttpStatusCode.OK, selected.StatusCode);
+        using var tested = await MutationAsync(client, "/api/v1/setup/web/provider/test", "manual-probe", csrf,
+            new StringContent(string.Empty, System.Text.Encoding.UTF8, "text/plain"));
+        Assert.Equal(HttpStatusCode.OK, tested.StatusCode);
     }
 
     private static async Task<HttpResponseMessage> MutationAsync(
@@ -130,6 +210,12 @@ public sealed class WebSetupWizardTests : IDisposable
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
         return document.RootElement.GetProperty(property).GetString()!;
+    }
+
+    private static async Task<string> ReadRawPropertyAsync(HttpResponseMessage response, string property)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
+        return document.RootElement.GetProperty(property).GetRawText();
     }
 
     public void Dispose()
@@ -156,5 +242,23 @@ public sealed class WebSetupWizardTests : IDisposable
                 : DomainResult.Fail<SecretLease>(new DomainFailure(FailureCode.UnsupportedCapability, "Secret unavailable.")));
         public Task<DomainResult<bool>> DeleteAsync(SecretReference secretReference, CancellationToken cancellationToken) =>
             Task.FromResult(DomainResult.Success(_values.TryRemove(secretReference.Key, out _)));
+    }
+
+    private sealed class WebFakeModelDiscovery : IModelCatalogDiscoveryService
+    {
+        public Task<DomainResult<ModelCatalogDiscoveryResult>> DiscoverAsync(
+            ModelCatalogDiscoveryRequest request,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(new ModelCatalogDiscoveryResult(
+                [new ModelCatalogEntry("qwen3.6", "vllm", 131_072)],
+                new Uri(request.BaseEndpoint, request.BaseEndpoint.AbsolutePath.TrimEnd('/') + "/models"),
+                DateTimeOffset.UnixEpoch)));
+
+        public Task<DomainResult<ModelConnectionProbeResult>> ProbeAsync(
+            ModelConnectionProbeRequest request,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(new ModelConnectionProbeResult(
+                request.Model,
+                new Uri(request.BaseEndpoint, request.BaseEndpoint.AbsolutePath.TrimEnd('/') + "/chat/completions"),
+                TimeSpan.FromMilliseconds(12),
+                "web-fake-probe")));
     }
 }

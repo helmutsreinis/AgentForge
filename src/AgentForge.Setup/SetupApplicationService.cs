@@ -217,23 +217,26 @@ internal sealed class SetupApplicationService(
             return DomainResult.Fail<ConfigureProviderResult>(requestFailure);
         }
 
-        if (request.Credential.IsEmpty)
-        {
-            return DomainResult.Fail<ConfigureProviderResult>(new DomainFailure(
-                FailureCode.ValidationFailure,
-                "Provider credential cannot be empty."));
-        }
-
         var draft = new ProviderProfileCandidate(
             request.Name,
             request.ProviderType,
             request.Endpoint,
             request.Model,
-            new SecretReference(secretStore.StoreName, "pending-reference"));
+            request.Credential.IsEmpty
+                ? SecretReference.NoCredential
+                : new SecretReference(secretStore.StoreName, "pending-reference"));
         var normalized = providerDefinitionEvaluator.NormalizeAndValidate(draft);
         if (!normalized.IsSuccess)
         {
             return DomainResult.Fail<ConfigureProviderResult>(normalized.Failure!);
+        }
+
+        if (request.Credential.IsEmpty)
+        {
+            return await ConfigureProviderAsync(new ConfigureProviderRequest(
+                normalized.Value,
+                request.ActorId,
+                request.CorrelationId), cancellationToken);
         }
 
         var stored = await secretStore.StoreAsync(
@@ -432,6 +435,11 @@ internal sealed class SetupApplicationService(
 
         foreach (var provider in usableProviders)
         {
+            if (provider.SecretReference.IsNoCredential)
+            {
+                continue;
+            }
+
             var materialized = await secretStore.MaterializeAsync(provider.SecretReference, cancellationToken);
             if (!materialized.IsSuccess)
             {

@@ -736,19 +736,30 @@ Credentials are invocation-scoped. Telegram's protocol requires its token in the
 adapter uses a private direct `HttpClient`, emits no URI/error body evidence, and never registers live
 accounts by default. Remote-mode webhook exposure remains disabled until Milestone 10 hardening.
 
-## M7 loopback web-setup update
+## M7 and post-R1 loopback web-setup update
 
-Browser origins, cookies, nonces, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
+Browser origins, cookies, internal bootstrap grants, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
 requests are untrusted. Every web-setup endpoint verifies loopback remote address and, when present, exact
-same-origin scheme/authority. A random 256-bit nonce is consumed atomically into a 20-minute HttpOnly,
-SameSite=Strict cookie session with an independent CSRF token. Mutation keys bind operation and request hash;
+same-origin scheme/authority. A random 256-bit one-time grant is consumed internally into a 30-minute HttpOnly,
+SameSite=Strict cookie session with an independent CSRF token; bootstrap material is never returned or accepted
+as operator input. The same cookie resumes a live session after refresh, while a second browser is denied until
+the active session completes or expires. Mutation keys bind operation and request hash;
 conflicting reuse denies and exact success replays do not repeat durable work.
 
 Provider metadata is staged before a separate bounded `text/plain` credential body. Strict UTF-8 decoding
 targets a clearable character array, the existing setup service stores only its OS-secret reference, and the
 buffers are cleared in all outcomes. The browser necessarily owns its input string until submission and
 clears the field immediately. CSP, anti-frame, no-sniff, no-referrer, permissions policy, and no-store headers
-remain active. Completion makes the session exact-replay-only; the nonce cannot create another session.
+remain active. Completion makes the session exact-replay-only; another setup session cannot reopen Ready state.
+
+Provider base endpoints, model-catalog JSON, model identifiers, and probe responses are untrusted. Discovery is
+limited to installed compatible provider types, rejects user-info/query/fragment endpoints, permits plaintext only
+for loopback/private destinations, resolves and connects through the existing destination policy, disables redirect,
+cookie and proxy inheritance, and bounds time, headers, body, JSON, model count and identifier length. A selected
+model must come from the current catalog or an explicit session-bound manual entry before one mandatory bounded
+chat probe; manual entry never marks the model tested. Credentials use a clearable buffer
+and are never included in response evidence. Credential-free profiles use a typed sentinel only for loopback/private
+vLLM or generic-compatible endpoints; hosted construction rechecks that restriction before omitting Authorization.
 
 The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
 provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote

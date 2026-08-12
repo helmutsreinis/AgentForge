@@ -14,19 +14,48 @@ const elements = {
   sandboxIndicator: document.querySelector("#sandbox-indicator"),
   sandboxCopy: document.querySelector("#sandbox-copy"),
   sandboxKind: document.querySelector("#sandbox-kind"),
-  setupForm: document.querySelector("#setup-form"),
   setupMessage: document.querySelector("#setup-message"),
-  setupNonce: document.querySelector("#setup-nonce"),
-  setupSubmit: document.querySelector("#setup-submit"),
+  progress: document.querySelector("#setup-progress"),
+  providerForm: document.querySelector("#provider-form"),
+  modelForm: document.querySelector("#model-form"),
+  verifyForm: document.querySelector("#verify-form"),
+  agentForm: document.querySelector("#agent-form"),
+  reviewForm: document.querySelector("#review-form"),
+  complete: document.querySelector("#setup-complete"),
+  submit: document.querySelector("#setup-submit"),
+  credential: document.querySelector("#provider-credential"),
+  model: document.querySelector("#provider-model"),
+  modelDetails: document.querySelector("#model-details"),
+  manualModelPanel: document.querySelector("#manual-model-panel"),
+  manualModel: document.querySelector("#manual-model"),
+  modelSummary: document.querySelector("#model-summary"),
+  verifySummary: document.querySelector("#verify-summary"),
+  reviewSummary: document.querySelector("#review-summary"),
 };
 
-let csrfToken = null;
+const setup = {
+  csrfToken: null,
+  begun: false,
+  providerConfigured: false,
+  modelTested: false,
+  agentCreated: false,
+  currentStage: 1,
+  models: [],
+  provider: {
+    name: "primary",
+    providerType: "openai-compatible",
+    endpoint: sessionStorage.getItem("agentforge.setup.endpoint") || "http://127.0.0.1:8000/v1",
+    model: null,
+  },
+  agent: { name: "local-agent", timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" },
+};
 
-async function readJson(path) {
+async function readJson(path, options = {}) {
   const response = await fetch(path, {
-    method: "GET",
+    method: options.method || "GET",
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...(options.headers || {}) },
+    body: options.body,
   });
   const payload = await response.json();
   return { ok: response.ok, status: response.status, payload };
@@ -40,12 +69,11 @@ function setIndicator(element, state, label) {
 function renderInstallation(result) {
   const state = result.payload.installationState ?? "Unknown";
   const ready = result.payload.ready === true;
-
   elements.stateLabel.textContent = ready ? "Installation ready" : `${state} · Setup required`;
   elements.statePill.classList.toggle("ready", ready);
   elements.stateDescription.textContent = ready
-    ? "The durable installation is ready. Runtime operations still remain behind authentication and policy."
-    : "Finish the trusted CLI setup journey to configure a provider, create a named agent, and unlock authenticated runtime operations.";
+    ? "The durable installation is ready. Runtime operations remain behind authentication and policy."
+    : "Connect a provider, choose a model, and create your first local agent to unlock authenticated runtime operations.";
   elements.runtimeMode.textContent = ready ? "Authenticated" : "Setup only";
 }
 
@@ -95,7 +123,6 @@ function renderFailure() {
 async function refreshStatus() {
   elements.refresh.classList.add("loading");
   elements.refresh.disabled = true;
-
   try {
     const [installation, live, ready, sandbox] = await Promise.all([
       readJson("/api/v1/setup/status"),
@@ -128,89 +155,315 @@ async function mutation(path, payload, contentType = "application/json") {
     headers: {
       "Content-Type": contentType,
       "Idempotency-Key": crypto.randomUUID(),
-      "X-CSRF-Token": csrfToken,
+      "X-CSRF-Token": setup.csrfToken,
       Accept: "application/json",
     },
     body: contentType.startsWith("application/json") ? JSON.stringify(payload) : payload,
   });
   const body = await response.json();
-  if (!response.ok) {
-    throw new Error(body.detail ?? body.title ?? "Setup request failed");
-  }
+  if (!response.ok) throw new Error(body.detail ?? body.title ?? "Setup request failed");
   return body;
 }
 
-async function loadSetupNonce() {
+function setBusy(form, busy) {
+  for (const control of form.querySelectorAll("button, input, select")) control.disabled = busy;
+  form.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function showStage(stage) {
+  setup.currentStage = Math.min(5, Math.max(1, stage));
+  for (const item of elements.progress.querySelectorAll("li")) {
+    const itemStep = Number(item.dataset.step);
+    item.classList.toggle("active", itemStep === setup.currentStage);
+    item.classList.toggle("done", itemStep < setup.currentStage);
+    if (itemStep === setup.currentStage) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  }
+  for (const panel of document.querySelectorAll(".setup-stage")) {
+    panel.hidden = Number(panel.dataset.stage) !== setup.currentStage;
+  }
+  elements.complete.hidden = true;
+  if (setup.currentStage === 3) renderVerify();
+  if (setup.currentStage === 5) renderReview();
+}
+
+function showCompletedInstallation() {
+  for (const panel of document.querySelectorAll(".setup-stage")) panel.hidden = true;
+  elements.complete.hidden = false;
+  elements.progress.hidden = true;
+  setupStatus("AgentForge is already configured and Ready.", "ok");
+}
+
+function providerPayload() {
+  return {
+    name: document.querySelector("#provider-name").value.trim(),
+    providerType: document.querySelector("#provider-type").value,
+    endpoint: document.querySelector("#provider-endpoint").value.trim(),
+  };
+}
+
+function populateModels(models, selectedModel = null) {
+  setup.models = models;
+  elements.model.replaceChildren();
+  for (const model of models) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = model.id;
+    if (model.id === selectedModel) option.selected = true;
+    elements.model.append(option);
+  }
+  elements.modelSummary.textContent = `${models.length} compatible ${models.length === 1 ? "model" : "models"} reported by ${setup.provider.endpoint}.`;
+  renderModelDetails();
+}
+
+function renderModelDetails() {
+  const selected = setup.models.find(model => model.id === elements.model.value);
+  if (!selected) {
+    elements.modelDetails.textContent = "Select a model to continue.";
+    return;
+  }
+  const details = [];
+  if (selected.ownedBy) details.push(`Owner: ${selected.ownedBy}`);
+  if (selected.maximumContextTokens) details.push(`Context: ${selected.maximumContextTokens.toLocaleString()} tokens`);
+  elements.modelDetails.textContent = details.length ? details.join(" · ") : "The endpoint reported this model as available.";
+}
+
+function renderVerify() {
+  elements.verifySummary.replaceChildren();
+  const title = document.createElement("strong");
+  title.textContent = setup.provider.model || "No model selected";
+  const endpoint = document.createElement("span");
+  endpoint.textContent = setup.provider.endpoint;
+  elements.verifySummary.append(title, endpoint);
+}
+
+function addReviewItem(label, value) {
+  const item = document.createElement("div");
+  const key = document.createElement("span");
+  const content = document.createElement("strong");
+  key.textContent = label;
+  content.textContent = value;
+  item.append(key, content);
+  elements.reviewSummary.append(item);
+}
+
+function renderReview() {
+  elements.reviewSummary.replaceChildren();
+  addReviewItem("Connection", setup.provider.name);
+  addReviewItem("Endpoint", setup.provider.endpoint);
+  addReviewItem("Model", setup.provider.model || "Not selected");
+  addReviewItem("Agent", setup.agent.name);
+  addReviewItem("Time zone", setup.agent.timeZone);
+  addReviewItem("Authentication", elements.credential.value ? "API key provided" : "No API key");
+}
+
+function applySession(session) {
+  setup.csrfToken = session.csrfToken;
+  setup.begun = session.begun === true;
+  setup.providerConfigured = session.providerConfigured === true;
+  setup.modelTested = session.modelTested === true;
+  setup.agentCreated = session.agentCreated === true;
+  if (session.provider) {
+    setup.provider = { ...setup.provider, ...session.provider };
+    document.querySelector("#provider-name").value = setup.provider.name;
+    document.querySelector("#provider-type").value = setup.provider.providerType;
+    document.querySelector("#provider-endpoint").value = setup.provider.endpoint;
+  }
+  if (Array.isArray(session.models) && session.models.length) {
+    populateModels(session.models.map(id => ({ id })), setup.provider.model);
+  }
+  showStage(session.currentStep || 1);
+}
+
+async function startSetup() {
   try {
-    const result = await readJson("/api/v1/setup/web/nonce");
-    if (result.ok) {
-      elements.setupNonce.value = result.payload.nonce;
-      setupStatus("One-time nonce loaded. Review the safe local defaults, then continue.");
-    } else if (result.status === 409) {
-      setupStatus("The one-time nonce was already consumed. Restart the host if no setup session is active.", "error");
-    } else {
-      setupStatus("The setup nonce is unavailable.", "error");
+    let result = await readJson("/api/v1/setup/web/session");
+    if (!result.ok) {
+      result = await readJson("/api/v1/setup/web/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: window.location.origin },
+        body: "{}",
+      });
     }
-  } catch {
-    setupStatus("Could not load the local setup nonce.", "error");
+    if (!result.ok) {
+      if (result.status === 409 && result.payload.title === "Setup complete") {
+        showCompletedInstallation();
+        return;
+      }
+      throw new Error(result.payload.detail ?? "Protected setup could not be started.");
+    }
+    applySession(result.payload);
+    setupStatus(result.payload.resumed ? "Protected setup resumed." : "Protected local setup is ready.", "ok");
+  } catch (error) {
+    setupStatus(error instanceof Error ? error.message : "Protected setup could not be started.", "error");
   }
 }
 
-async function runSetup(event) {
+async function discoverModels(event) {
   event.preventDefault();
-  elements.setupSubmit.disabled = true;
-  const credentialInput = document.querySelector("#provider-credential");
+  setBusy(elements.providerForm, true);
   try {
-    setupStatus("Creating protected setup session…");
-    const sessionResponse = await fetch("/api/v1/setup/web/session", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ nonce: elements.setupNonce.value }),
-    });
-    const session = await sessionResponse.json();
-    if (!sessionResponse.ok) throw new Error(session.detail ?? "Session creation failed");
-    csrfToken = session.csrfToken;
+    const provider = providerPayload();
+    setupStatus("Connecting to the endpoint and reading its model catalog…");
+    await mutation("/api/v1/setup/web/provider/discover", provider);
+    const result = await mutation("/api/v1/setup/web/provider/models", elements.credential.value, "text/plain;charset=UTF-8");
+    setup.provider = { ...provider, model: null };
+    sessionStorage.setItem("agentforge.setup.endpoint", provider.endpoint);
+    populateModels(result.models);
+    setupStatus(`Connected. Found ${result.models.length} models.`, "ok");
+    showStage(2);
+  } catch (error) {
+    elements.manualModelPanel.hidden = false;
+    setupStatus(error instanceof Error ? error.message : "The endpoint could not be reached.", "error");
+  } finally {
+    setBusy(elements.providerForm, false);
+  }
+}
 
-    setupStatus("Initializing durable installation…");
-    await mutation("/api/v1/setup/web/begin", {});
-    await mutation("/api/v1/setup/web/provider", {
-      name: document.querySelector("#provider-name").value,
-      providerType: document.querySelector("#provider-type").value,
-      endpoint: document.querySelector("#provider-endpoint").value,
-      model: document.querySelector("#provider-model").value,
-    });
-    const credential = credentialInput.value;
-    credentialInput.value = "";
-    setupStatus("Validating provider through the shared setup service…");
-    await mutation("/api/v1/setup/web/provider/credential", credential, "text/plain;charset=UTF-8");
+async function useManualModel() {
+  const model = elements.manualModel.value.trim();
+  if (!model) {
+    setupStatus("Enter the exact model ID exposed by your server.", "error");
+    elements.manualModel.focus();
+    return;
+  }
+  setBusy(elements.providerForm, true);
+  try {
+    const provider = providerPayload();
+    setupStatus("Preparing the endpoint for an exact model ID…");
+    await mutation("/api/v1/setup/web/provider/discover", provider);
+    await mutation("/api/v1/setup/web/provider/model/manual", { ...provider, model });
+    setup.provider = { ...provider, model: null };
+    sessionStorage.setItem("agentforge.setup.endpoint", provider.endpoint);
+    populateModels([{ id: model, ownedBy: "Manual entry" }], model);
+    setupStatus("Manual model ID accepted. Select it, then run the required connection test.", "ok");
+    showStage(2);
+  } catch (error) {
+    setupStatus(error instanceof Error ? error.message : "The model ID could not be prepared.", "error");
+  } finally {
+    setBusy(elements.providerForm, false);
+  }
+}
 
-    const agent = {
-      name: document.querySelector("#agent-name").value,
-      expertise: "local agent harness",
-      mission: "operate within explicit AgentForge policy",
-      preferredLanguage: "en",
-      timeZone: document.querySelector("#agent-timezone").value,
-      responseStyle: "concise and evidence-backed",
-      defaultWorkspace: null,
-    };
-    setupStatus("Previewing effective policy and capabilities…");
-    await mutation("/api/v1/setup/web/agent/preview", agent);
-    await mutation("/api/v1/setup/web/agent", agent);
+async function selectModel(event) {
+  event.preventDefault();
+  setBusy(elements.modelForm, true);
+  try {
+    setup.provider.model = elements.model.value;
+    await mutation("/api/v1/setup/web/provider/select", setup.provider);
+    setup.modelTested = false;
+    setupStatus(`${setup.provider.model} selected. Verify it before continuing.`, "ok");
+    showStage(3);
+  } catch (error) {
+    setupStatus(error instanceof Error ? error.message : "The model could not be selected.", "error");
+  } finally {
+    setBusy(elements.modelForm, false);
+  }
+}
+
+async function verifyModel(event) {
+  event.preventDefault();
+  setBusy(elements.verifyForm, true);
+  try {
+    setupStatus(`Sending a bounded test to ${setup.provider.model}…`);
+    const result = await mutation("/api/v1/setup/web/provider/test", elements.credential.value, "text/plain;charset=UTF-8");
+    setup.modelTested = true;
+    setupStatus(`Connection verified in ${result.durationMilliseconds} ms.`, "ok");
+    showStage(4);
+  } catch (error) {
+    setupStatus(error instanceof Error ? error.message : "The model test failed.", "error");
+  } finally {
+    setBusy(elements.verifyForm, false);
+  }
+}
+
+function prepareReview(event) {
+  event.preventDefault();
+  setup.agent = {
+    name: document.querySelector("#agent-name").value.trim(),
+    timeZone: document.querySelector("#agent-timezone").value.trim(),
+  };
+  setupStatus("Review the connection and conservative policy before saving.");
+  showStage(5);
+}
+
+function agentPayload() {
+  return {
+    name: setup.agent.name,
+    expertise: "local agent harness",
+    mission: "operate within explicit AgentForge policy",
+    preferredLanguage: "en",
+    timeZone: setup.agent.timeZone,
+    responseStyle: "concise and evidence-backed",
+    defaultWorkspace: null,
+  };
+}
+
+async function completeSetup(event) {
+  event.preventDefault();
+  setBusy(elements.reviewForm, true);
+  try {
+    if (!setup.begun) {
+      setupStatus("Initializing the durable installation…");
+      await mutation("/api/v1/setup/web/begin", {});
+      setup.begun = true;
+    }
+    if (!setup.providerConfigured) {
+      setupStatus("Saving the verified provider profile…");
+      await mutation("/api/v1/setup/web/provider/credential", elements.credential.value, "text/plain;charset=UTF-8");
+      setup.providerConfigured = true;
+    }
+    if (!setup.agentCreated) {
+      setupStatus("Previewing effective policy and capabilities…");
+      const agent = agentPayload();
+      await mutation("/api/v1/setup/web/agent/preview", agent);
+      await mutation("/api/v1/setup/web/agent", agent);
+      setup.agentCreated = true;
+    }
     setupStatus("Running minimum-viability checks…");
     await mutation("/api/v1/setup/web/complete", {});
-    csrfToken = null;
+    setup.csrfToken = null;
+    elements.credential.value = "";
+    for (const panel of document.querySelectorAll(".setup-stage")) panel.hidden = true;
+    elements.complete.hidden = false;
+    elements.progress.hidden = true;
     setupStatus("Setup complete. AgentForge is Ready.", "ok");
     await refreshStatus();
   } catch (error) {
-    credentialInput.value = "";
     setupStatus(error instanceof Error ? error.message : "Setup failed safely.", "error");
   } finally {
-    elements.setupSubmit.disabled = false;
+    setBusy(elements.reviewForm, false);
   }
 }
 
 elements.refresh.addEventListener("click", refreshStatus);
-elements.setupForm.addEventListener("submit", runSetup);
+elements.providerForm.addEventListener("submit", discoverModels);
+document.querySelector("#show-manual-model").addEventListener("click", () => {
+  elements.manualModelPanel.hidden = !elements.manualModelPanel.hidden;
+  if (!elements.manualModelPanel.hidden) elements.manualModel.focus();
+});
+document.querySelector("#use-manual-model").addEventListener("click", useManualModel);
+elements.modelForm.addEventListener("submit", selectModel);
+elements.verifyForm.addEventListener("submit", verifyModel);
+elements.agentForm.addEventListener("submit", prepareReview);
+elements.reviewForm.addEventListener("submit", completeSetup);
+elements.model.addEventListener("change", renderModelDetails);
+document.querySelector("#refresh-after-setup").addEventListener("click", () => document.querySelector("#overview").scrollIntoView());
+for (const button of document.querySelectorAll("[data-back]")) {
+  button.addEventListener("click", () => {
+    const stage = Number(button.dataset.back);
+    showStage(stage);
+    const messages = {
+      1: "Update the endpoint and discover its current model catalog.",
+      2: "Choose one of the models reported by this endpoint.",
+      3: "Verify the selected model before saving anything.",
+      4: "Name the agent that will own this model policy.",
+    };
+    setupStatus(messages[stage] || "Continue setup.");
+  });
+}
+
+document.querySelector("#provider-endpoint").value = setup.provider.endpoint;
+document.querySelector("#agent-timezone").value = setup.agent.timeZone;
 refreshStatus();
-loadSetupNonce();
+startSetup();

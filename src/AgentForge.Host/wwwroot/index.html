@@ -136,29 +136,115 @@
           <span class="section-number">01</span>
           <div>
             <span class="eyebrow">FIRST RUN</span>
-            <h2 id="setup-title">Secure first-run setup</h2>
-            <p>The loopback wizard uses the same setup service and validation as the CLI. Its one-time nonce, session cookie, CSRF token, and idempotency keys expire when setup completes.</p>
+            <h2 id="setup-title">Connect your first agent</h2>
+            <p>AgentForge discovers the models available at your endpoint, verifies the one you choose, and shows the effective policy before anything is saved.</p>
+            <div class="setup-assurance">
+              <strong>Protected local setup</strong>
+              <span>Your setup session is created automatically and resumes safely after a refresh.</span>
+            </div>
           </div>
         </div>
-        <form id="setup-form" class="setup-form" autocomplete="off">
-          <div id="setup-message" class="setup-message" aria-live="polite">Loading one-time setup nonce…</div>
-          <label>Setup nonce<input id="setup-nonce" name="nonce" required maxlength="128" spellcheck="false"></label>
-          <div class="form-row">
-            <label>Provider name<input id="provider-name" value="primary" required maxlength="128"></label>
-            <label>Provider type<select id="provider-type"><option value="deterministic">Deterministic</option><option value="vllm">vLLM</option><option value="openai-compatible">OpenAI compatible</option></select></label>
+        <div class="setup-workspace">
+          <ol id="setup-progress" class="setup-progress" aria-label="Setup progress">
+            <li class="active" data-step="1"><span>1</span><b>Connect</b></li>
+            <li data-step="2"><span>2</span><b>Choose</b></li>
+            <li data-step="3"><span>3</span><b>Verify</b></li>
+            <li data-step="4"><span>4</span><b>Agent</b></li>
+            <li data-step="5"><span>5</span><b>Review</b></li>
+          </ol>
+
+          <div id="setup-message" class="setup-message" aria-live="polite">Starting protected setup…</div>
+
+          <form id="provider-form" class="setup-form setup-stage" data-stage="1" autocomplete="off">
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 1 of 5</span>
+              <h3>Where is your model server?</h3>
+              <p>Enter its OpenAI-compatible base URL. AgentForge will request the model catalog without running a model.</p>
+            </div>
+            <div class="form-row">
+              <label>Connection name<input id="provider-name" value="primary" required maxlength="128"></label>
+              <label>Adapter<select id="provider-type"><option value="openai-compatible">OpenAI compatible</option><option value="vllm">vLLM</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select></label>
+            </div>
+            <label>Base endpoint<input id="provider-endpoint" type="url" value="http://127.0.0.1:8000/v1" required maxlength="2048" placeholder="http://127.0.0.1:8000/v1"></label>
+            <label>API key <span class="optional">Optional for local servers</span><input id="provider-credential" type="password" maxlength="8192" autocomplete="new-password" placeholder="Leave blank if your local server does not require one"></label>
+            <button id="discover-models" class="setup-submit" type="submit">Connect and find models</button>
+            <button id="show-manual-model" class="text-action" type="button">Enter a model ID manually</button>
+            <div id="manual-model-panel" class="manual-model-panel" hidden>
+              <p>Use this only when the endpoint does not expose a model catalog. AgentForge will still verify the exact model before saving.</p>
+              <label>Model ID<input id="manual-model" maxlength="256" placeholder="qwen3.6"></label>
+              <button id="use-manual-model" class="secondary-action" type="button">Use this model ID</button>
+            </div>
+          </form>
+
+          <form id="model-form" class="setup-form setup-stage" data-stage="2" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 2 of 5</span>
+              <h3>Choose a model</h3>
+              <p id="model-summary">Models reported by your endpoint appear here.</p>
+            </div>
+            <label>Available models<select id="provider-model" required></select></label>
+            <div id="model-details" class="model-details" aria-live="polite"></div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="1">Back</button>
+              <button class="setup-submit" type="submit">Use selected model</button>
+            </div>
+          </form>
+
+          <form id="verify-form" class="setup-form setup-stage" data-stage="3" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 3 of 5</span>
+              <h3>Verify the connection</h3>
+              <p>AgentForge will send one bounded prompt to confirm that the selected model can answer through this endpoint.</p>
+            </div>
+            <div id="verify-summary" class="review-card"></div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="2">Back</button>
+              <button id="test-model" class="setup-submit" type="submit">Run connection test</button>
+            </div>
+          </form>
+
+          <form id="agent-form" class="setup-form setup-stage" data-stage="4" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 4 of 5</span>
+              <h3>Name your local agent</h3>
+              <p>This creates the identity that owns policy, memory, budgets, and model routing.</p>
+            </div>
+            <div class="form-row">
+              <label>Agent name<input id="agent-name" value="local-agent" required maxlength="128"></label>
+              <label>Time zone<input id="agent-timezone" value="UTC" required maxlength="128"></label>
+            </div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="3">Back</button>
+              <button class="setup-submit" type="submit">Continue to review</button>
+            </div>
+          </form>
+
+          <form id="review-form" class="setup-form setup-stage" data-stage="5" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 5 of 5</span>
+              <h3>Review and finish</h3>
+              <p>Confirm the local connection and conservative first-run policy before AgentForge persists the profile.</p>
+            </div>
+            <div id="review-summary" class="review-grid"></div>
+            <div class="policy-preview">
+              <strong>Conservative by default</strong>
+              <span>Local-only model routing · network denied · no tool calls · no child agents · learning proposals require governance</span>
+            </div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="4">Back</button>
+              <button id="setup-submit" class="setup-submit" type="submit">Configure AgentForge</button>
+            </div>
+          </form>
+
+          <div id="setup-complete" class="setup-complete" hidden>
+            <span class="stage-kicker">Ready</span>
+            <h3>Your local agent is configured.</h3>
+            <p>The provider, model, agent identity, and conservative policy were saved successfully.</p>
+            <button id="refresh-after-setup" class="setup-submit" type="button">View system status</button>
           </div>
-          <label>Endpoint<input id="provider-endpoint" type="url" value="http://127.0.0.1:9000/v1" required maxlength="2048"></label>
-          <div class="form-row">
-            <label>Model<input id="provider-model" value="deterministic-text-v1" required maxlength="256"></label>
-            <label>Credential<input id="provider-credential" type="password" required maxlength="4096"></label>
-          </div>
-          <div class="form-row">
-            <label>Agent name<input id="agent-name" value="local-agent" required maxlength="128"></label>
-            <label>Time zone<input id="agent-timezone" value="UTC" required maxlength="128"></label>
-          </div>
-          <button id="setup-submit" class="setup-submit" type="submit">Configure AgentForge <span aria-hidden="true">→</span></button>
-          <p class="setup-note">Credentials are sent only to this loopback origin and cleared from the form immediately after submission.</p>
-        </form>
+
+          <p class="setup-note">API keys are sent only to this loopback origin, never shown in review, and cleared from the page immediately after setup.</p>
+        </div>
       </section>
 
       <footer>

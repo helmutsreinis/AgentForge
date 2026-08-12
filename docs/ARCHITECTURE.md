@@ -7,12 +7,14 @@ feature modules, background workers, health, and the control plane. A separate C
 uses the control plane and may compose setup/recovery services in-process when the
 normal host is unavailable.
 
-The root loopback page is currently a read-only diagnostic adapter over existing
-same-origin health, setup-status, and sandbox-capability GET endpoints. It contains no
-form, secret input, session, or mutation path. This gives operators an early visual
-first-run surface without claiming the Milestone 7 authenticated setup wizard; the full
-wizard must reuse setup application services after its nonce/session/CSRF/idempotency
-gate passes.
+The root loopback page combines read-only health/status evidence with the first-run setup
+adapter. The browser creates or resumes a protected setup session automatically; internal
+bootstrap material is never an operator field. Session-bound CSRF and exact idempotency
+remain required for every mutation. Model discovery and the explicit verification probe
+use the Models module through a harness-owned contract and policy-bound transport. If a
+compatible endpoint has no catalog route, the operator may enter an exact model ID into the
+same session, but it remains unverified and cannot be persisted until the probe succeeds. The
+durable provider/agent creation still calls the same setup application services as CLI.
 
 ```mermaid
 flowchart LR
@@ -20,6 +22,8 @@ flowchart LR
   Operator --> Web["Loopback setup UI (M7)"]
   CLI --> API["Authenticated /api/v1 + event stream"]
   Web --> API
+  Web --> ModelDiscovery["Bounded model discovery/probe"]
+  ModelDiscovery --> Models["Provider transport policy"]
   API --> Setup["Setup application services"]
   API --> Runtime["Agent runtime"]
   Runtime --> Policy["Policy and approvals"]

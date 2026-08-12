@@ -221,12 +221,7 @@ public sealed class ProductionApiTests : IDisposable
 
     private async Task<(Guid InstallationId, Guid AgentId, string Credential)> CompleteSetupAsync(HttpClient client)
     {
-        using var nonceResponse = await client.GetAsync("/api/v1/setup/web/nonce");
-        using var nonceJson = JsonDocument.Parse(await nonceResponse.Content.ReadAsByteArrayAsync());
-        using var session = await client.PostAsJsonAsync("/api/v1/setup/web/session", new
-        {
-            nonce = nonceJson.RootElement.GetProperty("nonce").GetString(),
-        });
+        using var session = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { });
         using var sessionJson = JsonDocument.Parse(await session.Content.ReadAsByteArrayAsync());
         var csrf = sessionJson.RootElement.GetProperty("csrfToken").GetString()!;
         using var begin = await WebMutationAsync(client, "/api/v1/setup/web/begin", "begin", csrf, new { });

@@ -1,6 +1,6 @@
 # ADR 0041: Loopback web setup sessions
 
-Status: Accepted — 2026-08-12
+Status: Accepted — amended by ADR 0048 on 2026-08-12
 
 ## Decision
 

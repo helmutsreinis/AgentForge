@@ -95,14 +95,15 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
                 "Hosted provider profile, endpoint, capabilities, or secret reference are not an exact safe match.");
         }
 
+        var credentialless = profile.SecretReference.IsNoCredential;
         return CreateCore(
             descriptor,
             options,
             CreateSafeHandler(options),
             clock,
             contextPreparer,
-            secretStore,
-            profile.SecretReference with { });
+            credentialless ? null : secretStore,
+            credentialless ? null : profile.SecretReference with { });
     }
 
     internal static DomainResult<OpenAiCompatibleModelProvider> CreateForTesting(
@@ -136,14 +137,15 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
                 "Hosted provider profile, endpoint, capabilities, or secret reference are not an exact safe match.");
         }
 
+        var credentialless = profile.SecretReference.IsNoCredential;
         return CreateCore(
             descriptor,
             options,
             handler,
             clock,
             contextPreparer,
-            secretStore,
-            profile.SecretReference with { });
+            credentialless ? null : secretStore,
+            credentialless ? null : profile.SecretReference with { });
     }
 
     private static DomainResult<OpenAiCompatibleModelProvider> CreateCore(
@@ -583,7 +585,11 @@ public sealed class OpenAiCompatibleModelProvider : IModelProvider, IDisposable
                 UriComponents.HttpRequestUrl,
                 UriFormat.UriEscaped,
                 StringComparison.Ordinal) != 0 ||
-            !string.Equals(profile.SecretReference.Store, secretStore.StoreName, StringComparison.Ordinal) ||
+            profile.SecretReference.IsNoCredential &&
+                (profile.ProviderType is not ("vllm" or "openai-compatible") ||
+                    destination is not (ModelProviderDataLocation.Loopback or ModelProviderDataLocation.PrivateNetwork)) ||
+            !profile.SecretReference.IsNoCredential &&
+                !string.Equals(profile.SecretReference.Store, secretStore.StoreName, StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(profile.SecretReference.Key) || profile.SecretReference.Key.Length > 512 ||
             profile.SecretReference.Key.Any(char.IsControl) ||
             !profile.Capabilities.TextGeneration || !profile.Capabilities.Streaming || profile.Capabilities.Images)

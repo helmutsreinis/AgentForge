@@ -84,10 +84,20 @@ the secure first-run wizard. Confirm `/health/live` is 200, `/health/ready` is 5
 clean installation, `/api/v1/setup/status` is available, and `/api/v1/runtime/ping` is
 503. The CLI returns exit code 2 for setup-required.
 
-The page obtains a one-time setup nonce from the loopback origin. All subsequent mutations
-require its short-lived HttpOnly session, a session-bound CSRF token, and an idempotency key.
-Credential text is submitted only to the same loopback origin and cleared from the form. The
-CLI remains the recovery surface when the daemon or wizard is unavailable.
+Open the loopback page and choose **Setup**. The server creates the protected browser session
+automatically; no bootstrap nonce or security token is operator input. Refreshing the page
+resumes the active 30-minute HttpOnly SameSite session. All mutations still require the
+session-bound CSRF token and an exact idempotency key.
+
+Enter an OpenAI-compatible base endpoint such as `http://127.0.0.1:8000/v1`, then select
+**Connect and find models**. AgentForge performs one bounded policy-checked `GET /models`,
+renders the returned identifiers, and sends one bounded chat probe only after the operator
+selects **Run connection test**. If the server has no `/models` route, select **Enter a model
+ID manually**, enter the exact server-side identifier, then select and verify it through the
+same probe; manual entry never bypasses verification. API-key text is optional only for loopback/private vLLM or
+generic compatible endpoints; public providers require HTTPS and a credential. Credential
+text is submitted only to the same loopback origin and cleared from the form after setup.
+The CLI remains the recovery surface when the daemon or wizard is unavailable.
 
 Begin a deterministic offline setup transaction with:
 
