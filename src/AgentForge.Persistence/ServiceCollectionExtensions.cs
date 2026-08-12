@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Channels;
 using AgentForge.Abstractions.Coding;
+using AgentForge.Abstractions.Devices;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Memory;
 using AgentForge.Abstractions.Models;
@@ -75,6 +76,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChannelRepository>(provider => provider.GetRequiredService<SqliteChannelRepository>());
         services.AddScoped<IChannelIdentityResolver>(provider => provider.GetRequiredService<SqliteChannelRepository>());
         services.AddScoped<IChannelIdentityBindingStore>(provider => provider.GetRequiredService<SqliteChannelRepository>());
+        services.AddScoped<ISerialCaptureRepository, SqliteSerialCaptureRepository>();
+        services.AddScoped<IDecoderProposalRepository, SqliteDecoderProposalRepository>();
         services.AddScoped<SqliteModelProviderHealthRepository>();
         services.AddScoped<IModelProviderHealthRepository>(provider =>
             provider.GetRequiredService<SqliteModelProviderHealthRepository>());

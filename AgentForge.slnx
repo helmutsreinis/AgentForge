@@ -8,6 +8,7 @@
     <Project Path="src/AgentForge.Cli/AgentForge.Cli.csproj" />
     <Project Path="src/AgentForge.Coding/AgentForge.Coding.csproj" />
     <Project Path="src/AgentForge.Channels/AgentForge.Channels.csproj" />
+    <Project Path="src/AgentForge.Devices/AgentForge.Devices.csproj" />
     <Project Path="src/AgentForge.Domain/AgentForge.Domain.csproj" />
     <Project Path="src/AgentForge.Environment/AgentForge.Environment.csproj" />
     <Project Path="src/AgentForge.Host/AgentForge.Host.csproj" />

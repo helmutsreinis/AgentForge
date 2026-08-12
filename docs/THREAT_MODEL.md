@@ -746,3 +746,34 @@ remain active. Completion makes the session exact-replay-only; the nonce cannot 
 The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
 provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
 wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.
+
+## M8 passive serial discovery boundary
+
+Device discovery reads Windows serial registry metadata or Linux sysfs/device-node existence only. The inventory
+implementation contains no serial-open, write, shell, or process-execution primitive, so candidate enumeration cannot
+toggle DTR/RTS or transmit bytes. Stable identity is hashed from hardware evidence independently from a transient COM or
+`/dev/tty*` endpoint; re-enumeration is an explicit event rather than a new authority. Profiles default DTR and RTS off.
+Inventory, capture, read, write, command, calibration, firmware, and privileged access are separate expiring grants;
+having any one does not imply another. Unknown readiness remains explicit and never silently becomes permission.
+
+Serial transport is a separate explicit boundary. The production catalog is empty, so discovery cannot become I/O and
+all real hardware remains gated. Capture, one-shot read, and write each rebind the grant to the physical device and exact
+operation; a capture grant cannot read or write. Profiles and byte limits are validated before an adapter call, partial
+write confirmation fails retryably, and unsupported platforms fail typed. Captures accept only monotonic bounded frames,
+account zero-byte drop/disconnect evidence, stop at byte/time bounds, and store raw bytes only in a versioned little-endian
+content-addressed artifact. SQLite and audit retain hashes/counts rather than payload bytes. Replay validates artifact
+length, magic/version, physical-device binding, frame bounds/order, byte/drop totals, and a canonical stream hash before
+yielding data. Artifact tampering is a hard integrity failure.
+
+Decoder definitions are data, not executable plugins. Bounds cover definition size, frame/sync/field counts, input bytes,
+parser operations, evaluation corpus, and deterministic fuzz cases. Known fields are typed, while every unclaimed frame byte,
+pre-sync noise byte, and partial tail remains exact evidence; the raw frame hash prevents decoded values from replacing source
+truth. The evaluation suite hash binds target and holdout bytes plus expectations. Promotion requires passing target, holdout,
+malformed, partial, concatenated, resynchronization, unknown-preservation, fuzz, and operation gates.
+
+Candidates may request only protocol-decode authority; device capture/read/write/firmware, filesystem, and network authority
+make the definition invalid. Proposer cannot evaluate, approve, or govern their candidate. Proposal snapshots form an
+append-only hash chain bound to the exact baseline and candidate. Competing candidates can evaluate, but only the one whose
+baseline still matches can atomically become active. Failed canaries quarantine without activation. Active candidates can be
+quarantined and rolled back only while their exact hash remains selected. Declarative decoders never inherit device-write
+authority.

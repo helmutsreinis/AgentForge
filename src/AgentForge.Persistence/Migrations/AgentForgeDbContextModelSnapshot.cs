@@ -736,6 +736,83 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("coding_session_snapshots", (string)null);
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.DecoderActiveVersionEntity", b =>
+                {
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecoderId")
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CandidateHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("InstallationId", "DecoderId");
+
+                    b.ToTable("decoder_active_versions", (string)null);
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.DecoderProposalSnapshotEntity", b =>
+                {
+                    b.Property<Guid>("ProposalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BaselineHash")
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CandidateHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DecoderId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreviousSnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ProposalId", "Version");
+
+                    b.HasIndex("InstallationId", "DecoderId", "UpdatedAtUtcTicks");
+
+                    b.ToTable("decoder_proposal_snapshots", (string)null);
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.DelegationGrantEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1727,6 +1804,68 @@ namespace AgentForge.Persistence.Migrations
                     b.ToTable("schedule_snapshots", (string)null);
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.SerialCaptureEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ArtifactContentHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CaptureJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("InstallationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhysicalDeviceId")
+                        .IsRequired()
+                        .HasMaxLength(78)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("StartedAtUtcTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("StreamHash")
+                        .IsRequired()
+                        .HasMaxLength(71)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.HasIndex("ArtifactContentHash");
+
+                    b.HasIndex("InstallationId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("InstallationId", "PhysicalDeviceId", "StartedAtUtcTicks");
+
+                    b.ToTable("serial_captures", (string)null);
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.SetupProfileSnapshotEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2211,6 +2350,24 @@ namespace AgentForge.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AgentForge.Persistence.Entities.DecoderActiveVersionEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.DecoderProposalSnapshotEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AgentForge.Persistence.Entities.DelegationGrantEntity", b =>
                 {
                     b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
@@ -2363,6 +2520,27 @@ namespace AgentForge.Persistence.Migrations
                     b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
                         .WithMany()
                         .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AgentForge.Persistence.Entities.InstallationEntity", null)
+                        .WithMany()
+                        .HasForeignKey("InstallationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AgentForge.Persistence.Entities.SerialCaptureEntity", b =>
+                {
+                    b.HasOne("AgentForge.Persistence.Entities.AgentIdentityEntity", null)
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AgentForge.Persistence.Entities.ArtifactEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ArtifactContentHash")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

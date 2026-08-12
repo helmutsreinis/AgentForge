@@ -60,6 +60,12 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ChannelDeliveryEntity> ChannelDeliveries => Set<ChannelDeliveryEntity>();
 
+    internal DbSet<SerialCaptureEntity> SerialCaptures => Set<SerialCaptureEntity>();
+
+    internal DbSet<DecoderProposalSnapshotEntity> DecoderProposalSnapshots => Set<DecoderProposalSnapshotEntity>();
+
+    internal DbSet<DecoderActiveVersionEntity> DecoderActiveVersions => Set<DecoderActiveVersionEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -100,6 +106,54 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.ContentHash).HasMaxLength(71);
             entity.Property(item => item.MediaType).HasMaxLength(256).IsRequired();
             entity.Property(item => item.RelativePath).HasMaxLength(512).IsRequired();
+        });
+
+        modelBuilder.Entity<SerialCaptureEntity>(entity =>
+        {
+            entity.ToTable("serial_captures");
+            entity.HasKey(item => item.Id);
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>().WithMany().HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>().WithMany().HasForeignKey(item => item.ArtifactContentHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.PhysicalDeviceId, item.StartedAtUtcTicks });
+            entity.Property(item => item.PhysicalDeviceId).HasMaxLength(78).IsRequired();
+            entity.Property(item => item.ArtifactContentHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.StreamHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.RequestHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.CaptureJson).IsRequired();
+        });
+
+        modelBuilder.Entity<DecoderProposalSnapshotEntity>(entity =>
+        {
+            entity.ToTable("decoder_proposal_snapshots");
+            entity.HasKey(item => new { item.ProposalId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.DecoderId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.DecoderId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.State).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.CandidateHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.BaselineHash).HasMaxLength(71);
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+        });
+
+        modelBuilder.Entity<DecoderActiveVersionEntity>(entity =>
+        {
+            entity.ToTable("decoder_active_versions");
+            entity.HasKey(item => new { item.InstallationId, item.DecoderId });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.DecoderId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CandidateHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<OutboxMessageEntity>(entity =>

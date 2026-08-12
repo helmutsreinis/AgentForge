@@ -46,3 +46,9 @@ The command stores redacted content-addressed evidence and prints only an execut
 count by default. Add `--include-executables true` only when local path disclosure is
 intended. Milestone 7 is the `0.4 Integration Beta` checkpoint; see
 `docs/RUNBOOK.md` for the currently executable commands.
+
+Milestone 8 adds passive Windows/Linux serial inventory, stable physical-device identities,
+separate capture/read/write/command/calibration/firmware/privileged grants, bounded immutable
+capture artifacts, deterministic replay, and governed declarative decoder promotion. Production
+still installs no serial transport, exposes no device I/O route, and leaves compiled decoders and
+real hardware behind explicit live gates.

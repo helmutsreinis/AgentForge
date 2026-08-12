@@ -622,6 +622,13 @@
           "Microsoft.CodeAnalysis.Workspaces.MSBuild": "[5.6.0, )"
         }
       },
+      "agentforge.devices": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
+        }
+      },
       "agentforge.domain": {
         "type": "Project"
       },
@@ -639,6 +646,7 @@
           "AgentForge.Audit": "[1.0.0, )",
           "AgentForge.Channels": "[1.0.0, )",
           "AgentForge.Coding": "[1.0.0, )",
+          "AgentForge.Devices": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Environment": "[1.0.0, )",
           "AgentForge.Memory": "[1.0.0, )",
