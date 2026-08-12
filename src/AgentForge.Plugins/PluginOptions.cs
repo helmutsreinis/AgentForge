@@ -13,4 +13,6 @@ public sealed class PluginOptions
     public long MaximumAssemblyBytes { get; init; } = 134_217_728;
 
     public string PluginWorkerExecutable { get; init; } = string.Empty;
+
+    public Dictionary<string, string> TrustedPublicKeys { get; init; } = new(StringComparer.Ordinal);
 }

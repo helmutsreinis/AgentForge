@@ -99,6 +99,45 @@ public sealed class PluginIsolationTests : IDisposable
         Assert.Empty(sandbox.Request.Environment);
     }
 
+    [Fact]
+    public async Task Configured_operator_key_verifies_only_the_exact_canonical_manifest()
+    {
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var key = Convert.ToBase64String(signer.ExportSubjectPublicKeyInfo());
+        var unsigned = new PluginManifest(
+            1,
+            new PluginId("operator.signed"),
+            new PluginVersion("1.0.0"),
+            "plugin.dll",
+            "Operator.Plugin",
+            "sha256:" + new string('a', 64),
+            PluginRisk.Low,
+            InventoryPermission,
+            null);
+        var signature = Convert.ToBase64String(signer.SignData(
+            PluginManifestValidator.CreateSigningPayload(unsigned),
+            HashAlgorithmName.SHA256));
+        var signed = unsigned with
+        {
+            Signature = new PluginSignature("ECDSA-P256-SHA256", "operator-key", signature),
+        };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["AgentForge:Plugins:TrustedPublicKeys:operator-key"] = key,
+        }).Build();
+        var services = new ServiceCollection();
+        services.AddAgentForgePlugins(configuration);
+        await using var provider = services.BuildServiceProvider(validateScopes: true);
+        var verifier = provider.GetRequiredService<IPluginSignatureVerifier>();
+
+        Assert.True(await verifier.VerifyAsync(signed, "bounded-manifest"u8.ToArray(), CancellationToken.None));
+        Assert.False(await verifier.VerifyAsync(
+            signed with { Risk = PluginRisk.High }, "bounded-manifest"u8.ToArray(), CancellationToken.None));
+        Assert.False(await verifier.VerifyAsync(
+            signed with { Signature = signed.Signature! with { KeyId = "unknown-key" } },
+            "bounded-manifest"u8.ToArray(), CancellationToken.None));
+    }
+
     private ServiceProvider BuildServices(
         IPluginSignatureVerifier verifier,
         IPluginWorkerLauncher worker)

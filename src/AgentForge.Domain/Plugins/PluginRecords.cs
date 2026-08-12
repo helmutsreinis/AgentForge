@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using AgentForge.Domain.Primitives;
 
 namespace AgentForge.Domain.Plugins;
@@ -96,6 +97,28 @@ public static class PluginManifestValidator
 
     public static string Hash(ReadOnlySpan<byte> bytes) =>
         $"sha256:{Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant()}";
+
+    public static byte[] CreateSigningPayload(PluginManifest value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false }))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("schemaVersion", value.SchemaVersion);
+            writer.WriteString("id", value.Id.Value);
+            writer.WriteString("version", value.Version.Value);
+            writer.WriteString("entryAssembly", value.EntryAssembly);
+            writer.WriteString("entryType", value.EntryType);
+            writer.WriteString("assemblyHash", value.AssemblyHash);
+            writer.WriteString("risk", value.Risk.ToString());
+            writer.WriteStartArray("permissions");
+            foreach (var permission in value.Permissions) writer.WriteStringValue(permission);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        return buffer.WrittenSpan.ToArray();
+    }
 
     private static bool IsId(string value) => value.Length is >= 3 and <= 128 &&
         char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>

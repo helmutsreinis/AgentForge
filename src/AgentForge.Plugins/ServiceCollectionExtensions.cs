@@ -17,10 +17,11 @@ public static class ServiceCollectionExtensions
             .Bind(configuration.GetSection(PluginOptions.SectionName))
             .Validate(options => options.MaximumPackages is >= 0 and <= 1024 &&
                 options.MaximumManifestBytes is >= 1024 and <= 1_048_576 &&
-                options.MaximumAssemblyBytes is >= 1024 and <= 536_870_912,
+                options.MaximumAssemblyBytes is >= 1024 and <= 536_870_912 &&
+                ConfiguredPluginSignatureVerifier.ValidateKeys(options.TrustedPublicKeys),
                 "Plugin catalog limits are outside safe bounds")
             .ValidateOnStart();
-        services.TryAddSingleton<IPluginSignatureVerifier, RejectingPluginSignatureVerifier>();
+        services.TryAddSingleton<IPluginSignatureVerifier, ConfiguredPluginSignatureVerifier>();
         services.TryAddSingleton<IPluginWorkerLauncher, SandboxPluginWorkerLauncher>();
         services.AddSingleton<IPluginCatalog, FilePluginCatalog>();
         services.AddSingleton<IPluginLoader, PluginLoader>();
