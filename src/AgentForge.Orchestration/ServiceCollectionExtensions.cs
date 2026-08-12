@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<ITaskOrchestrator, TaskOrchestrator>();
+        services.AddScoped<IEventStream, TaskEventStream>();
         services.AddScoped<IDelegationPlanner, DelegationPlanner>();
         services.AddScoped<IDelegationService, DelegationService>();
         services.AddSingleton(TimeProvider.System);

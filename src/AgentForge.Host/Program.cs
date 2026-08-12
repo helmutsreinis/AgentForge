@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Tools;
@@ -23,6 +24,8 @@ using AgentForge.Setup;
 using AgentForge.Skills;
 using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,6 +38,21 @@ builder.WebHost.UseUrls(string.IsNullOrWhiteSpace(configuredUrls)
     : configuredUrls);
 
 builder.Services.AddProblemDetails();
+builder.Services.AddSingleton<IValidateOptions<HostSecurityOptions>, HostSecurityOptionsValidator>();
+builder.Services.AddOptions<HostSecurityOptions>()
+    .Bind(builder.Configuration.GetSection(HostSecurityOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddRateLimiter(options => options.AddPolicy("production-api", context =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "local",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue(
+                "AgentForge:Host:RequestsPerMinute", 120),
+            QueueLimit = 0,
+            Window = TimeSpan.FromMinutes(1),
+            AutoReplenishment = true,
+        })));
 builder.Services.AddAgentForgeSetup(builder.Configuration);
 builder.Services.AddAgentForgePersistence(builder.Configuration);
 builder.Services.AddAgentForgeSecurity(builder.Configuration);
@@ -67,8 +85,16 @@ await using (var initializationScope = app.Services.CreateAsyncScope())
 
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RemoteAccessMiddleware>();
+app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/api/v1"))
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        context.Response.Headers["AgentForge-Api-Version"] = "1.0";
+        context.Response.Headers["api-supported-versions"] = "1.0";
+    }
     if (context.Request.Path.StartsWithSegments("/api/v1/setup/web"))
     {
         context.Response.Headers.CacheControl = "no-store";
@@ -158,7 +184,7 @@ app.MapGet("/api/v1/runtime/ping", async (
             });
     }
 
-    if (!TryGetBearerCredential(request, out var credential))
+    if (!ApiAuthentication.TryGetBearerCredential(request, out var credential))
     {
         return Results.Problem(
             type: "urn:agentforge:problem:authentication-required",
@@ -201,26 +227,7 @@ app.MapGet("/api/v1/runtime/ping", async (
 });
 
 app.MapAgentForgeWebSetup();
-
-static bool TryGetBearerCredential(HttpRequest request, out char[] credential)
-{
-    credential = [];
-    var header = request.Headers.Authorization.ToString();
-    const string prefix = "Bearer ";
-    if (!header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-    {
-        return false;
-    }
-
-    var value = header.AsSpan(prefix.Length);
-    if (value.Length is < 1 or > 256 || value.Contains(',') || value.Contains('\r') || value.Contains('\n'))
-    {
-        return false;
-    }
-
-    credential = value.ToArray();
-    return true;
-}
+app.MapProductionApi();
 
 await app.RunAsync();
 
