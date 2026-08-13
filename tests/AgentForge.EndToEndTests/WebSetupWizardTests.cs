@@ -147,11 +147,22 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, adminSession.StatusCode);
         Assert.DoesNotContain("secret-", await adminSession.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var adminCsrf = await ReadPropertyAsync(adminSession, "csrfToken");
+        using var appShell = await client.GetAsync("/");
+        var appShellHtml = await appShell.Content.ReadAsStringAsync();
+        Assert.Contains("id=\"refresh-after-setup\" class=\"setup-submit\" href=\"#overview\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"run-search\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
         using var agentList = await client.GetAsync("/api/v1/admin/agents");
         Assert.Equal(HttpStatusCode.OK, agentList.StatusCode);
         using var agentListDocument = JsonDocument.Parse(await agentList.Content.ReadAsByteArrayAsync());
         var agentId = agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("id").GetGuid();
         Assert.Equal("web-agent", agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("name").GetString());
+        using var runOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
+        Assert.Equal(HttpStatusCode.OK, runOptions.StatusCode);
+        using var runOptionsDocument = JsonDocument.Parse(await runOptions.Content.ReadAsByteArrayAsync());
+        Assert.Equal("qwen3.6", runOptionsDocument.RootElement.GetProperty("provider").GetProperty("model").GetString());
+        Assert.Equal("Denied", runOptionsDocument.RootElement.GetProperty("restrictions").GetProperty("tools").GetString());
+        Assert.Equal("detailed", runOptionsDocument.RootElement.GetProperty("responseDepths")[2].GetProperty("id").GetString());
 
         using var runWithoutCsrf = await client.PostAsJsonAsync("/api/v1/admin/runs", new
         {
@@ -214,11 +225,17 @@ public sealed class WebSetupWizardTests : IDisposable
             $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
             "mvp-stream-1",
             adminCsrf,
-            "Stream a bounded answer.");
+            "Stream a bounded answer.",
+            name: "Configured local answer",
+            runInstructions: "Use a short verification list.",
+            responseDepth: "detailed");
         var streamedText = await streamed.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, streamed.StatusCode);
         Assert.Equal("text/event-stream", streamed.Content.Headers.ContentType?.MediaType);
         Assert.Contains("event: run-started", streamedText, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"Configured local answer\"", streamedText, StringComparison.Ordinal);
+        Assert.Contains("\"responseDepth\":\"detailed\"", streamedText, StringComparison.Ordinal);
+        Assert.Contains("\"maximumOutputTokens\":2048", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: output-delta", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: usage", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: completed", streamedText, StringComparison.Ordinal);
@@ -228,7 +245,10 @@ public sealed class WebSetupWizardTests : IDisposable
             $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
             "mvp-stream-1",
             adminCsrf,
-            "Stream a bounded answer.");
+            "Stream a bounded answer.",
+            name: "Configured local answer",
+            runInstructions: "Use a short verification list.",
+            responseDepth: "detailed");
         Assert.Equal(HttpStatusCode.Conflict, streamReplay.StatusCode);
         Assert.Contains("fresh idempotency key", await streamReplay.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
@@ -238,7 +258,7 @@ public sealed class WebSetupWizardTests : IDisposable
             "mvp-stream-cancel",
             adminCsrf,
             "Wait for cancellation.",
-            HttpCompletionOption.ResponseHeadersRead);
+            completion: HttpCompletionOption.ResponseHeadersRead);
         await using var cancelBody = await cancelStream.Content.ReadAsStreamAsync();
         using var cancelReader = new StreamReader(cancelBody);
         var startedEvent = await ReadSseEventAsync(cancelReader);
@@ -262,6 +282,20 @@ public sealed class WebSetupWizardTests : IDisposable
         using var skillList = await client.GetAsync("/api/v1/admin/skills");
         Assert.Equal(HttpStatusCode.OK, skillList.StatusCode);
         Assert.Contains("Installed", await skillList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var skillRunOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
+        using var skillRunOptionsDocument = JsonDocument.Parse(await skillRunOptions.Content.ReadAsByteArrayAsync());
+        var installedSkillOption = Assert.Single(skillRunOptionsDocument.RootElement.GetProperty("skills").EnumerateArray());
+        Assert.Equal("skill:csharp.review", installedSkillOption.GetProperty("id").GetString());
+        Assert.False(installedSkillOption.GetProperty("selectable").GetBoolean());
+        using var deniedSkillStream = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-denied-skill",
+            adminCsrf,
+            "Use the ungranted skill.",
+            skillIds: ["skill:csharp.review"]);
+        Assert.Equal(HttpStatusCode.Forbidden, deniedSkillStream.StatusCode);
+        Assert.Contains("must already be granted", await deniedSkillStream.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         await using var verificationScope = _factory.Services.CreateAsyncScope();
         var configuredAgent = Assert.Single(await verificationScope.ServiceProvider
@@ -341,11 +375,15 @@ public sealed class WebSetupWizardTests : IDisposable
         string idempotencyKey,
         string csrf,
         string prompt,
+        string? name = null,
+        string? runInstructions = null,
+        string? responseDepth = null,
+        IReadOnlyList<string>? skillIds = null,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
-            Content = JsonContent.Create(new { prompt }),
+            Content = JsonContent.Create(new { prompt, name, runInstructions, responseDepth, skillIds }),
         };
         request.Headers.Add("Idempotency-Key", idempotencyKey);
         request.Headers.Add("X-CSRF-Token", csrf);

@@ -135,7 +135,7 @@ internal sealed class LocalModelInteractionService(
         CancellationToken cancellationToken)
     {
         if (request is null || request.RequestId.Value == Guid.Empty || request.Provider is null ||
-            !Content(request.SystemInstruction, 8_192) || !Content(request.Prompt, 16_384) ||
+            !Content(request.SystemInstruction, 24_576) || !Content(request.Prompt, 16_384) ||
             request.Limits is null || request.Limits.MaximumOutputTokens is < 1 or > 4_096 ||
             request.Limits.MaximumToolCalls != 0 || request.Limits.MaximumEvents is < 2 or > 8_192 ||
             request.Limits.MaximumWallClockSeconds is < 1 or > 120 ||

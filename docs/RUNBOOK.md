@@ -102,13 +102,16 @@ The CLI remains the recovery surface when the daemon or wizard is unavailable.
 When setup reaches `Ready`, use **Agents**, **Runs**, and **Skills** in the same loopback page. Opening
 one of these pages creates a 30-minute local operator session by validating the current user's protected
 administrator credential on the server; the credential is never returned to the browser. **Agents** shows
-the persisted identity and its policy/budget summary. **Runs** accepts one explicit bounded prompt and sends
-it only to the agent's pinned credential-free loopback/private compatible provider. Context is redacted;
-tools, browsing, fallback, files, messaging, and devices remain unavailable. The page displays the answer and
-token usage while the orchestrator retains a durable Completed/Failed evidence receipt rather than the raw
-answer. It also lists latest snapshots and can cancel nonterminal definitions. **Skills** lists immutable
-registry versions and can install the packaged C# review seed;
-an installed version remains inactive until the normal evaluation, separate approval, and canary lifecycle.
+the persisted identity and its policy/budget summary. **Runs** accepts an explicit title, bounded objective,
+optional run-level guidance, and concise/balanced/detailed response limit. It previews the base agent instruction,
+pinned provider boundaries, and exact skill choices. Only Active immutable skill versions already granted to that
+agent may be selected; their exact snapshot is bound to the durable run before model invocation. Context is
+redacted; tools, browsing, fallback, files, messaging, and devices remain unavailable. The page displays the
+transient answer and token usage while the orchestrator retains a durable Completed/Failed evidence receipt rather
+than raw prompt, guidance, skill body, or answer text. History is searchable, status-filterable, and paginated; a
+nonterminal definition can still be canceled. **Skills** lists immutable registry versions and can install the
+packaged C# review seed; an installed version remains inactive until the normal evaluation, separate approval, and
+canary lifecycle.
 
 To use that workspace from another computer, bind the host to a specific LAN HTTPS endpoint, configure that
 exact HTTPS origin, and supply a fresh 20-256 character `AgentForge:Host:RemoteAccessCode` through process or

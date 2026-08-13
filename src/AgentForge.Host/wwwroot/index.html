@@ -239,7 +239,7 @@
             <span class="stage-kicker">Ready</span>
             <h3>Your local agent is configured.</h3>
             <p>The provider, model, agent identity, and conservative policy were saved successfully.</p>
-            <button id="refresh-after-setup" class="setup-submit" type="button">View system status</button>
+            <a id="refresh-after-setup" class="setup-submit" href="#overview">View system status</a>
           </div>
 
           <p class="setup-note">API keys are sent only to this loopback origin, never shown in review, and cleared from the page immediately after setup.</p>
@@ -264,16 +264,48 @@
           <div>
             <span class="stage-kicker">DURABLE ORCHESTRATION</span>
             <h2 id="runs-title">Runs</h2>
-            <p>Send a bounded prompt to an agent's pinned local model, inspect its answer, and retain a durable completion receipt.</p>
+            <p>Configure a bounded agent run, inspect its live answer, and manage durable receipts without turning history into an endless feed.</p>
           </div>
           <button class="secondary-action" type="button" data-reload="runs">Reload runs</button>
         </div>
-        <form id="run-form" class="inline-create-form" autocomplete="off">
-          <label>Agent<select id="run-agent" required></select></label>
-          <label>Prompt<textarea id="run-prompt" required maxlength="16384" rows="3" placeholder="Reply with a one-sentence description of your role."></textarea></label>
-          <button class="setup-submit" type="submit">Run local model</button>
+        <form id="run-form" class="run-composer" autocomplete="off">
+          <div class="run-primary-grid">
+            <label>Run title<input id="run-name" maxlength="120" placeholder="PowerShell script draft"></label>
+            <label>Agent<select id="run-agent" required></select></label>
+            <label>Response depth<select id="run-depth">
+              <option value="concise">Concise</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="detailed">Detailed</option>
+            </select></label>
+          </div>
+          <label class="run-prompt-label">Objective<textarea id="run-prompt" required maxlength="16384" rows="4" placeholder="Describe the result you want from this run."></textarea></label>
+          <details class="run-context" open>
+            <summary>System context, skills &amp; runtime boundaries</summary>
+            <div class="run-context-grid">
+              <label>Run-level guidance<textarea id="run-instructions" maxlength="2048" rows="4" placeholder="Optional tone, format, or constraints for this run."></textarea></label>
+              <div class="system-preview">
+                <span>Base agent system instruction</span>
+                <p id="run-system-preview">Choose an agent to inspect its immutable system context.</p>
+              </div>
+            </div>
+            <div class="run-options-row">
+              <fieldset class="skill-picker">
+                <legend>Approved skills</legend>
+                <div id="run-skills" class="skill-options"><span class="option-empty">Loading governed skill options…</span></div>
+              </fieldset>
+              <div class="runtime-boundaries">
+                <span>Runtime boundaries</span>
+                <p id="run-model-summary" class="run-model-summary">Loading the pinned model route…</p>
+                <div id="run-restrictions" class="boundary-grid"></div>
+              </div>
+            </div>
+          </details>
+          <div class="composer-actions">
+            <p>Run titles are durable metadata. Prompts, run guidance, skill bodies, and model output remain transient.</p>
+            <button class="setup-submit" type="submit">Start run</button>
+          </div>
         </form>
-        <div class="scope-notice"><strong>Explicit local test</strong><span>Only the pinned loopback/private model may receive the redacted prompt. Tools, browsing, fallback, external messaging, files, and device access remain denied.</span></div>
+        <div class="scope-notice"><strong>Governed local run</strong><span>Only the pinned local/private model and exact Active skills already granted to this agent may enter the run context. Tools and external side effects remain denied.</span></div>
         <article id="run-output" class="interaction-output" aria-live="polite" hidden>
           <div class="resource-title">
             <h3>Agent response</h3>
@@ -285,8 +317,35 @@
             <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
           </div>
         </article>
-        <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
-        <div id="run-list" class="resource-list"></div>
+        <section class="run-history" aria-labelledby="run-history-title">
+          <div class="history-heading">
+            <div><span class="stage-kicker">DURABLE RECEIPTS</span><h3 id="run-history-title">Run history</h3></div>
+            <span id="run-history-count" class="history-count">0 runs</span>
+          </div>
+          <div class="history-toolbar">
+            <label>Search<input id="run-search" type="search" placeholder="Title, agent, or run ID"></label>
+            <label>Status<select id="run-state-filter">
+              <option value="all">All states</option>
+              <option value="active">Active only</option>
+              <option value="Completed">Completed</option>
+              <option value="Canceled">Canceled</option>
+              <option value="Failed">Failed</option>
+              <option value="Planned">Planned</option>
+            </select></label>
+            <label>Per page<select id="run-page-size">
+              <option value="5">5</option>
+              <option value="8" selected>8</option>
+              <option value="12">12</option>
+            </select></label>
+          </div>
+          <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
+          <div id="run-list" class="resource-list run-history-list"></div>
+          <div class="pagination-bar">
+            <button id="run-page-previous" class="secondary-action" type="button">Previous</button>
+            <span id="run-page-summary">Page 1 of 1</span>
+            <button id="run-page-next" class="secondary-action" type="button">Next</button>
+          </div>
+        </section>
       </section>
 
       <section id="skills" class="workspace-panel app-view" aria-labelledby="skills-title" hidden>

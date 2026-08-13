@@ -149,6 +149,10 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 - The Ready Runs workspace now consumes authenticated SSE progress from an exact single-node orchestration task. Started, text-delta, usage, completion, failure, and cancellation events are transient; only bounded hashes, usage, and terminal orchestration evidence are durable.
 - Active interaction cancellation is bound to the exact installation, Ready session, and task. The durable task is canceled before the invocation token is signaled, a stale or cross-session request cannot cancel an interaction, and stream replay is denied because raw response text is not retained.
 - Deterministic tests cover ordered observer events, streamed success, usage, terminal completion, active cancellation, and durable Canceled state. Live browser testing against `qwen3.6` completed an exact two-line response, canceled a long response, exposed no browser errors, and found neither prompt nor output text in persisted data.
+- The Ready Runs composer now accepts a durable run title, bounded per-run guidance, and concise/balanced/detailed response limits. It exposes the selected agent's base system instruction and exact fail-closed runtime boundaries before invocation.
+- Installed skill versions appear in the composer but remain disabled until both Active and explicitly granted to the selected agent. Selected skills resolve through the immutable run-snapshot service, include exact dependency authority, and enter only transient redacted model context; an ungranted selection is denied server-side even if a hostile client submits it.
+- Run receipts are now client-side searchable, status-filterable, and paginated over the bounded latest-100 API response. Setup completion uses a real `#overview` link rather than scrolling toward a hidden view. Live browser verification passed navigation, two-page history, filtering, policy-disabled state after form reset, and two exact `qwen3.6` configured-run responses.
+- The reproducible SDK/CI pin is updated from .NET 10.0.302 to the installed stable 10.0.400 feature band. Locked packages and target framework remain unchanged.
 
 ## Latest gate
 
@@ -159,6 +163,8 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 `artifacts/gates/POST-R1-LAN-REMOTE-20260813.md`: Pass. The Ready workspace supports explicitly enabled authenticated HTTPS LAN access while remaining loopback-only by default.
 
 `artifacts/gates/POST-R1-STREAMING-MVP-20260813.md`: Pass. Ready-state model interactions stream bounded progress and support exact durable operator cancellation without persisting prompt or output text.
+
+`artifacts/gates/POST-R1-RUNS-WORKSPACE-20260813.md`: Pass. Ready Runs exposes governed context/depth/skill choices and navigable durable history; the setup completion action now enters Overview.
 
 ## Known constraints and risks
 

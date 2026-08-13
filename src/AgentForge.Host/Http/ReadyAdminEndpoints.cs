@@ -24,6 +24,13 @@ namespace AgentForge.Host.Http;
 
 internal sealed record CreateMvpRunRequest(Guid AgentId, string Name);
 internal sealed record TestAgentChatRequest(string Prompt);
+internal sealed record StreamAgentChatRequest(
+    string Prompt,
+    string? Name,
+    string? RunInstructions,
+    string? ResponseDepth,
+    IReadOnlyList<string>? SkillIds);
+internal sealed record RunSkillBody(string Id, string Version, string PackageHash, string Body);
 
 internal static class ReadyAdminEndpoints
 {
@@ -37,6 +44,7 @@ internal static class ReadyAdminEndpoints
         group.MapGet("/session", GetSessionAsync);
         group.MapDelete("/session", DeleteSessionAsync);
         group.MapGet("/agents", ListAgentsAsync);
+        group.MapGet("/agents/{agentId:guid}/run-options", GetRunOptionsAsync);
         group.MapGet("/runs", ListRunsAsync);
         group.MapPost("/runs", CreateRunAsync);
         group.MapPost("/runs/{taskId:guid}/cancel", CancelRunAsync);
@@ -193,6 +201,95 @@ internal static class ReadyAdminEndpoints
                 agent.Version,
                 agent.UpdatedAt,
             }),
+            correlationId = context.TraceIdentifier,
+        });
+    }
+
+    private static async Task<IResult> GetRunOptionsAsync(
+        Guid agentId,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IAgentIdentityRepository agents,
+        IProviderProfileRepository providers,
+        ISkillRegistryRepository skills,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireAsync(
+            context, sessions, stateReader, clock, requireCsrf: false, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            return acquired.Failure;
+        }
+
+        var agent = await agents.FindByIdAsync(new AgentIdentityId(agentId), cancellationToken);
+        if (agent is null || agent.InstallationId != acquired.Session!.InstallationId)
+        {
+            return Problem(context, 404, "Agent not found",
+                "The selected agent does not belong to this installation.", "not-found");
+        }
+
+        var provider = await providers.FindByIdAsync(
+            agent.ModelPolicy.PrimaryProviderProfileId, cancellationToken);
+        if (provider is null || provider.InstallationId != acquired.Session.InstallationId)
+        {
+            return Problem(context, 409, "Provider unavailable",
+                "The agent's pinned provider profile is missing or outside this installation.",
+                "provider-unavailable");
+        }
+
+        var registered = await skills.ListAsync(acquired.Session.InstallationId, cancellationToken);
+        return Results.Ok(new
+        {
+            agent = new
+            {
+                id = agent.Id.Value,
+                agent.Name,
+                agent.Version,
+                systemInstruction = BuildSystemInstruction(agent, null, []),
+            },
+            provider = new
+            {
+                id = provider.Id.Value,
+                provider.Name,
+                provider.ProviderType,
+                endpoint = provider.Endpoint.ToString(),
+                provider.Model,
+            },
+            responseDepths = new[]
+            {
+                ResponseDepthOption("concise", "Concise", 384, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("balanced", "Balanced", 1_024, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("detailed", "Detailed", 2_048, agent.Budget.MaxOutputTokens),
+            },
+            skills = registered
+                .Where(item => item.Status is not (SkillPackageStatus.Archived or SkillPackageStatus.Quarantined))
+                .OrderBy(item => item.Package.Id.Value, StringComparer.Ordinal)
+                .ThenByDescending(item => item.Package.Version.Value, StringComparer.Ordinal)
+                .Select(item => new
+                {
+                    id = item.Package.Id.Value,
+                    version = item.Package.Version.Value,
+                    item.Package.Description,
+                    status = item.Status.ToString(),
+                    granted = agent.CapabilityPolicy.SkillGrants.Contains(
+                        item.Package.Id.Value, StringComparer.Ordinal),
+                    selectable = item.Status is SkillPackageStatus.Active &&
+                        agent.CapabilityPolicy.SkillGrants.Contains(item.Package.Id.Value, StringComparer.Ordinal),
+                    permissions = item.Package.Permissions,
+                }),
+            restrictions = new
+            {
+                modelRoute = "Pinned local/private provider only",
+                tools = "Denied",
+                browsing = "Denied",
+                memory = "Not attached",
+                files = "Denied",
+                messaging = "Denied",
+                devices = "Denied",
+                fallback = "Denied",
+            },
             correlationId = context.TraceIdentifier,
         });
     }
@@ -519,13 +616,14 @@ internal static class ReadyAdminEndpoints
     private static async Task StreamAgentChatAsync(
         Guid agentId,
         HttpContext context,
-        TestAgentChatRequest request,
+        StreamAgentChatRequest request,
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
         IProviderProfileRepository providers,
         ITaskOrchestrator orchestrator,
         ITaskSnapshotStore snapshots,
+        ISkillSnapshotService skillSnapshots,
         ILocalModelInteractionService interactions,
         ReadyActiveInteractionRegistry activeInteractions,
         IClock clock,
@@ -538,10 +636,10 @@ internal static class ReadyAdminEndpoints
             await acquired.Failure.ExecuteAsync(context);
             return;
         }
-        if (agentId == Guid.Empty || request is null || !PromptText(request.Prompt, 16_384))
+        if (agentId == Guid.Empty || request is null || !ValidStreamRequest(request))
         {
-            await Problem(context, 400, "Invalid prompt",
-                "Choose an agent and enter a prompt of at most 16,384 printable characters.",
+            await Problem(context, 400, "Invalid run configuration",
+                "Choose an agent, use bounded printable run fields, select at most four distinct skill IDs, and choose concise, balanced, or detailed output.",
                 "validation-failure").ExecuteAsync(context);
             return;
         }
@@ -553,6 +651,20 @@ internal static class ReadyAdminEndpoints
         TaskLeaseGrant? claimed = null;
         OrchestrationTaskId taskId = default;
         CorrelationId correlation = default;
+        var systemInstruction = string.Empty;
+        var runName = string.IsNullOrWhiteSpace(request.Name) ? "Local model run" : request.Name.Trim();
+        var responseDepth = string.IsNullOrWhiteSpace(request.ResponseDepth)
+            ? "balanced"
+            : request.ResponseDepth.Trim().ToLowerInvariant();
+        var runInstructions = string.IsNullOrWhiteSpace(request.RunInstructions)
+            ? null
+            : request.RunInstructions.Trim();
+        var selectedSkillIds = (request.SkillIds ?? [])
+            .Select(item => item.Trim())
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] appliedSkillIds = [];
+        var skillSnapshotHash = SnapshotHash(new { agentId, SelectedSkillIds = Array.Empty<string>() });
         var maximumOutputTokens = 0;
         var maximumWallClockSeconds = 0;
         await session.MutationGate.WaitAsync(cancellationToken);
@@ -589,8 +701,87 @@ internal static class ReadyAdminEndpoints
             taskId = new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16)));
             correlation = new CorrelationId(
                 $"admin-chat-stream:{Convert.ToHexStringLower(stableRequestIdentity)}");
-            maximumOutputTokens = (int)Math.Clamp(agent.Budget.MaxOutputTokens, 1L, 2_048L);
+            maximumOutputTokens = ResponseTokenLimit(responseDepth, agent.Budget.MaxOutputTokens);
             maximumWallClockSeconds = Math.Clamp(agent.Budget.MaxWallClockSeconds, 1, 120);
+
+            if (selectedSkillIds.Any(skillId => !agent.CapabilityPolicy.SkillGrants.Contains(
+                skillId, StringComparer.Ordinal)))
+            {
+                await Problem(context, 403, "Skill policy denied",
+                    "Every selected skill must already be granted to this exact agent version.",
+                    "policy-denied").ExecuteAsync(context);
+                return;
+            }
+
+            var skillBodies = new List<RunSkillBody>();
+            if (selectedSkillIds.Length > 0)
+            {
+                var skillRequestIdentity = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    StableIdentity = Convert.ToHexStringLower(stableRequestIdentity),
+                    request.Prompt,
+                    Name = runName,
+                    RunInstructions = runInstructions,
+                    ResponseDepth = responseDepth,
+                    SkillIds = selectedSkillIds,
+                }, HashJson));
+                var skillSnapshot = await skillSnapshots.CreateAsync(
+                    new SkillRunSnapshotId(new Guid(skillRequestIdentity.AsSpan(0, 16))),
+                    session.InstallationId,
+                    selectedSkillIds.Select(item => new SkillId(item)).ToArray(),
+                    session.ActorId,
+                    StoredIdempotencyKey("agent-chat-stream-skills", idempotencyKey),
+                    correlation,
+                    null,
+                    cancellationToken);
+                if (!skillSnapshot.IsSuccess)
+                {
+                    await DomainProblem(context, skillSnapshot.Failure!, "Run skill snapshot failed")
+                        .ExecuteAsync(context);
+                    return;
+                }
+
+                appliedSkillIds = skillSnapshot.Value.Selections
+                    .Select(item => item.SkillId.Value)
+                    .Order(StringComparer.Ordinal)
+                    .ToArray();
+                if (appliedSkillIds.Any(skillId => !agent.CapabilityPolicy.SkillGrants.Contains(
+                    skillId, StringComparer.Ordinal)))
+                {
+                    await Problem(context, 403, "Skill dependency policy denied",
+                        "A selected skill depends on another skill that is not granted to this agent.",
+                        "policy-denied").ExecuteAsync(context);
+                    return;
+                }
+
+                foreach (var selection in skillSnapshot.Value.Selections.OrderBy(item => item.SkillId.Value, StringComparer.Ordinal))
+                {
+                    var body = await skillSnapshots.OpenBodyAsync(
+                        skillSnapshot.Value.Id, selection.SkillId, cancellationToken);
+                    if (!body.IsSuccess)
+                    {
+                        await DomainProblem(context, body.Failure!, "Run skill content failed integrity validation")
+                            .ExecuteAsync(context);
+                        return;
+                    }
+                    skillBodies.Add(new RunSkillBody(
+                        selection.SkillId.Value,
+                        selection.Version.Value,
+                        selection.PackageHash,
+                        body.Value));
+                }
+                skillSnapshotHash = skillSnapshot.Value.SnapshotHash;
+            }
+
+            systemInstruction = BuildSystemInstruction(agent, runInstructions, skillBodies);
+            if (systemInstruction.Length > 24_576)
+            {
+                await Problem(context, 422, "Run context too large",
+                    "The approved system and skill context exceeds the interactive run bound.",
+                    "budget-exceeded").ExecuteAsync(context);
+                return;
+            }
+
             var definition = new OrchestrationTaskDefinition(
                 taskId,
                 session.InstallationId,
@@ -599,7 +790,7 @@ internal static class ReadyAdminEndpoints
                 OrchestrationPattern.Sequential,
                 [new TaskNodeDefinition(
                     new TaskNodeId("local-model"),
-                    "Streaming local model test",
+                    runName,
                     [],
                     [],
                     [],
@@ -618,9 +809,11 @@ internal static class ReadyAdminEndpoints
                     agent.Budget,
                     agent.Version,
                     InteractiveMaximumOutputTokens = maximumOutputTokens,
+                    ResponseDepth = responseDepth,
+                    RunInstructionsHash = runInstructions is null ? null : SnapshotHash(runInstructions),
                     Streaming = true,
                 }),
-                SnapshotHash(new { agent.CapabilityPolicy.SkillGrants, agent.Version }));
+                skillSnapshotHash);
             var created = await orchestrator.CreateAsync(
                 definition,
                 session.ActorId,
@@ -696,6 +889,14 @@ internal static class ReadyAdminEndpoints
             {
                 taskId = taskId.Value,
                 state = claimed!.Snapshot.State.ToString(),
+                configuration = new
+                {
+                    name = runName,
+                    responseDepth,
+                    maximumOutputTokens,
+                    skillIds = appliedSkillIds,
+                    hasRunInstructions = runInstructions is not null,
+                },
                 provider = new
                 {
                     id = provider!.Id.Value,
@@ -711,7 +912,7 @@ internal static class ReadyAdminEndpoints
             var interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
                 new ModelRequestId(taskId.Value),
                 provider,
-                BuildSystemInstruction(agent!),
+                systemInstruction,
                 request.Prompt,
                 new ModelInvocationLimits(
                     maximumOutputTokens,
@@ -1076,7 +1277,10 @@ internal static class ReadyAdminEndpoints
         }
     }
 
-    private static string BuildSystemInstruction(AgentIdentity agent)
+    private static string BuildSystemInstruction(
+        AgentIdentity agent,
+        string? runInstructions = null,
+        IReadOnlyList<RunSkillBody>? skills = null)
     {
         var builder = new StringBuilder(1024);
         builder.Append("You are ").Append(agent.Name).Append(". ");
@@ -1089,10 +1293,62 @@ internal static class ReadyAdminEndpoints
             builder.Append("Mission: ").Append(agent.Mission).Append(". ");
         }
         builder.Append("Respond in ").Append(agent.PreferredLanguage)
-            .Append(" using this style: ").Append(agent.ResponseStyle)
-            .Append(". Do not claim to have used tools, network resources, files, memory, or external systems; none are available in this interactive test.");
+            .Append(" using this style: ").Append(agent.ResponseStyle).Append(". ");
+        if (!string.IsNullOrWhiteSpace(runInstructions))
+        {
+            builder.Append("Operator guidance for this run: ")
+                .Append(runInstructions).Append(". ");
+        }
+        foreach (var skill in skills ?? [])
+        {
+            builder.Append("Approved immutable skill ")
+                .Append(skill.Id).Append('@').Append(skill.Version)
+                .Append(" (package ").Append(skill.PackageHash).Append("):\n")
+                .Append(skill.Body).Append("\nEnd approved skill. ");
+        }
+        builder.Append("Non-negotiable runtime boundary: do not claim to have used tools, browsing, network resources, files, memory, messages, devices, or external systems; none are available in this interactive run.");
         return builder.ToString();
     }
+
+    private static object ResponseDepthOption(
+        string id,
+        string label,
+        int requestedTokens,
+        long agentMaximum) => new
+        {
+            id,
+            label,
+            maximumOutputTokens = (int)Math.Clamp(agentMaximum, 1L, requestedTokens),
+        };
+
+    private static int ResponseTokenLimit(string responseDepth, long agentMaximum) =>
+        (int)Math.Clamp(agentMaximum, 1L, responseDepth switch
+        {
+            "concise" => 384,
+            "detailed" => 2_048,
+            _ => 1_024,
+        });
+
+    private static bool ValidStreamRequest(StreamAgentChatRequest request)
+    {
+        var depth = string.IsNullOrWhiteSpace(request.ResponseDepth)
+            ? "balanced"
+            : request.ResponseDepth.Trim().ToLowerInvariant();
+        var skills = request.SkillIds ?? [];
+        return PromptText(request.Prompt, 16_384) &&
+            (string.IsNullOrWhiteSpace(request.Name) || Text(request.Name.Trim(), 120)) &&
+            (string.IsNullOrWhiteSpace(request.RunInstructions) ||
+                PromptText(request.RunInstructions.Trim(), 2_048)) &&
+            depth is "concise" or "balanced" or "detailed" &&
+            skills.Count <= 4 &&
+            skills.All(SkillIdText) &&
+            skills.Distinct(StringComparer.Ordinal).Count() == skills.Count;
+    }
+
+    private static bool SkillIdText(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= 128 &&
+        value.StartsWith("skill:", StringComparison.Ordinal) &&
+        value.All(character => char.IsAsciiLetterOrDigit(character) || character is ':' or '.' or '-' or '_');
 
     private static async ValueTask WriteSseAsync<T>(
         HttpContext context,

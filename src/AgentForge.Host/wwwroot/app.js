@@ -41,12 +41,26 @@ const elements = {
   runsMessage: document.querySelector("#runs-message"),
   runList: document.querySelector("#run-list"),
   runForm: document.querySelector("#run-form"),
+  runName: document.querySelector("#run-name"),
   runAgent: document.querySelector("#run-agent"),
+  runDepth: document.querySelector("#run-depth"),
+  runInstructions: document.querySelector("#run-instructions"),
+  runSystemPreview: document.querySelector("#run-system-preview"),
+  runSkills: document.querySelector("#run-skills"),
+  runModelSummary: document.querySelector("#run-model-summary"),
+  runRestrictions: document.querySelector("#run-restrictions"),
   runOutput: document.querySelector("#run-output"),
   runOutputState: document.querySelector("#run-output-state"),
   runOutputText: document.querySelector("#run-output-text"),
   runOutputMeta: document.querySelector("#run-output-meta"),
   cancelInteraction: document.querySelector("#cancel-interaction"),
+  runHistoryCount: document.querySelector("#run-history-count"),
+  runSearch: document.querySelector("#run-search"),
+  runStateFilter: document.querySelector("#run-state-filter"),
+  runPageSize: document.querySelector("#run-page-size"),
+  runPagePrevious: document.querySelector("#run-page-previous"),
+  runPageNext: document.querySelector("#run-page-next"),
+  runPageSummary: document.querySelector("#run-page-summary"),
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
@@ -60,6 +74,10 @@ const admin = {
   actorId: null,
   remoteAccessCode: "",
   agents: [],
+  runs: [],
+  runOptions: null,
+  runPage: 1,
+  runPageSize: 8,
   activeTaskId: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
@@ -234,6 +252,7 @@ function stateChip(state) {
 async function loadAgents(message = "Loading persisted agent identities…") {
   workspaceStatus(elements.agentsMessage, message);
   try {
+    const selectedAgentId = elements.runAgent.value;
     const payload = await adminRead("/api/v1/admin/agents");
     admin.agents = payload.agents;
     elements.agentList.replaceChildren();
@@ -262,6 +281,9 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       card.append(title, description, meta);
       elements.agentList.append(card);
     }
+    if (payload.agents.some(agent => agent.id === selectedAgentId)) {
+      elements.runAgent.value = selectedAgentId;
+    }
     if (!payload.agents.length) elements.agentList.append(makeElement("div", "empty-state", "No agents are configured."));
     workspaceStatus(elements.agentsMessage, `${payload.agents.length} ${payload.agents.length === 1 ? "agent" : "agents"} loaded from durable state.`, "ok");
     return payload.agents;
@@ -271,47 +293,168 @@ async function loadAgents(message = "Loading persisted agent identities…") {
   }
 }
 
-async function loadRuns(message = "Loading durable run snapshots…") {
+function renderRunOptions(payload) {
+  admin.runOptions = payload;
+  elements.runSystemPreview.textContent = payload.agent.systemInstruction;
+  elements.runModelSummary.textContent = `${payload.provider.name} · ${payload.provider.model} · ${payload.provider.endpoint}`;
+
+  const selectedDepth = elements.runDepth.value || "balanced";
+  elements.runDepth.replaceChildren();
+  for (const depth of payload.responseDepths) {
+    const option = document.createElement("option");
+    option.value = depth.id;
+    option.textContent = `${depth.label} · up to ${depth.maximumOutputTokens.toLocaleString()} tokens`;
+    elements.runDepth.append(option);
+  }
+  elements.runDepth.value = payload.responseDepths.some(item => item.id === selectedDepth)
+    ? selectedDepth
+    : "balanced";
+
+  elements.runSkills.replaceChildren();
+  if (!payload.skills.length) {
+    elements.runSkills.append(makeElement("span", "option-empty", "No skill packages are installed. Install one in Skills, then promote and grant it before use."));
+  } else {
+    for (const skill of payload.skills) {
+      const option = makeElement("label", `skill-option${skill.selectable ? "" : " unavailable"}`);
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = skill.id;
+      const formBusy = elements.runForm.getAttribute("aria-busy") === "true";
+      input.disabled = !skill.selectable || formBusy;
+      if (!skill.selectable) input.dataset.policyDisabled = "true";
+      if (formBusy) input.dataset.busyWasDisabled = "false";
+      const copy = document.createElement("span");
+      const reason = skill.selectable
+        ? skill.description
+        : `${skill.description} · ${skill.status !== "Active" ? "not Active" : "not granted to this agent"}`;
+      copy.append(
+        makeElement("strong", "", `${skill.id}@${skill.version}`),
+        makeElement("small", "", reason));
+      option.append(input, copy, stateChip(skill.status));
+      elements.runSkills.append(option);
+    }
+  }
+
+  elements.runRestrictions.replaceChildren();
+  const labels = {
+    modelRoute: "Model route",
+    tools: "Tools",
+    browsing: "Browsing",
+    memory: "Memory",
+    files: "Files",
+    messaging: "Messaging",
+    devices: "Devices",
+    fallback: "Fallback",
+  };
+  for (const [key, value] of Object.entries(payload.restrictions)) {
+    addMeta(elements.runRestrictions, labels[key] || key, value);
+  }
+}
+
+async function loadRunOptions() {
+  if (!elements.runAgent.value) {
+    admin.runOptions = null;
+    elements.runSystemPreview.textContent = "No configured agent is available.";
+    elements.runSkills.replaceChildren(makeElement("span", "option-empty", "No agent is available for skill policy evaluation."));
+    elements.runModelSummary.textContent = "No model route is available.";
+    elements.runRestrictions.replaceChildren();
+    return;
+  }
+  try {
+    const payload = await adminRead(`/api/v1/admin/agents/${elements.runAgent.value}/run-options`);
+    renderRunOptions(payload);
+  } catch (error) {
+    admin.runOptions = null;
+    elements.runSystemPreview.textContent = "Run configuration could not be loaded.";
+    elements.runSkills.replaceChildren(makeElement("span", "option-empty", "Skill options are unavailable until agent policy loads."));
+    elements.runModelSummary.textContent = "The pinned model route could not be loaded.";
+    elements.runRestrictions.replaceChildren();
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Run options could not be loaded.", "error");
+  }
+}
+
+function formatRunTime(value) {
+  const instant = new Date(value);
+  return Number.isNaN(instant.valueOf()) ? "Unknown" : instant.toLocaleString();
+}
+
+function renderRunHistory() {
+  const terminalStates = ["Completed", "Failed", "Canceled", "DeadLettered"];
+  const query = elements.runSearch.value.trim().toLowerCase();
+  const state = elements.runStateFilter.value;
+  const filtered = admin.runs.filter(run => {
+    const agent = admin.agents.find(item => item.id === run.agentId);
+    const matchesQuery = !query || [run.name, run.taskId, run.state, agent?.name || run.agentId]
+      .some(value => String(value).toLowerCase().includes(query));
+    const matchesState = state === "all" ||
+      (state === "active" ? !terminalStates.includes(run.state) : run.state === state);
+    return matchesQuery && matchesState;
+  });
+  admin.runPageSize = Number(elements.runPageSize.value) || 8;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / admin.runPageSize));
+  admin.runPage = Math.min(Math.max(1, admin.runPage), pageCount);
+  const first = (admin.runPage - 1) * admin.runPageSize;
+  const page = filtered.slice(first, first + admin.runPageSize);
+
+  elements.runList.replaceChildren();
+  for (const run of page) {
+    const card = makeElement("article", "resource-card compact");
+    const content = document.createElement("div");
+    const title = makeElement("div", "resource-title");
+    const titleCopy = document.createElement("div");
+    const agent = admin.agents.find(item => item.id === run.agentId);
+    titleCopy.append(
+      makeElement("h3", "", run.name),
+      makeElement("p", "resource-subtitle", `${run.taskId} · ${agent?.name || run.agentId}`));
+    title.append(titleCopy, stateChip(run.state));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Pattern", run.pattern);
+    addMeta(meta, "Updated", formatRunTime(run.updatedAt));
+    addMeta(meta, "Snapshot", `v${run.version} · ${run.snapshotHash.slice(0, 18)}…`);
+    content.append(title, meta);
+    card.append(content);
+    if (!terminalStates.includes(run.state)) {
+      const actions = makeElement("div", "resource-actions");
+      const cancel = makeElement("button", "secondary-action", "Cancel run");
+      cancel.type = "button";
+      cancel.addEventListener("click", async () => {
+        cancel.disabled = true;
+        try {
+          await adminMutation(`/api/v1/admin/runs/${run.taskId}/cancel`);
+          await loadRuns("Run canceled. Refreshing snapshots…", false);
+        } catch (error) {
+          workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Run cancellation failed.", "error");
+          cancel.disabled = false;
+        }
+      });
+      actions.append(cancel);
+      card.append(actions);
+    }
+    elements.runList.append(card);
+  }
+  if (!page.length) {
+    const emptyCopy = admin.runs.length
+      ? "No run receipts match the current search and status filters."
+      : "No runs yet. Configure and start a bounded local-model run above.";
+    elements.runList.append(makeElement("div", "empty-state", emptyCopy));
+  }
+  elements.runHistoryCount.textContent = query || state !== "all"
+    ? `${filtered.length} matched · ${admin.runs.length} total`
+    : `${admin.runs.length} ${admin.runs.length === 1 ? "run" : "runs"}`;
+  elements.runPageSummary.textContent = `Page ${admin.runPage} of ${pageCount}`;
+  elements.runPagePrevious.disabled = admin.runPage <= 1;
+  elements.runPageNext.disabled = admin.runPage >= pageCount;
+}
+
+async function loadRuns(message = "Loading durable run snapshots…", resetPage = true) {
   workspaceStatus(elements.runsMessage, message);
   try {
     if (!admin.agents.length) await loadAgents();
+    await loadRunOptions();
     const payload = await adminRead("/api/v1/admin/runs");
-    elements.runList.replaceChildren();
-    for (const run of payload.runs) {
-      const card = makeElement("article", "resource-card compact");
-      const content = document.createElement("div");
-      const title = makeElement("div", "resource-title");
-      const titleCopy = document.createElement("div");
-      const agent = admin.agents.find(item => item.id === run.agentId);
-      titleCopy.append(
-        makeElement("h3", "", run.name),
-        makeElement("p", "resource-subtitle", `${run.taskId} · ${agent?.name || run.agentId}`));
-      title.append(titleCopy, stateChip(run.state));
-      const meta = makeElement("div", "resource-meta");
-      addMeta(meta, "Pattern", run.pattern);
-      addMeta(meta, "Snapshot", `v${run.version} · ${run.snapshotHash.slice(0, 18)}…`);
-      content.append(title, meta);
-      card.append(content);
-      if (!["Completed", "Failed", "Canceled", "DeadLettered"].includes(run.state)) {
-        const actions = makeElement("div", "resource-actions");
-        const cancel = makeElement("button", "secondary-action", "Cancel run");
-        cancel.type = "button";
-        cancel.addEventListener("click", async () => {
-          cancel.disabled = true;
-          try {
-            await adminMutation(`/api/v1/admin/runs/${run.taskId}/cancel`);
-            await loadRuns("Run canceled. Refreshing snapshots…");
-          } catch (error) {
-            workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Run cancellation failed.", "error");
-            cancel.disabled = false;
-          }
-        });
-        actions.append(cancel);
-        card.append(actions);
-      }
-      elements.runList.append(card);
-    }
-    if (!payload.runs.length) elements.runList.append(makeElement("div", "empty-state", "No runs yet. Send a bounded local-model prompt above."));
+    admin.runs = payload.runs;
+    if (resetPage) admin.runPage = 1;
+    renderRunHistory();
     workspaceStatus(elements.runsMessage, `${payload.runs.length} latest run ${payload.runs.length === 1 ? "snapshot" : "snapshots"} loaded.`, "ok");
   } catch (error) {
     workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Runs could not be loaded.", "error");
@@ -331,6 +474,8 @@ async function createRun(event) {
   admin.activeTaskId = null;
   try {
     const prompt = document.querySelector("#run-prompt").value.trim();
+    const skillIds = [...elements.runSkills.querySelectorAll("input[type='checkbox']:checked")]
+      .map(input => input.value);
     workspaceStatus(elements.runsMessage, "Invoking the pinned local model with tools and fallback disabled…");
     let providerLabel = "Pinned local model";
     let usageLabel = "Token usage pending";
@@ -338,13 +483,22 @@ async function createRun(event) {
     let terminalEvent = null;
     await adminStreamMutation(
       `/api/v1/admin/agents/${elements.runAgent.value}/test-chat-stream`,
-      { prompt },
+      {
+        prompt,
+        name: elements.runName.value.trim() || null,
+        runInstructions: elements.runInstructions.value.trim() || null,
+        responseDepth: elements.runDepth.value,
+        skillIds,
+      },
       async (eventName, payload) => {
         if (eventName === "run-started") {
           admin.activeTaskId = payload.taskId;
           providerLabel = `${payload.provider.name} · ${payload.provider.model}`;
           elements.runOutputState.textContent = "Running";
-          elements.runOutputMeta.textContent = `${providerLabel} · waiting for model output`;
+          const skillLabel = payload.configuration.skillIds.length
+            ? ` · ${payload.configuration.skillIds.length} skill ${payload.configuration.skillIds.length === 1 ? "snapshot" : "snapshots"}`
+            : "";
+          elements.runOutputMeta.textContent = `${providerLabel} · ${payload.configuration.responseDepth} · up to ${payload.configuration.maximumOutputTokens.toLocaleString()} tokens${skillLabel}`;
           elements.cancelInteraction.hidden = false;
         } else if (eventName === "model-started") {
           elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
@@ -556,7 +710,16 @@ async function mutation(path, payload, contentType = "application/json") {
 }
 
 function setBusy(form, busy) {
-  for (const control of form.querySelectorAll("button, input, select")) control.disabled = busy;
+  for (const control of form.querySelectorAll("button, input, select, textarea")) {
+    if (busy) {
+      control.dataset.busyWasDisabled = control.disabled ? "true" : "false";
+      control.disabled = true;
+    } else {
+      control.disabled = control.dataset.policyDisabled === "true" ||
+        control.dataset.busyWasDisabled === "true";
+      delete control.dataset.busyWasDisabled;
+    }
+  }
   form.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
@@ -840,7 +1003,27 @@ elements.reviewForm.addEventListener("submit", completeSetup);
 elements.runForm.addEventListener("submit", createRun);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
-document.querySelector("#refresh-after-setup").addEventListener("click", () => document.querySelector("#overview").scrollIntoView());
+elements.runAgent.addEventListener("change", loadRunOptions);
+elements.runSearch.addEventListener("input", () => {
+  admin.runPage = 1;
+  renderRunHistory();
+});
+elements.runStateFilter.addEventListener("change", () => {
+  admin.runPage = 1;
+  renderRunHistory();
+});
+elements.runPageSize.addEventListener("change", () => {
+  admin.runPage = 1;
+  renderRunHistory();
+});
+elements.runPagePrevious.addEventListener("click", () => {
+  admin.runPage -= 1;
+  renderRunHistory();
+});
+elements.runPageNext.addEventListener("click", () => {
+  admin.runPage += 1;
+  renderRunHistory();
+});
 for (const button of document.querySelectorAll("[data-back]")) {
   button.addEventListener("click", () => {
     const stage = Number(button.dataset.back);
