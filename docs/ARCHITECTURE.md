@@ -430,6 +430,26 @@ The Security module canonicalizes and redacts those payloads before the Persiste
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,
 and a separate verifier streams the global chain to identify the first broken event.
 
+## Ready interaction streaming and cancellation
+
+The Ready administrator surface keeps durable orchestration and transient model delivery separate. An
+authenticated, CSRF-protected, idempotent request creates and claims one exact orchestration node before the
+response starts. The local interaction service observes normalized provider `Started`, text-delta, and usage
+events through a harness-owned observer; the host translates only those bounded records into same-session SSE.
+Prompt and response bodies never enter the orchestration definition, snapshot, audit stream, artifact store, or
+idempotency cache.
+
+An in-memory registry contains only active task identity, installation identity, a one-way session hash, and a
+linked cancellation source. The cancel mutation first appends the durable `Canceled` snapshot through the
+orchestrator and then signals the exact registered invocation. Completion after cancellation cannot overwrite
+the terminal snapshot. Client disconnect instead terminates the provider call and records a typed failed run;
+it does not infer operator authorization. A transient stream cannot be replayed because AgentForge deliberately
+does not retain its raw output; callers must use a fresh idempotency key.
+
+Every successful transport stream ends with one `completed`, `failed`, or `canceled` event that reflects durable
+state. The browser treats a connection close without that terminal receipt as a failure, renders text deltas with
+`textContent`, and removes the cancel control after a terminal event.
+
 ## Framework spike decision
 
 Microsoft Agent Framework is optional adapter material, not the orchestration source

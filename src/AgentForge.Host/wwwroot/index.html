@@ -275,9 +275,15 @@
         </form>
         <div class="scope-notice"><strong>Explicit local test</strong><span>Only the pinned loopback/private model may receive the redacted prompt. Tools, browsing, fallback, external messaging, files, and device access remain denied.</span></div>
         <article id="run-output" class="interaction-output" aria-live="polite" hidden>
-          <div class="resource-title"><h3>Agent response</h3><span id="run-output-state" class="state-chip completed">Completed</span></div>
+          <div class="resource-title">
+            <h3>Agent response</h3>
+            <span id="run-output-state" class="state-chip running">Running</span>
+          </div>
           <pre id="run-output-text"></pre>
           <p id="run-output-meta" class="resource-subtitle"></p>
+          <div class="resource-actions">
+            <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
+          </div>
         </article>
         <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
         <div id="run-list" class="resource-list"></div>

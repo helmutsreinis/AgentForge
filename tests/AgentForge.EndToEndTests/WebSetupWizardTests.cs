@@ -209,6 +209,53 @@ public sealed class WebSetupWizardTests : IDisposable
         }));
         Assert.Equal(HttpStatusCode.Conflict, chatConflict.StatusCode);
 
+        using var streamed = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-1",
+            adminCsrf,
+            "Stream a bounded answer.");
+        var streamedText = await streamed.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, streamed.StatusCode);
+        Assert.Equal("text/event-stream", streamed.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("event: run-started", streamedText, StringComparison.Ordinal);
+        Assert.Contains("event: output-delta", streamedText, StringComparison.Ordinal);
+        Assert.Contains("event: usage", streamedText, StringComparison.Ordinal);
+        Assert.Contains("event: completed", streamedText, StringComparison.Ordinal);
+        Assert.Contains("I am the bounded AgentForge test agent.", streamedText, StringComparison.Ordinal);
+        using var streamReplay = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-1",
+            adminCsrf,
+            "Stream a bounded answer.");
+        Assert.Equal(HttpStatusCode.Conflict, streamReplay.StatusCode);
+        Assert.Contains("fresh idempotency key", await streamReplay.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var cancelStream = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-cancel",
+            adminCsrf,
+            "Wait for cancellation.",
+            HttpCompletionOption.ResponseHeadersRead);
+        await using var cancelBody = await cancelStream.Content.ReadAsStreamAsync();
+        using var cancelReader = new StreamReader(cancelBody);
+        var startedEvent = await ReadSseEventAsync(cancelReader);
+        Assert.Contains("event: run-started", startedEvent, StringComparison.Ordinal);
+        using var startedJson = JsonDocument.Parse(startedEvent.Split("data: ", StringSplitOptions.None)[1]);
+        var activeTaskId = startedJson.RootElement.GetProperty("taskId").GetGuid();
+        using var cancelActive = await MutationAsync(
+            client,
+            $"/api/v1/admin/runs/{activeTaskId:D}/cancel",
+            "mvp-stream-cancel-request",
+            adminCsrf,
+            JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.OK, cancelActive.StatusCode);
+        Assert.Contains("Canceled", await cancelActive.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var canceledTail = await cancelReader.ReadToEndAsync();
+        Assert.Contains("event: canceled", canceledTail, StringComparison.Ordinal);
+
         using var installSkill = await MutationAsync(client, "/api/v1/admin/skills/seed/csharp-review/install", "seed-skill-1", adminCsrf, JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.OK, installSkill.StatusCode);
         Assert.Contains("skill:csharp.review", await installSkill.Content.ReadAsStringAsync(), StringComparison.Ordinal);
@@ -288,6 +335,39 @@ public sealed class WebSetupWizardTests : IDisposable
         return await client.SendAsync(request);
     }
 
+    private static async Task<HttpResponseMessage> StreamMutationAsync(
+        HttpClient client,
+        string path,
+        string idempotencyKey,
+        string csrf,
+        string prompt,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, path)
+        {
+            Content = JsonContent.Create(new { prompt }),
+        };
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+        request.Headers.Add("X-CSRF-Token", csrf);
+        request.Headers.Add("Origin", "http://localhost");
+        request.Headers.Accept.ParseAdd("text/event-stream");
+        return await client.SendAsync(request, completion);
+    }
+
+    private static async Task<string> ReadSseEventAsync(StreamReader reader)
+    {
+        var lines = new List<string>();
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            if (line.Length == 0)
+            {
+                break;
+            }
+            lines.Add(line);
+        }
+        return string.Join('\n', lines);
+    }
+
     private static async Task<string> ReadPropertyAsync(HttpResponseMessage response, string property)
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync());
@@ -357,5 +437,36 @@ public sealed class WebSetupWizardTests : IDisposable
                 0,
                 4,
                 "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
+
+        public async Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
+            LocalModelInteractionRequest request,
+            ILocalModelInteractionObserver observer,
+            CancellationToken cancellationToken)
+        {
+            await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                request.RequestId,
+                LocalModelInteractionProgressKind.Started), cancellationToken);
+            if (string.Equals(request.Prompt, "Wait for cancellation.", StringComparison.Ordinal))
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                request.RequestId,
+                LocalModelInteractionProgressKind.TextDelta,
+                TextDelta: "I am the bounded AgentForge test agent."), cancellationToken);
+            var usage = new ModelUsage(12, 9, 0, null, null);
+            await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                request.RequestId,
+                LocalModelInteractionProgressKind.Usage,
+                Usage: usage), cancellationToken);
+            return DomainResult.Success(new LocalModelInteractionResult(
+                request.RequestId,
+                "I am the bounded AgentForge test agent.",
+                usage,
+                ModelFinishReason.Stop,
+                0,
+                4,
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        }
     }
 }

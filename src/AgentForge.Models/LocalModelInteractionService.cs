@@ -117,6 +117,21 @@ internal sealed class LocalModelInteractionService(
 
     public async Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
         LocalModelInteractionRequest request,
+        CancellationToken cancellationToken) =>
+        await InvokeCoreAsync(request, null, cancellationToken);
+
+    public async Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
+        LocalModelInteractionRequest request,
+        ILocalModelInteractionObserver observer,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        return await InvokeCoreAsync(request, observer, cancellationToken);
+    }
+
+    private async Task<DomainResult<LocalModelInteractionResult>> InvokeCoreAsync(
+        LocalModelInteractionRequest request,
+        ILocalModelInteractionObserver? observer,
         CancellationToken cancellationToken)
     {
         if (request is null || request.RequestId.Value == Guid.Empty || request.Provider is null ||
@@ -164,6 +179,13 @@ internal sealed class LocalModelInteractionService(
             {
                 case ModelStartedEvent value:
                     started = value;
+                    if (observer is not null)
+                    {
+                        await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                            request.RequestId,
+                            LocalModelInteractionProgressKind.Started,
+                            ContextRedactionCount: value.ContextRedactionCount), cancellationToken);
+                    }
                     break;
                 case ModelTextDeltaEvent value:
                     if (output.Length + value.Delta.Length > 32_768)
@@ -171,9 +193,23 @@ internal sealed class LocalModelInteractionService(
                         return Failure(FailureCode.BudgetExceeded, "The local model response exceeded the interactive output bound.");
                     }
                     output.Append(value.Delta);
+                    if (observer is not null)
+                    {
+                        await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                            request.RequestId,
+                            LocalModelInteractionProgressKind.TextDelta,
+                            TextDelta: value.Delta), cancellationToken);
+                    }
                     break;
                 case ModelUsageEvent value:
                     usage = value.Usage;
+                    if (observer is not null)
+                    {
+                        await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                            request.RequestId,
+                            LocalModelInteractionProgressKind.Usage,
+                            Usage: value.Usage), cancellationToken);
+                    }
                     break;
                 case ModelCompletedEvent value:
                     completed = value;

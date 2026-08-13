@@ -15,7 +15,9 @@ using AgentForge.Domain.Agents;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
 using AgentForge.Domain.Skills;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 
 namespace AgentForge.Host.Http;
@@ -39,6 +41,7 @@ internal static class ReadyAdminEndpoints
         group.MapPost("/runs", CreateRunAsync);
         group.MapPost("/runs/{taskId:guid}/cancel", CancelRunAsync);
         group.MapPost("/agents/{agentId:guid}/test-chat", TestAgentChatAsync);
+        group.MapPost("/agents/{agentId:guid}/test-chat-stream", StreamAgentChatAsync);
         group.MapGet("/skills", ListSkillsAsync);
         group.MapPost("/skills/seed/csharp-review/install", InstallSeedSkillAsync);
     }
@@ -513,6 +516,302 @@ internal static class ReadyAdminEndpoints
         }
     }
 
+    private static async Task StreamAgentChatAsync(
+        Guid agentId,
+        HttpContext context,
+        TestAgentChatRequest request,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IAgentIdentityRepository agents,
+        IProviderProfileRepository providers,
+        ITaskOrchestrator orchestrator,
+        ITaskSnapshotStore snapshots,
+        ILocalModelInteractionService interactions,
+        ReadyActiveInteractionRegistry activeInteractions,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(
+            context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            await acquired.Failure.ExecuteAsync(context);
+            return;
+        }
+        if (agentId == Guid.Empty || request is null || !PromptText(request.Prompt, 16_384))
+        {
+            await Problem(context, 400, "Invalid prompt",
+                "Choose an agent and enter a prompt of at most 16,384 printable characters.",
+                "validation-failure").ExecuteAsync(context);
+            return;
+        }
+
+        var session = acquired.Session!;
+        var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+        AgentIdentity? agent = null;
+        ProviderProfile? provider = null;
+        TaskLeaseGrant? claimed = null;
+        OrchestrationTaskId taskId = default;
+        CorrelationId correlation = default;
+        var maximumOutputTokens = 0;
+        var maximumWallClockSeconds = 0;
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            agent = await agents.FindByIdAsync(new AgentIdentityId(agentId), cancellationToken);
+            if (agent is null || agent.InstallationId != session.InstallationId)
+            {
+                await Problem(context, 404, "Agent not found",
+                    "The selected agent does not belong to this installation.", "not-found").ExecuteAsync(context);
+                return;
+            }
+            if (agent.ModelPolicy.DataLocality is not ModelDataLocality.LocalOnly ||
+                agent.ModelPolicy.AllowFallback || agent.Budget.MaxToolInvocations != 0)
+            {
+                await Problem(context, 403, "Agent policy denied",
+                    "Interactive MVP testing requires a local-only, no-fallback agent with a zero tool budget.",
+                    "policy-denied").ExecuteAsync(context);
+                return;
+            }
+
+            provider = await providers.FindByIdAsync(
+                agent.ModelPolicy.PrimaryProviderProfileId, cancellationToken);
+            if (provider is null || provider.InstallationId != session.InstallationId)
+            {
+                await Problem(context, 409, "Provider unavailable",
+                    "The agent's pinned provider profile is missing or outside this installation.",
+                    "provider-unavailable").ExecuteAsync(context);
+                return;
+            }
+
+            var stableRequestIdentity = StableRequestIdentity(
+                session.InstallationId, $"agent-chat-stream:{agentId:D}", idempotencyKey);
+            taskId = new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16)));
+            correlation = new CorrelationId(
+                $"admin-chat-stream:{Convert.ToHexStringLower(stableRequestIdentity)}");
+            maximumOutputTokens = (int)Math.Clamp(agent.Budget.MaxOutputTokens, 1L, 2_048L);
+            maximumWallClockSeconds = Math.Clamp(agent.Budget.MaxWallClockSeconds, 1, 120);
+            var definition = new OrchestrationTaskDefinition(
+                taskId,
+                session.InstallationId,
+                agent.Id,
+                agent.Version,
+                OrchestrationPattern.Sequential,
+                [new TaskNodeDefinition(
+                    new TaskNodeId("local-model"),
+                    "Streaming local model test",
+                    [],
+                    [],
+                    [],
+                    new TaskExecutionBudget(
+                        0,
+                        agent.Budget.MaxInputTokens,
+                        maximumOutputTokens,
+                        maximumWallClockSeconds),
+                    new TaskRetryPolicy(1, 0))],
+                1,
+                0,
+                0,
+                SnapshotHash(new { agent.CapabilityPolicy, agent.Version }),
+                SnapshotHash(new
+                {
+                    agent.Budget,
+                    agent.Version,
+                    InteractiveMaximumOutputTokens = maximumOutputTokens,
+                    Streaming = true,
+                }),
+                SnapshotHash(new { agent.CapabilityPolicy.SkillGrants, agent.Version }));
+            var created = await orchestrator.CreateAsync(
+                definition,
+                session.ActorId,
+                StoredIdempotencyKey("agent-chat-stream", idempotencyKey),
+                correlation,
+                null,
+                cancellationToken);
+            if (!created.IsSuccess)
+            {
+                await DomainProblem(context, created.Failure!, "Streaming agent test failed").ExecuteAsync(context);
+                return;
+            }
+            if (created.Value.WasReplay)
+            {
+                await Problem(context, 409, "Stream cannot be replayed",
+                    "A transient response stream requires a fresh idempotency key.",
+                    "stream-replay-denied").ExecuteAsync(context);
+                return;
+            }
+
+            const string owner = "ready-ui:streaming-local-model-test";
+            var claim = await orchestrator.ClaimAsync(
+                taskId,
+                created.Value.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                owner,
+                TimeSpan.FromMinutes(2),
+                cancellationToken);
+            if (!claim.IsSuccess)
+            {
+                await DomainProblem(context, claim.Failure!, "Streaming agent test could not start")
+                    .ExecuteAsync(context);
+                return;
+            }
+            claimed = claim.Value;
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
+
+        var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var active = new ReadyActiveInteraction(
+            taskId, session.InstallationId, session.Hash, linkedCancellation);
+        if (!activeInteractions.TryAdd(active))
+        {
+            linkedCancellation.Dispose();
+            await orchestrator.FailAsync(
+                taskId,
+                claimed!.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                "ready-ui:streaming-local-model-test",
+                claimed.LeaseToken,
+                OrchestrationTaskStateMachine.EmptyHash,
+                FailureCode.ConcurrencyConflict,
+                retryable: false,
+                CancellationToken.None);
+            await Problem(context, 409, "Interaction already active",
+                "Only one active stream may own this durable run.", "concurrency-conflict").ExecuteAsync(context);
+            return;
+        }
+
+        const string streamOwner = "ready-ui:streaming-local-model-test";
+        try
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream; charset=utf-8";
+            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers["X-Accel-Buffering"] = "no";
+            context.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+            await context.Response.StartAsync(context.RequestAborted);
+            await WriteSseAsync(context, "run-started", new
+            {
+                taskId = taskId.Value,
+                state = claimed!.Snapshot.State.ToString(),
+                provider = new
+                {
+                    id = provider!.Id.Value,
+                    provider.Name,
+                    provider.ProviderType,
+                    endpoint = provider.Endpoint.ToString(),
+                    provider.Model,
+                },
+                correlationId = correlation.Value,
+            }, context.RequestAborted);
+
+            var observer = new SseInteractionObserver(context);
+            var interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
+                new ModelRequestId(taskId.Value),
+                provider,
+                BuildSystemInstruction(agent!),
+                request.Prompt,
+                new ModelInvocationLimits(
+                    maximumOutputTokens,
+                    0,
+                    4_096,
+                    maximumWallClockSeconds),
+                correlation), observer, linkedCancellation.Token);
+            if (!interaction.IsSuccess)
+            {
+                var failureEvidence = SnapshotHash(new
+                {
+                    taskId = taskId.Value,
+                    code = interaction.Failure!.Code.ToString(),
+                    interaction.Failure.IsRetryable,
+                });
+                var failed = await orchestrator.FailAsync(
+                    taskId,
+                    claimed.Snapshot.Version,
+                    new TaskNodeId("local-model"),
+                    streamOwner,
+                    claimed.LeaseToken,
+                    failureEvidence,
+                    interaction.Failure.Code,
+                    interaction.Failure.IsRetryable,
+                    CancellationToken.None);
+                if (!failed.IsSuccess && await WasDurablyCanceledAsync(snapshots, taskId))
+                {
+                    await WriteSseAsync(context, "canceled", new { taskId = taskId.Value },
+                        context.RequestAborted);
+                    return;
+                }
+                await WriteSseAsync(context, "failed", new
+                {
+                    code = interaction.Failure.Code.ToString(),
+                    interaction.Failure.Message,
+                    run = failed.IsSuccess ? RunResponse(failed.Value.Snapshot) : null,
+                }, context.RequestAborted);
+                return;
+            }
+
+            var completed = await orchestrator.CompleteAsync(
+                taskId,
+                claimed.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                streamOwner,
+                claimed.LeaseToken,
+                interaction.Value.EvidenceHash,
+                CancellationToken.None);
+            if (!completed.IsSuccess)
+            {
+                if (activeInteractions.WasCanceled(taskId) ||
+                    await WasDurablyCanceledAsync(snapshots, taskId))
+                {
+                    await WriteSseAsync(context, "canceled", new { taskId = taskId.Value },
+                        context.RequestAborted);
+                    return;
+                }
+                await WriteSseAsync(context, "failed", new
+                {
+                    code = completed.Failure!.Code.ToString(),
+                    completed.Failure.Message,
+                }, context.RequestAborted);
+                return;
+            }
+
+            await WriteSseAsync(context, "completed", new
+            {
+                requestId = interaction.Value.RequestId.Value,
+                usage = interaction.Value.Usage,
+                finishReason = interaction.Value.FinishReason.ToString(),
+                interaction.Value.ContextRedactionCount,
+                interaction.Value.EventCount,
+                interaction.Value.EvidenceHash,
+                run = RunResponse(completed.Value.Snapshot),
+            }, context.RequestAborted);
+        }
+        catch (OperationCanceledException) when (activeInteractions.WasCanceled(taskId))
+        {
+            await WriteSseAsync(context, "canceled", new { taskId = taskId.Value },
+                context.RequestAborted);
+        }
+        catch (OperationCanceledException)
+        {
+            await orchestrator.FailAsync(
+                taskId,
+                claimed.Snapshot.Version,
+                new TaskNodeId("local-model"),
+                streamOwner,
+                claimed.LeaseToken,
+                OrchestrationTaskStateMachine.EmptyHash,
+                FailureCode.RecoverableExternalFailure,
+                retryable: false,
+                CancellationToken.None);
+        }
+        finally
+        {
+            activeInteractions.Remove(taskId);
+        }
+    }
+
     private static async Task<IResult> CancelRunAsync(
         Guid taskId,
         HttpContext context,
@@ -520,6 +819,7 @@ internal static class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         ITaskSnapshotStore snapshots,
         ITaskOrchestrator orchestrator,
+        ReadyActiveInteractionRegistry activeInteractions,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -538,12 +838,19 @@ internal static class ReadyAdminEndpoints
         }
         if (current.State is OrchestrationTaskState.Canceled)
         {
+            activeInteractions.TryCancel(
+                current.Definition.Id, acquired.Session.InstallationId, acquired.Session.Hash);
             context.Response.Headers["Idempotent-Replay"] = "true";
             return Results.Ok(RunResponse(current, true));
         }
 
         var result = await orchestrator.CancelAsync(
             current.Definition.Id, current.Version, cancellationToken);
+        if (result.IsSuccess)
+        {
+            activeInteractions.TryCancel(
+                current.Definition.Id, acquired.Session.InstallationId, acquired.Session.Hash);
+        }
         return result.IsSuccess
             ? Results.Ok(RunResponse(result.Value.Snapshot, result.Value.WasReplay))
             : DomainProblem(context, result.Failure!, "Run cancellation failed");
@@ -785,6 +1092,50 @@ internal static class ReadyAdminEndpoints
             .Append(" using this style: ").Append(agent.ResponseStyle)
             .Append(". Do not claim to have used tools, network resources, files, memory, or external systems; none are available in this interactive test.");
         return builder.ToString();
+    }
+
+    private static async ValueTask WriteSseAsync<T>(
+        HttpContext context,
+        string eventName,
+        T payload,
+        CancellationToken cancellationToken)
+    {
+        var json = JsonSerializer.Serialize(payload, HashJson);
+        await context.Response.WriteAsync($"event: {eventName}\ndata: {json}\n\n", cancellationToken);
+        await context.Response.Body.FlushAsync(cancellationToken);
+    }
+
+    private static async Task<bool> WasDurablyCanceledAsync(
+        ITaskSnapshotStore snapshots,
+        OrchestrationTaskId taskId)
+    {
+        var latest = await snapshots.FindLatestAsync(taskId, CancellationToken.None);
+        return latest?.State is OrchestrationTaskState.Canceled;
+    }
+
+    private sealed class SseInteractionObserver(HttpContext context) : ILocalModelInteractionObserver
+    {
+        public ValueTask OnProgressAsync(
+            LocalModelInteractionProgress progress,
+            CancellationToken cancellationToken) => progress.Kind switch
+            {
+                LocalModelInteractionProgressKind.Started => WriteSseAsync(context, "model-started", new
+                {
+                    requestId = progress.RequestId.Value,
+                    progress.ContextRedactionCount,
+                }, cancellationToken),
+                LocalModelInteractionProgressKind.TextDelta => WriteSseAsync(context, "output-delta", new
+                {
+                    requestId = progress.RequestId.Value,
+                    text = progress.TextDelta,
+                }, cancellationToken),
+                LocalModelInteractionProgressKind.Usage => WriteSseAsync(context, "usage", new
+                {
+                    requestId = progress.RequestId.Value,
+                    usage = progress.Usage,
+                }, cancellationToken),
+                _ => ValueTask.CompletedTask,
+            };
     }
 
     private static string SnapshotHash<T>(T value) =>

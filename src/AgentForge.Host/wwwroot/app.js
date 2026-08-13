@@ -43,8 +43,10 @@ const elements = {
   runForm: document.querySelector("#run-form"),
   runAgent: document.querySelector("#run-agent"),
   runOutput: document.querySelector("#run-output"),
+  runOutputState: document.querySelector("#run-output-state"),
   runOutputText: document.querySelector("#run-output-text"),
   runOutputMeta: document.querySelector("#run-output-meta"),
+  cancelInteraction: document.querySelector("#cancel-interaction"),
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
@@ -52,7 +54,14 @@ const elements = {
   accessModeDetail: document.querySelector("#access-mode-detail"),
 };
 
-const admin = { csrfToken: null, installationId: null, actorId: null, remoteAccessCode: "", agents: [] };
+const admin = {
+  csrfToken: null,
+  installationId: null,
+  actorId: null,
+  remoteAccessCode: "",
+  agents: [],
+  activeTaskId: null,
+};
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
 if (!isLoopbackBrowser) {
   elements.accessModeTitle.textContent = "Protected LAN control";
@@ -157,6 +166,52 @@ async function adminMutation(path, payload = {}) {
   });
   if (!result.ok) throw new Error(result.payload.detail ?? "The operator mutation failed.");
   return result.payload;
+}
+
+async function adminStreamMutation(path, payload, onEvent) {
+  await ensureAdminSession();
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+      "Idempotency-Key": crypto.randomUUID(),
+      "X-CSRF-Token": admin.csrfToken,
+      Origin: window.location.origin,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const problem = await response.json();
+    throw new Error(problem.detail ?? "The streaming interaction could not start.");
+  }
+  if (!response.body) throw new Error("This browser did not expose the response stream.");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replaceAll("\r\n", "\n");
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const eventName = block.split("\n").find(line => line.startsWith("event: "))?.slice(7);
+        const data = block.split("\n").filter(line => line.startsWith("data: ")).map(line => line.slice(6)).join("\n");
+        if (eventName && data) await onEvent(eventName, JSON.parse(data));
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (done) break;
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function makeElement(tag, className, text) {
@@ -266,24 +321,86 @@ async function loadRuns(message = "Loading durable run snapshots…") {
 async function createRun(event) {
   event.preventDefault();
   setBusy(elements.runForm, true);
-  elements.runOutput.hidden = true;
+  elements.runOutput.hidden = false;
+  elements.runOutputState.textContent = "Starting";
+  elements.runOutputState.className = "state-chip running";
+  elements.runOutputText.textContent = "";
+  elements.runOutputMeta.textContent = "Preparing a durable run and opening the model stream…";
+  elements.cancelInteraction.hidden = true;
+  elements.cancelInteraction.disabled = false;
+  admin.activeTaskId = null;
   try {
     const prompt = document.querySelector("#run-prompt").value.trim();
     workspaceStatus(elements.runsMessage, "Invoking the pinned local model with tools and fallback disabled…");
-    const result = await adminMutation(`/api/v1/admin/agents/${elements.runAgent.value}/test-chat`, { prompt });
-    elements.runOutputText.textContent = result.output;
-    const usage = result.usage
-      ? `${result.usage.inputTokens.toLocaleString()} input · ${result.usage.outputTokens.toLocaleString()} output tokens`
-      : "Provider did not report token usage";
-    elements.runOutputMeta.textContent = `${result.provider.name} · ${result.provider.model} · ${usage} · ${result.finishReason}`;
-    elements.runOutput.hidden = false;
-    await loadRuns("Local model answered. Durable completion receipt loaded below.");
+    let providerLabel = "Pinned local model";
+    let usageLabel = "Token usage pending";
+    let terminalMessage = "Local model stream ended.";
+    let terminalEvent = null;
+    await adminStreamMutation(
+      `/api/v1/admin/agents/${elements.runAgent.value}/test-chat-stream`,
+      { prompt },
+      async (eventName, payload) => {
+        if (eventName === "run-started") {
+          admin.activeTaskId = payload.taskId;
+          providerLabel = `${payload.provider.name} · ${payload.provider.model}`;
+          elements.runOutputState.textContent = "Running";
+          elements.runOutputMeta.textContent = `${providerLabel} · waiting for model output`;
+          elements.cancelInteraction.hidden = false;
+        } else if (eventName === "model-started") {
+          elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
+        } else if (eventName === "output-delta") {
+          elements.runOutputText.textContent += payload.text || "";
+          elements.runOutputText.scrollTop = elements.runOutputText.scrollHeight;
+        } else if (eventName === "usage" && payload.usage) {
+          usageLabel = `${payload.usage.inputTokens.toLocaleString()} input · ${payload.usage.outputTokens.toLocaleString()} output tokens`;
+          elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel}`;
+        } else if (eventName === "completed") {
+          terminalEvent = eventName;
+          terminalMessage = "Local model answered. Durable completion receipt loaded below.";
+          elements.runOutputState.textContent = "Completed";
+          elements.runOutputState.className = "state-chip completed";
+          elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel} · ${payload.finishReason}`;
+          elements.cancelInteraction.hidden = true;
+        } else if (eventName === "canceled") {
+          terminalEvent = eventName;
+          terminalMessage = "Interaction canceled. Durable cancellation receipt loaded below.";
+          elements.runOutputState.textContent = "Canceled";
+          elements.runOutputState.className = "state-chip canceled";
+          elements.runOutputMeta.textContent = `${providerLabel} · canceled by operator`;
+          elements.cancelInteraction.hidden = true;
+        } else if (eventName === "failed") {
+          terminalEvent = eventName;
+          terminalMessage = payload.message || "The model interaction failed.";
+          elements.runOutputState.textContent = "Failed";
+          elements.runOutputState.className = "state-chip failed";
+          elements.runOutputMeta.textContent = `${providerLabel} · ${payload.code}`;
+          elements.cancelInteraction.hidden = true;
+        }
+      });
+    if (!terminalEvent) throw new Error("The model stream closed without a durable terminal receipt.");
+    await loadRuns(terminalMessage);
   } catch (error) {
+    elements.runOutputState.textContent = "Failed";
+    elements.runOutputState.className = "state-chip failed";
+    elements.cancelInteraction.hidden = true;
     workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The local model test failed.", "error");
   } finally {
+    admin.activeTaskId = null;
     setBusy(elements.runForm, false);
   }
 }
+
+elements.cancelInteraction.addEventListener("click", async () => {
+  if (!admin.activeTaskId) return;
+  elements.cancelInteraction.disabled = true;
+  elements.runOutputState.textContent = "Canceling";
+  try {
+    await adminMutation(`/api/v1/admin/runs/${admin.activeTaskId}/cancel`);
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Interaction cancellation failed.", "error");
+    elements.cancelInteraction.disabled = false;
+  }
+});
 
 async function loadSkills(message = "Loading immutable skill packages…") {
   workspaceStatus(elements.skillsMessage, message);

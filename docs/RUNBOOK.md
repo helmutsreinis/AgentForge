@@ -636,6 +636,25 @@ hashes cover transformed JSON. Reusing an idempotency key with the exact request
 receipt. A changed request is a conflict. If audit verification fails, preserve the database and
 restore a verified backup—never edit or omit a broken event to force export.
 
+## Ready streamed-model operations
+
+Open **Runs**, select the persisted local-only agent, enter a bounded prompt, and choose **Run local model**. The
+page should show `Starting`, then `Running`, append response deltas, display usage when the provider reports it,
+and finish as `Completed`. The newest durable card must be `Streaming local model test`, state `Completed`,
+snapshot version 2. Refreshing the page intentionally does not restore the raw answer; only the durable receipt
+is retained.
+
+For a long response, choose **Cancel interaction** once the stream starts. The cancel mutation records the
+durable `Canceled` state before stopping the matching provider call. The page must end at `Canceled`, hide the
+cancel control, and show a version-2 Canceled receipt after the run list refreshes. A missing terminal event,
+browser disconnect, stale Ready session, conflicting idempotency key, or provider failure must not display a
+false completion.
+
+If cancellation appears stuck, inspect the newest run snapshot and host health before restarting. Do not edit
+the task row, fabricate completion evidence, or delete WAL files. Restarting clears only the transient stream
+registry; durable Planned/Running recovery remains governed by the orchestration lease rules. Verify that raw
+prompt and response markers are absent from the database, WAL/SHM, artifacts, logs, and exported evidence.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

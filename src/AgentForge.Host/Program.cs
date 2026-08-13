@@ -100,6 +100,7 @@ builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddSingleton<WebSetupSessionManager>();
 builder.Services.AddSingleton<ReadyAdminSessionManager>();
+builder.Services.AddSingleton<ReadyActiveInteractionRegistry>();
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 

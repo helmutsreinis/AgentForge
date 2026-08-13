@@ -924,6 +924,26 @@ protected secret files, and auxiliary state, verify every hash, and restore only
 also requires a target connection variable distinct from the configured source. A destructive down migration is never
 used as rollback.
 
+## Ready streamed-interaction boundary
+
+Provider stream content, timing, and termination are untrusted. The public Ready stream accepts only the exact
+installation-owned local-only agent and pinned credential-free loopback/private compatible profile, with no
+fallback, tools, structured output, files, messages, devices, or other capability. The existing provider socket
+policy still binds the actual destination. Prompt, output, and remote error bodies remain transient, bounded,
+context-redacted, and excluded from persistence and replay caches.
+
+Cancellation authority is not represented by knowledge of a task ID. The protected mutation must resolve the
+same installation and Ready session, append durable cancellation with optimistic concurrency, and only then may
+signal the matching in-memory invocation. Cross-installation, stale-session, and unknown-task attempts cannot
+reach the cancellation source. A provider racing completion loses to the already committed terminal state and
+cannot replace Canceled with Completed.
+
+The SSE response is authenticated by the short-lived HttpOnly session, mutation CSRF/origin checks, and a fresh
+idempotency key. Buffering is disabled, caching is forbidden, event names are fixed, JSON serialization is
+server-owned, output/event/token/time limits remain enforced, and browser rendering uses text-only DOM APIs. A
+reused key is rejected instead of regenerating raw output. Client disconnect cancels the invocation but is not
+treated as an operator cancellation; failure evidence is persisted when the lease still permits it.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

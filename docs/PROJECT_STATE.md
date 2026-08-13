@@ -146,6 +146,9 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 - The Ready loopback page now exposes real Agents, Runs, and Skills workspaces. A separate 30-minute operator session validates the OS-protected administrator credential server-side and returns only an HttpOnly SameSite cookie plus independent CSRF token; browser code never receives the bearer credential.
 - Agents lists durable identity, policy, memory, budgets, child limits, and learning posture. Runs creates, lists, and cancels exact-agent/version durable planned orchestration snapshots while deliberately performing no model or tool execution. Skills validates and installs the packaged C# review seed through the existing artifact/audit/registry service and leaves it awaiting governed promotion.
 - The end-to-end Ready journey covers hostile origin, credential non-disclosure, missing CSRF, installation scope, durable run create/list/cancel, and seed install/list. Live browser smoke confirms all three tabs against the configured `qwen3.6` installation; the smoke run was canceled and the seed remains Installed rather than Active.
+- The Ready Runs workspace now consumes authenticated SSE progress from an exact single-node orchestration task. Started, text-delta, usage, completion, failure, and cancellation events are transient; only bounded hashes, usage, and terminal orchestration evidence are durable.
+- Active interaction cancellation is bound to the exact installation, Ready session, and task. The durable task is canceled before the invocation token is signaled, a stale or cross-session request cannot cancel an interaction, and stream replay is denied because raw response text is not retained.
+- Deterministic tests cover ordered observer events, streamed success, usage, terminal completion, active cancellation, and durable Canceled state. Live browser testing against `qwen3.6` completed an exact two-line response, canceled a long response, exposed no browser errors, and found neither prompt nor output text in persisted data.
 
 ## Latest gate
 
@@ -155,13 +158,15 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 `artifacts/gates/POST-R1-LAN-REMOTE-20260813.md`: Pass. The Ready workspace supports explicitly enabled authenticated HTTPS LAN access while remaining loopback-only by default.
 
+`artifacts/gates/POST-R1-STREAMING-MVP-20260813.md`: Pass. Ready-state model interactions stream bounded progress and support exact durable operator cancellation without persisting prompt or output text.
+
 ## Known constraints and risks
 
 - Docker is not installed locally; the equipped release workflow passes both the secure-default image smoke and the real digest-pinned constrained-execution adapter test.
 - The production task API, authenticated SSE, policy-filtered MCP transports, plugins, backup/restore, and packaging are complete. Broader administration remains deliberately closed for R1.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
-- Web setup and the loopback Ready workspace are complete for the single local operator. Runs supports one explicit bounded prompt against the pinned loopback/private model; autonomous or tool-using execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration remain omitted.
+- Web setup and the protected Ready workspace are complete for the single operator. Runs supports one explicit bounded streamed prompt plus active cancellation against the pinned loopback/private model; autonomous or tool-using execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration remain omitted.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, topology-preserving profile rollback, and full-package restore are authenticated and snapshot/hash backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing profile entities through restore is intentionally denied.
 - SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. Durable DAG and schedule workers own lease scanning/takeover; model-run recovery remains an internal exact-version service rather than an operator API.
@@ -171,4 +176,4 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 ## Exact next action
 
-The next MVP slice should add authenticated streamed progress and cancellation for longer model interactions, then expose agent editing with an effective-policy preview. Tool grants, external messaging, skill promotion, and device writes must remain separate explicit gates.
+The next MVP slice should expose agent editing with a before/after effective-policy preview, exact optimistic concurrency, and restart-safe audit evidence. Tool grants, external messaging, skill promotion, and device writes must remain separate explicit gates.

@@ -353,7 +353,10 @@ main {
 .resource-meta strong { color: #d4d2da; font-size: 10px; font-weight: 570; overflow-wrap: anywhere; }
 .state-chip { flex: none; padding: 5px 8px; border: 1px solid var(--line-strong); border-radius: 99px; color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .state-chip.ready, .state-chip.active { color: var(--green); border-color: rgba(93, 214, 153, 0.25); background: rgba(93, 214, 153, 0.06); }
+.state-chip.completed { color: var(--green); border-color: rgba(93, 214, 153, 0.25); background: rgba(93, 214, 153, 0.06); }
 .state-chip.planned, .state-chip.installed { color: var(--violet-bright); border-color: rgba(142, 115, 255, 0.25); background: rgba(142, 115, 255, 0.07); }
+.state-chip.running { color: var(--cyan); border-color: rgba(72, 214, 208, 0.25); background: rgba(72, 214, 208, 0.06); }
+.state-chip.failed { color: var(--danger); border-color: rgba(255, 100, 113, 0.25); background: rgba(255, 100, 113, 0.06); }
 .state-chip.canceled, .state-chip.archived, .state-chip.quarantined { color: var(--amber); border-color: rgba(233, 173, 85, 0.24); background: rgba(233, 173, 85, 0.06); }
 .resource-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .empty-state { padding: 36px; border: 1px dashed var(--line-strong); border-radius: 13px; color: var(--dim); font-size: 12px; text-align: center; }
@@ -380,6 +383,8 @@ main {
 .interaction-output { display: grid; gap: 14px; margin-top: 14px; padding: 19px; border: 1px solid rgba(93, 214, 153, 0.22); border-radius: 13px; background: rgba(93, 214, 153, 0.035); }
 .interaction-output[hidden] { display: none; }
 .interaction-output pre { max-height: 420px; padding: 16px; border: 1px solid var(--line); border-radius: 9px; background: #090a0e; color: #e5e3ea; font: 12px/1.65 Inter, system-ui, sans-serif; white-space: pre-wrap; overflow: auto; }
+.danger-action { border-color: rgba(255, 100, 113, 0.34); color: #ff9ca5; }
+.danger-action[hidden] { display: none; }
 
 .status-card {
   min-height: 184px;

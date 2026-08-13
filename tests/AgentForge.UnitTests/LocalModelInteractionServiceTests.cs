@@ -19,8 +19,9 @@ public sealed class LocalModelInteractionServiceTests
         var provider = new ScriptedProvider(static (request, cancellationToken) =>
             SuccessfulStream(request, cancellationToken));
         var service = new LocalModelInteractionService(new FakeFactory(provider));
+        var observer = new RecordingObserver();
 
-        var result = await service.InvokeAsync(Request(), CancellationToken.None);
+        var result = await service.InvokeAsync(Request(), observer, CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("AgentForge local model test passed.", result.Value.Text);
@@ -34,6 +35,18 @@ public sealed class LocalModelInteractionServiceTests
         Assert.Equal(2, provider.ObservedRequest.Messages.Count);
         Assert.Equal(ModelMessageRole.System, provider.ObservedRequest.Messages[0].Role);
         Assert.Equal(ModelMessageRole.User, provider.ObservedRequest.Messages[1].Role);
+        Assert.Collection(observer.Events,
+            item => Assert.Equal(LocalModelInteractionProgressKind.Started, item.Kind),
+            item =>
+            {
+                Assert.Equal(LocalModelInteractionProgressKind.TextDelta, item.Kind);
+                Assert.Equal("AgentForge local model test passed.", item.TextDelta);
+            },
+            item =>
+            {
+                Assert.Equal(LocalModelInteractionProgressKind.Usage, item.Kind);
+                Assert.Equal(new ModelUsage(12, 7, 0, null, null), item.Usage);
+            });
     }
 
     [Fact]
@@ -173,6 +186,20 @@ public sealed class LocalModelInteractionServiceTests
     {
         public DomainResult<PreparedModelContext> Prepare(ModelRequest request) => DomainResult.Success(
             new PreparedModelContext(request, 0, "test", "sha256:input"));
+    }
+
+    private sealed class RecordingObserver : ILocalModelInteractionObserver
+    {
+        public List<LocalModelInteractionProgress> Events { get; } = [];
+
+        public ValueTask OnProgressAsync(
+            LocalModelInteractionProgress progress,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Events.Add(progress);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FixedClock : IClock
