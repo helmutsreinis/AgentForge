@@ -13,6 +13,7 @@ using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
 using AgentForge.Abstractions.Scheduling;
+using AgentForge.Abstractions.Search;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Skills;
@@ -81,6 +82,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuditReader>(provider => provider.GetRequiredService<SqliteAuditJournal>());
         services.AddScoped<IArtifactStore, FileSystemArtifactStore>();
         services.AddScoped<IProviderProfileRepository, SqliteProviderProfileRepository>();
+        services.AddScoped<ISearchProviderProfileRepository, SqliteSearchProviderProfileRepository>();
         services.AddScoped<IAgentIdentityRepository, SqliteAgentIdentityRepository>();
         services.AddScoped<IModelRouteAuthoritySnapshotReader, SqliteModelRouteAuthoritySnapshotReader>();
         services.AddScoped<IModelRunRepository, SqliteModelRunRepository>();

@@ -3,6 +3,7 @@ using System;
 using AgentForge.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AgentForge.Persistence.Migrations
 {
     [DbContext(typeof(AgentForgeDbContext))]
-    partial class AgentForgeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260816202657_BraveSearchProviderProfiles")]
+    partial class BraveSearchProviderProfiles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

@@ -31,6 +31,7 @@ public sealed class WebSetupWizardTests : IDisposable
 {
     private static readonly string[] PassingCritiqueFindings = ["bounded-authority-reviewed"];
     private static readonly string[] LocalDocsProvider = ["local-docs"];
+    private static readonly string[] BraveProvider = ["brave"];
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-web-setup-{Guid.NewGuid():N}");
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -54,6 +55,8 @@ public sealed class WebSetupWizardTests : IDisposable
                 services.AddSingleton<IModelCatalogDiscoveryService, WebFakeModelDiscovery>();
                 services.RemoveAll<ILocalModelInteractionService>();
                 services.AddSingleton<ILocalModelInteractionService, WebFakeLocalInteraction>();
+                services.RemoveAll<IBraveSearchConnectivityProbe>();
+                services.AddSingleton<IBraveSearchConnectivityProbe, WebFakeBraveSearchProbe>();
                 services.AddSingleton<ISearchProvider>(new DeterministicSearchProvider(
                     "local-docs",
                     [new SearchProviderHit(
@@ -179,6 +182,8 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"schedule-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#context\" data-view=\"context\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"memory-create-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"brave-config-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"brave-config-key\" type=\"password\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"research-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-memory-query\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("class=\"gate-check\"><input id=\"memory-correction\" type=\"checkbox\"", appShellHtml, StringComparison.Ordinal);
@@ -434,8 +439,67 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, memorySearch.StatusCode);
         Assert.Contains("Operator preference", await memorySearch.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        using var braveStatus = await client.GetAsync("/api/v1/admin/research/providers/brave/configuration");
+        Assert.Equal(HttpStatusCode.OK, braveStatus.StatusCode);
+        Assert.Contains("\"configured\":false", await braveStatus.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var bravePreview = await MutationAsync(
+            client, "/api/v1/admin/research/providers/brave/configuration/preview", "brave-preview-1", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedVersion = (long?)null,
+                isEnabled = true,
+                safeSearch = "Strict",
+                countryCode = "UA",
+                searchLanguage = "en",
+                apiKey = "fixture-brave-key-one",
+            }));
+        Assert.Equal(HttpStatusCode.OK, bravePreview.StatusCode);
+        var bravePreviewHash = await ReadPropertyAsync(bravePreview, "previewHash");
+        Assert.DoesNotContain("fixture-brave-key-one", await bravePreview.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var braveApply = await MutationAsync(
+            client, "/api/v1/admin/research/providers/brave/configuration/apply", "brave-apply-1", adminCsrf,
+            JsonContent.Create(new { previewHash = bravePreviewHash, apiKey = "fixture-brave-key-one" }));
+        Assert.Equal(HttpStatusCode.OK, braveApply.StatusCode);
+        Assert.Contains("\"version\":0", await braveApply.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var staleBraveResearchPreview = await MutationAsync(
+            client, "/api/v1/admin/research/preview", "brave-research-preview-stale", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedAgentVersion = scheduleRequest.expectedAgentVersion,
+                agentId,
+                query = "AgentForge Brave configuration pinning",
+                maximumResults = 3,
+                providerIds = BraveProvider,
+            }));
+        Assert.Equal(HttpStatusCode.OK, staleBraveResearchPreview.StatusCode);
+        var staleBraveResearchHash = await ReadPropertyAsync(staleBraveResearchPreview, "previewHash");
+        using var braveRotationPreview = await MutationAsync(
+            client, "/api/v1/admin/research/providers/brave/configuration/preview", "brave-preview-2", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedVersion = 0,
+                isEnabled = true,
+                safeSearch = "Moderate",
+                countryCode = "UA",
+                searchLanguage = "en",
+                apiKey = "fixture-brave-key-two",
+            }));
+        Assert.Equal(HttpStatusCode.OK, braveRotationPreview.StatusCode);
+        var braveRotationHash = await ReadPropertyAsync(braveRotationPreview, "previewHash");
+        using var braveRotation = await MutationAsync(
+            client, "/api/v1/admin/research/providers/brave/configuration/apply", "brave-apply-2", adminCsrf,
+            JsonContent.Create(new { previewHash = braveRotationHash, apiKey = "fixture-brave-key-two" }));
+        Assert.Equal(HttpStatusCode.OK, braveRotation.StatusCode);
+        Assert.Contains("\"version\":1", await braveRotation.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var staleBraveResearchApply = await MutationAsync(
+            client, "/api/v1/admin/research/apply", "brave-research-apply-stale", adminCsrf,
+            JsonContent.Create(new { previewHash = staleBraveResearchHash }));
+        Assert.Equal(HttpStatusCode.Conflict, staleBraveResearchApply.StatusCode);
+
         using var researchProviders = await client.GetAsync("/api/v1/admin/research/providers");
         Assert.Contains("local-docs", await researchProviders.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("brave", await researchProviders.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var researchPreview = await MutationAsync(
             client, "/api/v1/admin/research/preview", "research-preview-1", adminCsrf,
             JsonContent.Create(new
@@ -1778,8 +1842,12 @@ public sealed class WebSetupWizardTests : IDisposable
             Task.FromResult(_values.TryGetValue(secretReference.Key, out var value)
                 ? DomainResult.Success(new SecretLease(value.ToArray()))
                 : DomainResult.Fail<SecretLease>(new DomainFailure(FailureCode.UnsupportedCapability, "Secret unavailable.")));
-        public Task<DomainResult<bool>> DeleteAsync(SecretReference secretReference, CancellationToken cancellationToken) =>
-            Task.FromResult(DomainResult.Success(_values.TryRemove(secretReference.Key, out _)));
+        public Task<DomainResult<bool>> DeleteAsync(SecretReference secretReference, CancellationToken cancellationToken)
+        {
+            var removed = _values.TryRemove(secretReference.Key, out var value);
+            if (value is not null) Array.Clear(value);
+            return Task.FromResult(DomainResult.Success(removed));
+        }
     }
 
     private sealed class WebFakeModelDiscovery : IModelCatalogDiscoveryService
@@ -1801,6 +1869,18 @@ public sealed class WebSetupWizardTests : IDisposable
                 new Uri(request.BaseEndpoint, request.BaseEndpoint.AbsolutePath.TrimEnd('/') + "/chat/completions"),
                 TimeSpan.FromMilliseconds(12),
             "web-fake-probe")));
+    }
+
+    private sealed class WebFakeBraveSearchProbe : IBraveSearchConnectivityProbe
+    {
+        public Task<DomainResult<BraveSearchProbeEvidence>> ProbeAsync(
+            ReadOnlyMemory<char> credential,
+            BraveSearchConfigurationCandidate candidate,
+            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(
+                new BraveSearchProbeEvidence(
+                    1,
+                    TimeSpan.FromMilliseconds(9),
+                    $"sha256:{new string('b', 64)}")));
     }
 
     private sealed class WebFakeLocalInteraction : ILocalModelInteractionService

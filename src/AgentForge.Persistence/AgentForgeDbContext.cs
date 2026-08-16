@@ -15,6 +15,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ProviderProfileEntity> ProviderProfiles => Set<ProviderProfileEntity>();
 
+    internal DbSet<SearchProviderProfileEntity> SearchProviderProfiles => Set<SearchProviderProfileEntity>();
+
     internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
 
     internal DbSet<AgentContextPolicyEntity> AgentContextPolicies => Set<AgentContextPolicyEntity>();
@@ -277,6 +279,27 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
             entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
             entity.Property(item => item.EvidenceSource).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<SearchProviderProfileEntity>(entity =>
+        {
+            entity.ToTable("search_provider_profiles");
+            entity.HasKey(item => new { item.InstallationId, item.Id });
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.Id).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Kind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Endpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.SafeSearch).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.CountryCode).HasMaxLength(2).IsRequired();
+            entity.Property(item => item.SearchLanguage).HasMaxLength(16).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();

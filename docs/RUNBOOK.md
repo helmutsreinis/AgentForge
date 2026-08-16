@@ -717,6 +717,20 @@ select the approved same-agent research receipt. The start event reports attache
 is immutable untrusted reference data: it cannot grant model browsing, tools, network, files, messages, devices, or
 policy changes. Follow-up turns reuse the content-addressed pinned system context and do not perform new retrieval.
 
+Brave Search is configured inside the **Context → Core research skill** card. Enter the replacement API key only in
+the write-only password field, select safe-search, optional two-letter country, and search language, then choose
+**Verify and preview**. AgentForge calls only Brave's fixed official HTTPS web-search endpoint with the key in the
+subscription header, retains only a credential fingerprint in the preview, and shows the live probe receipt. Apply
+the exact review to store a new OS-backed reference and a versioned provider profile. The page clears the key after
+apply or discard. To rotate, enter a replacement key and repeat; to change policy without rotation, leave it blank.
+Disabling preserves the protected key for later re-enable but removes Brave from research selection.
+
+If verification reports quota, authentication, or availability failure, do not edit the database or secret files.
+Check the Brave dashboard, rotate a disclosed key there, and retry with a fresh idempotency key. A provider rotation,
+enable/disable action, or search-policy change invalidates outstanding research previews and separates cached results
+by configuration evidence. The model still receives only the explicitly attached bounded citation receipt and never
+receives the Brave key or direct network authority.
+
 ## Ready agent and model editing
 
 Open **Agents**, choose **Edit agent**, and use the two independent editors. Profile editing accepts only the

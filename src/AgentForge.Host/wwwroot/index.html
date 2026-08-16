@@ -681,6 +681,29 @@
           </section>
           <section class="context-card" aria-labelledby="research-title">
             <span class="stage-kicker">CITED RESEARCH</span><h3 id="research-title">Approved search</h3>
+            <article class="integration-config" aria-labelledby="brave-config-title">
+              <div class="resource-title">
+                <div><span class="stage-kicker">CORE RESEARCH SKILL</span><h4 id="brave-config-title">Brave Search API</h4></div>
+                <span id="brave-config-state" class="state-chip">NOT CONFIGURED</span>
+              </div>
+              <p id="brave-config-summary" class="resource-description">Add a write-only API key to enable cited web research.</p>
+              <form id="brave-config-form" class="compact-composer" autocomplete="off">
+                <label class="gate-check"><input id="brave-config-enabled" type="checkbox" checked> Enable Brave for approved research</label>
+                <label>API key <span class="field-note">Required initially; leave blank to retain the current key.</span><input id="brave-config-key" type="password" maxlength="512" autocomplete="new-password" placeholder="Write-only Brave subscription token"></label>
+                <div class="run-primary-grid">
+                  <label>Safe search<select id="brave-config-safe"><option value="Moderate">Moderate</option><option value="Strict">Strict</option><option value="Off">Off</option></select></label>
+                  <label>Country <span class="field-note">Optional ISO code</span><input id="brave-config-country" maxlength="2" placeholder="US"></label>
+                  <label>Search language<input id="brave-config-language" maxlength="16" value="en" required></label>
+                </div>
+                <button id="brave-config-preview" class="secondary-action" type="submit">Verify and preview</button>
+              </form>
+              <form id="brave-config-review" class="compact-composer" hidden>
+                <div id="brave-config-details" class="review-grid"></div>
+                <code id="brave-config-preview-hash" class="preview-hash"></code>
+                <div class="resource-actions"><button id="brave-config-discard" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Apply Brave configuration</button></div>
+              </form>
+              <div id="brave-config-message" class="workspace-message" aria-live="polite">The API key is stored only through the operating-system secret adapter.</div>
+            </article>
             <form id="research-form" class="run-composer compact-composer">
               <label>Agent<select id="research-agent" required></select></label>
               <label>Query<input id="research-query" maxlength="512" required placeholder="What should the configured providers research?"></label>

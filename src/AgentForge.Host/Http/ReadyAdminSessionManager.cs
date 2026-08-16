@@ -35,6 +35,8 @@ internal sealed record ReadyAdminSession(
 
     public ConcurrentDictionary<string, ReadyResearchReceipt> ResearchReceipts { get; } = new(StringComparer.Ordinal);
 
+    public ConcurrentDictionary<string, BraveSearchConfigurationPreview> BraveSearchPreviews { get; } = new(StringComparer.Ordinal);
+
     public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentToolGrantPreview> ToolGrantPreviews { get; } = new(StringComparer.Ordinal);
@@ -101,6 +103,7 @@ internal sealed record ReadyResearchPreview(
     string Query,
     int MaximumResults,
     IReadOnlyList<string> ProviderIds,
+    IReadOnlyDictionary<string, string> ProviderEvidenceHashes,
     string RequestHash,
     CorrelationId CorrelationId);
 

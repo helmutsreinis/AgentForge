@@ -202,6 +202,19 @@ const elements = {
   researchPreviewHash: document.querySelector("#research-preview-hash"),
   researchMessage: document.querySelector("#research-message"),
   researchResults: document.querySelector("#research-results"),
+  braveConfigState: document.querySelector("#brave-config-state"),
+  braveConfigSummary: document.querySelector("#brave-config-summary"),
+  braveConfigForm: document.querySelector("#brave-config-form"),
+  braveConfigEnabled: document.querySelector("#brave-config-enabled"),
+  braveConfigKey: document.querySelector("#brave-config-key"),
+  braveConfigSafe: document.querySelector("#brave-config-safe"),
+  braveConfigCountry: document.querySelector("#brave-config-country"),
+  braveConfigLanguage: document.querySelector("#brave-config-language"),
+  braveConfigReview: document.querySelector("#brave-config-review"),
+  braveConfigDetails: document.querySelector("#brave-config-details"),
+  braveConfigPreviewHash: document.querySelector("#brave-config-preview-hash"),
+  braveConfigDiscard: document.querySelector("#brave-config-discard"),
+  braveConfigMessage: document.querySelector("#brave-config-message"),
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
@@ -321,6 +334,8 @@ const admin = {
   researchProviders: [],
   researchPreview: null,
   researchReceipt: null,
+  braveConfiguration: null,
+  braveConfigurationPreview: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
 if (!isLoopbackBrowser) {
@@ -1771,13 +1786,98 @@ function renderResearchProviders() {
   }
 }
 
+function renderBraveConfiguration(configuration) {
+  admin.braveConfiguration = configuration;
+  elements.braveConfigEnabled.checked = configuration.isEnabled;
+  elements.braveConfigSafe.value = configuration.safeSearch;
+  elements.braveConfigCountry.value = configuration.countryCode || "";
+  elements.braveConfigLanguage.value = configuration.searchLanguage || "en";
+  elements.braveConfigKey.placeholder = configuration.configured
+    ? "Leave blank to retain current key; enter a replacement to rotate"
+    : "Write-only Brave subscription token";
+  const state = configuration.configured
+    ? (configuration.isEnabled ? "READY" : "DISABLED")
+    : "NOT CONFIGURED";
+  elements.braveConfigState.textContent = state;
+  elements.braveConfigState.className = `state-chip ${configuration.configured && configuration.isEnabled ? "ready" : "archived"}`;
+  elements.braveConfigSummary.textContent = configuration.configured
+    ? `Version ${configuration.version} · ${configuration.safeSearch} safe search · OS-backed secret${configuration.updatedAtUtc ? ` · updated ${new Date(configuration.updatedAtUtc).toLocaleString()}` : ""}`
+    : "Add a write-only API key to enable cited Brave web research.";
+  workspaceStatus(elements.braveConfigMessage,
+    configuration.secretStore.isAvailable ? configuration.warning : (configuration.secretStore.reason || "OS-backed secret storage is unavailable."),
+    configuration.secretStore.isAvailable ? "" : "error");
+}
+
+async function previewBraveConfiguration(event) {
+  event.preventDefault();
+  setBusy(elements.braveConfigForm, true);
+  try {
+    const preview = await adminMutation("/api/v1/admin/research/providers/brave/configuration/preview", {
+      expectedVersion: admin.braveConfiguration?.version ?? null,
+      isEnabled: elements.braveConfigEnabled.checked,
+      safeSearch: elements.braveConfigSafe.value,
+      countryCode: elements.braveConfigCountry.value.trim(),
+      searchLanguage: elements.braveConfigLanguage.value.trim(),
+      apiKey: elements.braveConfigKey.value || null,
+    });
+    admin.braveConfigurationPreview = preview;
+    elements.braveConfigDetails.replaceChildren();
+    addMeta(elements.braveConfigDetails, "State", preview.isEnabled ? "Enabled" : "Disabled");
+    addMeta(elements.braveConfigDetails, "Safe search", preview.safeSearch);
+    addMeta(elements.braveConfigDetails, "Country", preview.countryCode || "Provider default");
+    addMeta(elements.braveConfigDetails, "Language", preview.searchLanguage);
+    addMeta(elements.braveConfigDetails, "Credential", preview.credentialAction);
+    addMeta(elements.braveConfigDetails, "Live verification",
+      preview.verification ? `${preview.verification.resultCount} result · ${Math.round(preview.verification.durationMilliseconds)} ms` : "Not required while disabled");
+    elements.braveConfigPreviewHash.textContent = preview.previewHash;
+    elements.braveConfigReview.hidden = false;
+    workspaceStatus(elements.braveConfigMessage, preview.warning, "ok");
+  } catch (error) {
+    workspaceStatus(elements.braveConfigMessage, error instanceof Error ? error.message : "Brave Search verification failed.", "error");
+  } finally {
+    setBusy(elements.braveConfigForm, false);
+  }
+}
+
+function discardBraveConfigurationPreview() {
+  admin.braveConfigurationPreview = null;
+  elements.braveConfigKey.value = "";
+  elements.braveConfigReview.hidden = true;
+  elements.braveConfigDetails.replaceChildren();
+  elements.braveConfigPreviewHash.textContent = "";
+}
+
+async function applyBraveConfiguration(event) {
+  event.preventDefault();
+  if (!admin.braveConfigurationPreview) return;
+  setBusy(elements.braveConfigReview, true);
+  try {
+    await adminMutation("/api/v1/admin/research/providers/brave/configuration/apply", {
+      previewHash: admin.braveConfigurationPreview.previewHash,
+      apiKey: elements.braveConfigKey.value || null,
+    });
+    discardBraveConfigurationPreview();
+    await loadContext();
+    workspaceStatus(elements.braveConfigMessage,
+      "Brave Search configuration applied. The write-only key was cleared from this page.", "ok");
+  } catch (error) {
+    workspaceStatus(elements.braveConfigMessage, error instanceof Error ? error.message : "Brave Search configuration failed.", "error");
+  } finally {
+    setBusy(elements.braveConfigReview, false);
+  }
+}
+
 async function loadContext(message = "Loading memory and research capabilities…") {
   workspaceStatus(elements.researchMessage, message);
   try {
     if (!admin.agents.length) await loadAgents();
-    const payload = await adminRead("/api/v1/admin/research/providers");
+    const [payload, braveConfiguration] = await Promise.all([
+      adminRead("/api/v1/admin/research/providers"),
+      adminRead("/api/v1/admin/research/providers/brave/configuration"),
+    ]);
     admin.researchProviders = payload.providers;
     renderResearchProviders();
+    renderBraveConfiguration(braveConfiguration);
     const agent = selectedContextAgent(elements.memoryAgent);
     if (agent) elements.memoryRetention.max = Math.max(1, agent.retentionDays);
     workspaceStatus(elements.researchMessage,
@@ -3237,6 +3337,9 @@ elements.memoryCreateForm.addEventListener("submit", createMemory);
 elements.researchForm.addEventListener("submit", previewResearch);
 elements.researchReview.addEventListener("submit", applyResearch);
 elements.researchReviewClose.addEventListener("click", discardResearchPreview);
+elements.braveConfigForm.addEventListener("submit", previewBraveConfiguration);
+elements.braveConfigReview.addEventListener("submit", applyBraveConfiguration);
+elements.braveConfigDiscard.addEventListener("click", discardBraveConfigurationPreview);
 elements.runContinueForm.addEventListener("submit", continueRunConversation);
 elements.resumeRunTurn.addEventListener("click", resumeRunConversation);
 elements.closeRunDetails.addEventListener("click", () => {

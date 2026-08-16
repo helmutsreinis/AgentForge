@@ -19,6 +19,20 @@ internal static class SearchContractValidator
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToImmutableArray();
+        var evidenceEntries = request.ProviderEvidenceHashes?.Select(item => new
+        {
+            Key = item.Key.Trim().ToLowerInvariant(),
+            item.Value,
+        }).ToArray();
+        if (evidenceEntries is null ||
+            evidenceEntries.Select(item => item.Key).Distinct(StringComparer.Ordinal).Count() != evidenceEntries.Length)
+        {
+            return Invalid<SearchRequest>("Search provider authority evidence is invalid.");
+        }
+        var evidenceHashes = evidenceEntries.ToImmutableDictionary(
+            item => item.Key,
+            item => item.Value,
+            StringComparer.Ordinal);
 
         if (query.Length is < 1 or > 512 ||
             request.MaximumResults is < 1 or > 50 ||
@@ -28,7 +42,9 @@ internal static class SearchContractValidator
             !IsIdentifier(request.CorrelationId, 128) ||
             request.RequestedAtUtc.Offset != TimeSpan.Zero ||
             request.CacheLifetime < TimeSpan.Zero ||
-            request.CacheLifetime > TimeSpan.FromHours(24))
+            request.CacheLifetime > TimeSpan.FromHours(24) ||
+            evidenceHashes.Count > 8 ||
+            evidenceHashes.Any(item => !providerIds.Contains(item.Key, StringComparer.Ordinal) || !IsHash(item.Value)))
         {
             return Invalid<SearchRequest>("Search request bounds or identity are invalid.");
         }
@@ -37,12 +53,15 @@ internal static class SearchContractValidator
         {
             Query = query,
             ProviderIds = providerIds,
+            ProviderEvidenceHashes = evidenceHashes,
         });
     }
 
     public static string QueryHash(SearchRequest request) => Hash(
         $"v1\n{request.Query}\n{request.MaximumResults.ToString(CultureInfo.InvariantCulture)}\n" +
-        $"{string.Join(',', request.ProviderIds)}\n{request.ScopeId}");
+        $"{string.Join(',', request.ProviderIds)}\n" +
+        $"{string.Join(',', request.ProviderEvidenceHashes.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => $"{item.Key}={item.Value}"))}\n" +
+        $"{request.ScopeId}");
 
     public static string CitationHash(Uri source, string title, string excerpt, IEnumerable<string> providers) =>
         Hash($"v1\n{source.AbsoluteUri}\n{title}\n{excerpt}\n{string.Join(',', providers)}");
@@ -66,6 +85,15 @@ internal static class SearchContractValidator
     private static bool IsIdentifier(string value, int maximum) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= maximum &&
         !value.Any(char.IsControl);
+
+    private static bool IsHash(string value)
+    {
+        if (value is not { Length: 71 } || !value.StartsWith("sha256:", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        return value.AsSpan(7).ToString().All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    }
 
     private static DomainResult<T> Invalid<T>(string message) => DomainResult.Fail<T>(
         new DomainFailure(FailureCode.ValidationFailure, message));

@@ -425,6 +425,9 @@ main {
 .context-card { display: grid; gap: 13px; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 8, 12, .45); }
 .context-card > * { min-width: 0; max-width: 100%; }
 .context-card h3 { margin: -4px 0 0; font-size: 20px; font-weight: 550; }
+.integration-config { display: grid; gap: 11px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: rgba(15, 17, 24, .7); }
+.integration-config h4 { margin: 2px 0 0; font-size: 16px; }
+.integration-config .compact-composer { min-width: 0; }
 .compact-composer { width: 100%; min-width: 0; max-width: 100%; padding: 14px; gap: 11px; }
 .compact-composer > .run-primary-grid { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
 .system-preview, .runtime-boundaries { display: grid; align-content: start; gap: 8px; }

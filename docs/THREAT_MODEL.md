@@ -1136,6 +1136,15 @@ expiry, and deletion tuple. Research executes only after an exact operator previ
 provider set, and result limit. Provider credentials remain invocation-scoped inside adapters. The resulting bounded
 citation receipt is session-held and must be attached explicitly to the same agent.
 
+The Ready Brave configuration surface accepts credential material only in an authenticated CSRF/idempotency-bound
+mutation. Preview and apply independently probe the fixed official HTTPS endpoint; the session retains a SHA-256
+fingerprint and sanitized policy only. Apply writes an opaque OS-secret reference and the provider profile plus audit
+event in one database commit, then removes the superseded reference. Secret material is never returned to the browser,
+placed in configuration JSON, audit, cache identity, citation evidence, or model context. The versioned profile evidence
+hash includes the opaque reference identity, so rotation, enablement, safe-search, country, or language changes invalidate
+stale research approvals and cache keys. A managed Brave invocation fails closed unless the request carries that exact
+evidence hash.
+
 Memory and citation bodies are enclosed in an explicit untrusted-reference boundary before model use. Embedded
 instructions cannot change policy, grants, tools, or system text. Context evidence identities enter the policy and
 budget snapshot hashes; the complete redacted system context is additionally content-addressed for continuation and

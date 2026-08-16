@@ -96,6 +96,9 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/memory", CreateMemoryAsync);
         group.MapPost("/memory/{memoryId:guid}/delete", DeleteMemoryAsync);
         group.MapGet("/research/providers", ListResearchProvidersAsync);
+        group.MapGet("/research/providers/brave/configuration", GetBraveSearchConfigurationAsync);
+        group.MapPost("/research/providers/brave/configuration/preview", PreviewBraveSearchConfigurationAsync);
+        group.MapPost("/research/providers/brave/configuration/apply", ApplyBraveSearchConfigurationAsync);
         group.MapPost("/research/preview", PreviewResearchAsync);
         group.MapPost("/research/apply", ApplyResearchAsync);
         group.MapPost("/agents/{agentId:guid}/test-chat", TestAgentChatAsync);

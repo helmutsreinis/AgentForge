@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
+using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Security;
 
 namespace AgentForge.Domain.Search;
 
@@ -18,6 +22,13 @@ public enum SearchFailureKind
     InvalidResponse,
 }
 
+public enum SearchSafeSearch
+{
+    Off,
+    Moderate,
+    Strict,
+}
+
 public sealed record SearchProviderDescriptor(
     string Id,
     SearchProviderKind Kind,
@@ -33,7 +44,59 @@ public sealed record SearchRequest(
     string ActorId,
     string CorrelationId,
     DateTimeOffset RequestedAtUtc,
-    TimeSpan CacheLifetime);
+    TimeSpan CacheLifetime)
+{
+    public ImmutableDictionary<string, string> ProviderEvidenceHashes { get; init; } =
+        ImmutableDictionary<string, string>.Empty.WithComparers(StringComparer.Ordinal);
+}
+
+public sealed record SearchProviderProfile(
+    InstallationId InstallationId,
+    string Id,
+    SearchProviderKind Kind,
+    Uri Endpoint,
+    SecretReference CredentialReference,
+    bool IsEnabled,
+    SearchSafeSearch SafeSearch,
+    string CountryCode,
+    string SearchLanguage,
+    long Version,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    ActorId ActorId,
+    CorrelationId CorrelationId)
+{
+    public string EvidenceHash => $"sha256:{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+        $"v1\n{InstallationId.Value:D}\n{Id}\n{Kind}\n{Endpoint.AbsoluteUri}\n{CredentialReference.Store}\n" +
+        $"{CredentialReference.Key}\n{IsEnabled}\n{SafeSearch}\n{CountryCode}\n{SearchLanguage}\n{Version}")))}";
+}
+
+public sealed record BraveSearchConfigurationCandidate(
+    bool IsEnabled,
+    SearchSafeSearch SafeSearch,
+    string CountryCode,
+    string SearchLanguage);
+
+public sealed record BraveSearchProbeEvidence(
+    int ResultCount,
+    TimeSpan Duration,
+    string EvidenceHash);
+
+public sealed record BraveSearchConfigurationPreview(
+    InstallationId InstallationId,
+    long? ExpectedVersion,
+    BraveSearchConfigurationCandidate Candidate,
+    bool UsesNewCredential,
+    string CredentialFingerprint,
+    string RequestHash,
+    BraveSearchProbeEvidence? Probe,
+    ActorId ActorId,
+    CorrelationId CorrelationId);
+
+public sealed record BraveSearchConfigurationResult(
+    SearchProviderProfile Profile,
+    string RequestHash,
+    bool CredentialRotated);
 
 public sealed record SearchProviderHit(
     string ProviderId,

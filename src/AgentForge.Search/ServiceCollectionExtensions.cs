@@ -10,6 +10,9 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IResearchCache, InMemoryResearchCache>();
+        services.AddScoped<IBraveSearchConnectivityProbe, BraveSearchConnectivityProbe>();
+        services.AddScoped<IBraveSearchProviderConfigurationService, BraveSearchProviderConfigurationService>();
+        services.AddScoped<ISearchProvider, ManagedBraveSearchProvider>();
         services.AddScoped<IResearchService, ResearchService>();
         return services;
     }

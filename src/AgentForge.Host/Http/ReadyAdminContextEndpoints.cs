@@ -3,6 +3,7 @@ using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Memory;
 using AgentForge.Abstractions.Search;
+using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Memory;
@@ -31,6 +32,16 @@ internal sealed record ReadyResearchWebRequest(
     IReadOnlyList<string>? ProviderIds);
 
 internal sealed record ReadyResearchApplyWebRequest(string PreviewHash);
+
+internal sealed record ReadyBraveSearchPreviewWebRequest(
+    long? ExpectedVersion,
+    bool IsEnabled,
+    string SafeSearch,
+    string? CountryCode,
+    string? SearchLanguage,
+    string? ApiKey);
+
+internal sealed record ReadyBraveSearchApplyWebRequest(string PreviewHash, string? ApiKey);
 
 internal static partial class ReadyAdminEndpoints
 {
@@ -233,19 +244,214 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         IEnumerable<ISearchProvider> providers,
+        IBraveSearchProviderConfigurationService braveConfiguration,
         IClock clock,
         CancellationToken cancellationToken)
     {
         var acquired = await AcquireAsync(
             context, sessions, stateReader, clock, requireCsrf: false, cancellationToken);
         if (acquired.Failure is not null) return acquired.Failure;
+        var catalog = await ResearchCatalogAsync(
+            acquired.Session!.InstallationId, providers, braveConfiguration, cancellationToken);
         return Results.Ok(new
         {
-            providers = providers.Select(item => item.Descriptor)
-                .OrderBy(item => item.Priority).ThenBy(item => item.Id, StringComparer.Ordinal),
+            providers = catalog,
             boundary = "Search is an exact operator-approved context acquisition. The model receives immutable citations and never receives network authority.",
             correlationId = context.TraceIdentifier,
         });
+    }
+
+    private static async Task<IResult> GetBraveSearchConfigurationAsync(
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IBraveSearchProviderConfigurationService configuration,
+        ISecretStore secretStore,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireAsync(
+            context, sessions, stateReader, clock, requireCsrf: false, cancellationToken);
+        if (acquired.Failure is not null) return acquired.Failure;
+        var profile = await configuration.FindAsync(acquired.Session!.InstallationId, cancellationToken);
+        var capability = secretStore.GetCapability();
+        return Results.Ok(new
+        {
+            configured = profile is not null,
+            id = "brave",
+            kind = SearchProviderKind.Brave.ToString(),
+            endpoint = "https://api.search.brave.com/res/v1/web/search",
+            isEnabled = profile?.IsEnabled ?? true,
+            safeSearch = (profile?.SafeSearch ?? SearchSafeSearch.Moderate).ToString(),
+            countryCode = profile?.CountryCode ?? string.Empty,
+            searchLanguage = profile?.SearchLanguage ?? "en",
+            version = profile?.Version,
+            evidenceHash = profile?.EvidenceHash,
+            authentication = profile is null ? "Not configured" : "OS-backed secret",
+            secretStore = new
+            {
+                capability.Store,
+                capability.IsAvailable,
+                reason = capability.UnavailableReason?.Message,
+            },
+            updatedAtUtc = profile?.UpdatedAtUtc,
+            warning = "The API key is write-only. Rotation creates a new OS-backed reference and removes the replaced reference after the durable update commits.",
+            correlationId = context.TraceIdentifier,
+        });
+    }
+
+    private static async Task<IResult> PreviewBraveSearchConfigurationAsync(
+        ReadyBraveSearchPreviewWebRequest request,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IBraveSearchProviderConfigurationService configuration,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null) return acquired.Failure;
+        if (request is null || !TryEnum(request.SafeSearch, out SearchSafeSearch safeSearch) ||
+            request.ApiKey is { Length: > 512 })
+        {
+            return Problem(context, 400, "Invalid Brave Search configuration",
+                "Enter bounded Brave Search policy values and a valid API key when creating or rotating the provider.",
+                "validation-failure");
+        }
+
+        var session = acquired.Session!;
+        var credential = request.ApiKey?.AsMemory() ?? ReadOnlyMemory<char>.Empty;
+        var webHash = SnapshotHash(new
+        {
+            request.ExpectedVersion,
+            request.IsEnabled,
+            SafeSearch = safeSearch.ToString(),
+            request.CountryCode,
+            request.SearchLanguage,
+            CredentialFingerprint = CredentialFingerprint(credential.Span),
+        });
+        var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+        var scopedKey = $"brave-configuration-preview:{idempotencyKey}";
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (session.Results.TryGetValue(scopedKey, out var existing))
+            {
+                return string.Equals(existing.RequestHash, webHash, StringComparison.Ordinal)
+                    ? Replay(context, existing.Response)
+                    : Problem(context, 409, "Idempotency conflict",
+                        "The idempotency key is already bound to another Brave Search preview.", "idempotency-conflict");
+            }
+            var stable = StableRequestIdentity(session.InstallationId, "brave-configuration-preview", idempotencyKey);
+            var correlation = new CorrelationId($"admin-brave:{Convert.ToHexStringLower(stable.AsSpan(0, 16))}");
+            var preview = await configuration.PreviewAsync(
+                session.InstallationId,
+                request.ExpectedVersion,
+                new BraveSearchConfigurationCandidate(
+                    request.IsEnabled,
+                    safeSearch,
+                    request.CountryCode ?? string.Empty,
+                    request.SearchLanguage ?? "en"),
+                credential,
+                session.ActorId,
+                correlation,
+                cancellationToken);
+            if (!preview.IsSuccess)
+            {
+                return DomainProblem(context, preview.Failure!, "Brave Search verification failed");
+            }
+            RetainBoundedPreviews(session.BraveSearchPreviews, 7);
+            session.BraveSearchPreviews[preview.Value.RequestHash] = preview.Value;
+            var response = new
+            {
+                previewHash = preview.Value.RequestHash,
+                expectedVersion = preview.Value.ExpectedVersion,
+                preview.Value.Candidate.IsEnabled,
+                safeSearch = preview.Value.Candidate.SafeSearch.ToString(),
+                preview.Value.Candidate.CountryCode,
+                preview.Value.Candidate.SearchLanguage,
+                credentialAction = preview.Value.UsesNewCredential ? "Create or rotate OS-backed secret" : "Retain current OS-backed secret",
+                verification = preview.Value.Probe is null ? null : new
+                {
+                    preview.Value.Probe.ResultCount,
+                    durationMilliseconds = Math.Max(0, preview.Value.Probe.Duration.TotalMilliseconds),
+                    preview.Value.Probe.EvidenceHash,
+                },
+                warning = "Applying this exact preview changes only the Brave research provider. It grants no agent tools or autonomous network access.",
+                correlationId = correlation.Value,
+            };
+            StoreIdempotentResult(session, scopedKey, webHash, response);
+            return Results.Ok(response);
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
+    }
+
+    private static async Task<IResult> ApplyBraveSearchConfigurationAsync(
+        ReadyBraveSearchApplyWebRequest request,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IBraveSearchProviderConfigurationService configuration,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null) return acquired.Failure;
+        var session = acquired.Session!;
+        var credential = request.ApiKey?.AsMemory() ?? ReadOnlyMemory<char>.Empty;
+        var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+        var webHash = SnapshotHash(new
+        {
+            request.PreviewHash,
+            CredentialFingerprint = CredentialFingerprint(credential.Span),
+        });
+        var scopedKey = $"brave-configuration-apply:{idempotencyKey}";
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (session.Results.TryGetValue(scopedKey, out var existing))
+            {
+                return string.Equals(existing.RequestHash, webHash, StringComparison.Ordinal)
+                    ? Replay(context, existing.Response)
+                    : Problem(context, 409, "Idempotency conflict",
+                        "The idempotency key is already bound to another Brave Search update.", "idempotency-conflict");
+            }
+            if (!Text(request.PreviewHash, 128) ||
+                !session.BraveSearchPreviews.TryGetValue(request.PreviewHash, out var preview))
+            {
+                return Problem(context, 403, "Approved Brave Search preview required",
+                    "Preview the exact settings and credential action before applying them.", "policy-denied");
+            }
+            var result = await configuration.ApplyAsync(preview, credential, cancellationToken);
+            if (!result.IsSuccess)
+            {
+                return DomainProblem(context, result.Failure!, "Brave Search configuration failed");
+            }
+            var response = new
+            {
+                configured = true,
+                id = result.Value.Profile.Id,
+                result.Value.Profile.IsEnabled,
+                safeSearch = result.Value.Profile.SafeSearch.ToString(),
+                result.Value.Profile.CountryCode,
+                result.Value.Profile.SearchLanguage,
+                result.Value.Profile.Version,
+                result.Value.Profile.EvidenceHash,
+                result.Value.CredentialRotated,
+                authentication = "OS-backed secret",
+                correlationId = preview.CorrelationId.Value,
+            };
+            session.BraveSearchPreviews.TryRemove(request.PreviewHash, out _);
+            StoreIdempotentResult(session, scopedKey, webHash, response);
+            return Results.Ok(response);
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
     }
 
     private static async Task<IResult> PreviewResearchAsync(
@@ -255,6 +461,7 @@ internal static partial class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
         IEnumerable<ISearchProvider> providers,
+        IBraveSearchProviderConfigurationService braveConfiguration,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -268,7 +475,9 @@ internal static partial class ReadyAdminEndpoints
             return Problem(context, 409, "Agent changed",
                 "Refresh the exact agent version before approving research.", "concurrency-conflict");
         }
-        var catalog = providers.Select(item => item.Descriptor).ToDictionary(item => item.Id, StringComparer.Ordinal);
+        var catalog = (await ResearchCatalogAsync(
+            session.InstallationId, providers, braveConfiguration, cancellationToken))
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
         IEnumerable<string> requestedProviders = request.ProviderIds is { Count: > 0 }
             ? request.ProviderIds
             : catalog.Keys;
@@ -291,6 +500,7 @@ internal static partial class ReadyAdminEndpoints
             Query = request.Query!.Trim(),
             request.MaximumResults,
             ProviderIds = selected,
+            ProviderEvidenceHashes = selected.ToDictionary(id => id, id => catalog[id].EvidenceHash, StringComparer.Ordinal),
         });
         var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
         var scopedKey = $"research-preview:{idempotencyKey}";
@@ -309,7 +519,9 @@ internal static partial class ReadyAdminEndpoints
             RetainBoundedPreviews(session.ResearchPreviews, 7);
             session.ResearchPreviews[requestHash] = new ReadyResearchPreview(
                 agent.Id, agent.Version, request.Query!.Trim(), request.MaximumResults,
-                selected, requestHash, correlation);
+                selected,
+                selected.ToDictionary(id => id, id => catalog[id].EvidenceHash, StringComparer.Ordinal),
+                requestHash, correlation);
             var response = new
             {
                 previewHash = requestHash,
@@ -335,6 +547,8 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
+        IEnumerable<ISearchProvider> providers,
+        IBraveSearchProviderConfigurationService braveConfiguration,
         IResearchService research,
         IClock clock,
         CancellationToken cancellationToken)
@@ -365,6 +579,18 @@ internal static partial class ReadyAdminEndpoints
                 "The approved agent version changed; create another preview.", "concurrency-conflict");
         }
 
+        var currentCatalog = (await ResearchCatalogAsync(
+            session.InstallationId, providers, braveConfiguration, cancellationToken))
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
+        if (approved.ProviderEvidenceHashes.Any(item =>
+                !currentCatalog.TryGetValue(item.Key, out var descriptor) ||
+                !string.Equals(descriptor.EvidenceHash, item.Value, StringComparison.Ordinal)))
+        {
+            return Problem(context, 409, "Research provider changed",
+                "A selected search provider was disabled, rotated, or reconfigured after approval.",
+                "concurrency-conflict");
+        }
+
         await session.MutationGate.WaitAsync(cancellationToken);
         try
         {
@@ -383,7 +609,10 @@ internal static partial class ReadyAdminEndpoints
                 session.ActorId.Value,
                 approved.CorrelationId.Value,
                 clock.UtcNow,
-                TimeSpan.FromMinutes(15)), cancellationToken);
+                TimeSpan.FromMinutes(15))
+            {
+                ProviderEvidenceHashes = approved.ProviderEvidenceHashes.ToImmutableDictionary(StringComparer.Ordinal),
+            }, cancellationToken);
             if (!result.IsSuccess)
             {
                 return DomainProblem(context, result.Failure!, "Research failed");
@@ -424,6 +653,23 @@ internal static partial class ReadyAdminEndpoints
         {
             session.MutationGate.Release();
         }
+    }
+
+    private static async Task<IReadOnlyList<SearchProviderDescriptor>> ResearchCatalogAsync(
+        InstallationId installationId,
+        IEnumerable<ISearchProvider> providers,
+        IBraveSearchProviderConfigurationService braveConfiguration,
+        CancellationToken cancellationToken)
+    {
+        var brave = await braveConfiguration.FindAsync(installationId, cancellationToken);
+        return providers.Select(item => item.Descriptor)
+            .Where(item => item.Kind != SearchProviderKind.Brave || brave?.IsEnabled == true)
+            .Select(item => item.Kind == SearchProviderKind.Brave && brave is not null
+                ? item with { EvidenceHash = brave.EvidenceHash }
+                : item)
+            .OrderBy(item => item.Priority)
+            .ThenBy(item => item.Id, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static string? MemoryScope(AgentIdentity agent, ActorId actorId) => agent.MemoryPolicy.Scope switch
