@@ -377,7 +377,7 @@
             </div>
           </details>
           <div class="composer-actions">
-            <p>Run titles are durable metadata. Prompts, run guidance, skill bodies, and model output remain transient.</p>
+            <p>Prompts and responses are redacted, content-addressed, and stored as a durable conversation. Pinned system and skill context is hash-bound for restart safety.</p>
             <button class="setup-submit" type="submit">Start run</button>
           </div>
         </form>
@@ -393,6 +393,37 @@
             <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
           </div>
         </article>
+        <section id="run-details" class="conversation-details" aria-labelledby="run-details-title" hidden>
+          <div class="resource-title">
+            <div>
+              <span class="stage-kicker">DURABLE CONVERSATION</span>
+              <h3 id="run-details-title">Run details</h3>
+            </div>
+            <button id="close-run-details" class="secondary-action" type="button">Close details</button>
+          </div>
+          <div id="run-details-meta" class="metadata-grid"></div>
+          <div id="run-transcript" class="run-transcript"></div>
+          <form id="run-continue-form" class="run-composer conversation-composer" autocomplete="off">
+            <label>Follow-up objective<textarea id="run-follow-up" maxlength="16384" rows="3" placeholder="Continue this conversation using its exact pinned context."></textarea></label>
+            <div class="run-primary-grid">
+              <label>Response depth<select id="run-follow-up-depth">
+                <option value="concise">Concise</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="detailed">Detailed</option>
+                <option value="extended">Extended</option>
+                <option value="maximum">Maximum</option>
+              </select></label>
+              <label>Output token limit<input id="run-follow-up-tokens" type="number" min="1" max="262144" step="1" value="2048" required></label>
+            </div>
+            <div class="composer-actions">
+              <p id="run-continue-help">A follow-up creates a new durable task and supplies bounded prior turns to the pinned model.</p>
+              <div class="resource-actions">
+                <button id="resume-run-turn" class="secondary-action" type="button" hidden>Resume interrupted turn</button>
+                <button id="continue-run" class="setup-submit" type="submit">Send follow-up</button>
+              </div>
+            </div>
+          </form>
+        </section>
         <section class="run-history" aria-labelledby="run-history-title">
           <div class="history-heading">
             <div><span class="stage-kicker">DURABLE RECEIPTS</span><h3 id="run-history-title">Run history</h3></div>
@@ -406,6 +437,7 @@
               <option value="Completed">Completed</option>
               <option value="Canceled">Canceled</option>
               <option value="Failed">Failed</option>
+              <option value="NeedsResume">Needs resume</option>
               <option value="Planned">Planned</option>
             </select></label>
             <label>Per page<select id="run-page-size">

@@ -680,6 +680,77 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("event: usage", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: completed", streamedText, StringComparison.Ordinal);
         Assert.Contains("I am the bounded AgentForge test agent.", streamedText, StringComparison.Ordinal);
+        var conversationStartedLine = streamedText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .First(line => line.StartsWith("data: ", StringComparison.Ordinal) &&
+                line.Contains("\"conversationId\"", StringComparison.Ordinal));
+        using var conversationStarted = JsonDocument.Parse(conversationStartedLine[6..]);
+        var conversationId = conversationStarted.RootElement.GetProperty("conversationId").GetGuid();
+        using var conversationDetails = await client.GetAsync($"/api/v1/admin/runs/{conversationId:D}");
+        Assert.Equal(HttpStatusCode.OK, conversationDetails.StatusCode);
+        using (var detailsJson = JsonDocument.Parse(await conversationDetails.Content.ReadAsByteArrayAsync()))
+        {
+            Assert.Equal(1, detailsJson.RootElement.GetProperty("turns").GetArrayLength());
+            Assert.Equal("Stream a bounded answer.", detailsJson.RootElement.GetProperty("turns")[0]
+                .GetProperty("prompt").GetString());
+            Assert.Equal("I am the bounded AgentForge test agent.", detailsJson.RootElement
+                .GetProperty("turns")[0].GetProperty("response").GetString());
+        }
+        using var followUpWithoutCsrf = await client.PostAsJsonAsync(
+            $"/api/v1/admin/runs/{conversationId:D}/turns-stream",
+            new { prompt = "Unsafe missing-CSRF follow-up.", responseDepth = "balanced", maximumOutputTokens = 2_048 });
+        Assert.Equal(HttpStatusCode.Unauthorized, followUpWithoutCsrf.StatusCode);
+        using var followUp = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/runs/{conversationId:D}/turns-stream",
+            "mvp-conversation-turn-2",
+            adminCsrf,
+            "Use the first answer and add one check.",
+            responseDepth: "balanced",
+            maximumOutputTokens: 2_048);
+        var followUpText = await followUp.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, followUp.StatusCode);
+        Assert.Contains("\"turn\":2", followUpText, StringComparison.Ordinal);
+        Assert.Contains("event: completed", followUpText, StringComparison.Ordinal);
+        using var continuedDetails = await client.GetAsync($"/api/v1/admin/runs/{conversationId:D}");
+        using (var detailsJson = JsonDocument.Parse(await continuedDetails.Content.ReadAsByteArrayAsync()))
+        {
+            Assert.Equal(2, detailsJson.RootElement.GetProperty("turns").GetArrayLength());
+            Assert.Equal("Use the first answer and add one check.", detailsJson.RootElement
+                .GetProperty("turns")[1].GetProperty("prompt").GetString());
+        }
+        using var interruptedStream = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-resume",
+            adminCsrf,
+            "Interrupt once.");
+        var interruptedText = await interruptedStream.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, interruptedStream.StatusCode);
+        Assert.Contains("event: failed", interruptedText, StringComparison.Ordinal);
+        Assert.Contains("\"resumable\":true", interruptedText, StringComparison.Ordinal);
+        var interruptedStartedLine = interruptedText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .First(line => line.StartsWith("data: ", StringComparison.Ordinal) &&
+                line.Contains("\"conversationId\"", StringComparison.Ordinal));
+        using var interruptedStarted = JsonDocument.Parse(interruptedStartedLine[6..]);
+        var interruptedConversationId = interruptedStarted.RootElement.GetProperty("conversationId").GetGuid();
+        var interruptedTurnId = interruptedStarted.RootElement.GetProperty("turnId").GetGuid();
+        using var resumedStream = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/runs/{interruptedConversationId:D}/turns/{interruptedTurnId:D}/resume-stream",
+            "mvp-stream-resume-attempt",
+            adminCsrf,
+            "Body ignored by resume endpoint.");
+        var resumedText = await resumedStream.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, resumedStream.StatusCode);
+        Assert.Contains("\"resumed\":true", resumedText, StringComparison.Ordinal);
+        Assert.Contains("event: completed", resumedText, StringComparison.Ordinal);
+        using var resumedDetails = await client.GetAsync($"/api/v1/admin/runs/{interruptedConversationId:D}");
+        using (var resumedJson = JsonDocument.Parse(await resumedDetails.Content.ReadAsByteArrayAsync()))
+        {
+            Assert.Equal("Completed", resumedJson.RootElement.GetProperty("run").GetProperty("state").GetString());
+            Assert.Equal("I am the bounded AgentForge test agent.", resumedJson.RootElement
+                .GetProperty("turns")[0].GetProperty("response").GetString());
+        }
         using var streamReplay = await StreamMutationAsync(
             client,
             $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
@@ -1378,6 +1449,8 @@ public sealed class WebSetupWizardTests : IDisposable
 
     private sealed class WebFakeLocalInteraction : ILocalModelInteractionService
     {
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, int> _streamAttempts = new();
+
         public Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
             LocalModelInteractionRequest request,
             CancellationToken cancellationToken)
@@ -1438,6 +1511,14 @@ The procedure may describe only repository:read behavior. It receives no executi
             await observer.OnProgressAsync(new LocalModelInteractionProgress(
                 request.RequestId,
                 LocalModelInteractionProgressKind.Started), cancellationToken);
+            if (string.Equals(request.Prompt, "Interrupt once.", StringComparison.Ordinal) &&
+                _streamAttempts.AddOrUpdate(request.RequestId.Value, 1, (_, count) => count + 1) == 1)
+            {
+                return DomainResult.Fail<LocalModelInteractionResult>(new DomainFailure(
+                    FailureCode.RecoverableExternalFailure,
+                    "Deterministic first-attempt interruption.",
+                    IsRetryable: true));
+            }
             if (string.Equals(request.Prompt, "Wait for cancellation.", StringComparison.Ordinal))
             {
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);

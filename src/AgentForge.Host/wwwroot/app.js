@@ -80,6 +80,18 @@ const elements = {
   runOutputText: document.querySelector("#run-output-text"),
   runOutputMeta: document.querySelector("#run-output-meta"),
   cancelInteraction: document.querySelector("#cancel-interaction"),
+  runDetails: document.querySelector("#run-details"),
+  runDetailsTitle: document.querySelector("#run-details-title"),
+  runDetailsMeta: document.querySelector("#run-details-meta"),
+  runTranscript: document.querySelector("#run-transcript"),
+  closeRunDetails: document.querySelector("#close-run-details"),
+  runContinueForm: document.querySelector("#run-continue-form"),
+  runFollowUp: document.querySelector("#run-follow-up"),
+  runFollowUpDepth: document.querySelector("#run-follow-up-depth"),
+  runFollowUpTokens: document.querySelector("#run-follow-up-tokens"),
+  runContinueHelp: document.querySelector("#run-continue-help"),
+  continueRun: document.querySelector("#continue-run"),
+  resumeRunTurn: document.querySelector("#resume-run-turn"),
   runHistoryCount: document.querySelector("#run-history-count"),
   runSearch: document.querySelector("#run-search"),
   runStateFilter: document.querySelector("#run-state-filter"),
@@ -194,6 +206,7 @@ const admin = {
   lastLearningEvaluation: null,
   lastLearningGeneration: null,
   activeTaskId: null,
+  selectedRunDetails: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
 if (!isLoopbackBrowser) {
@@ -708,18 +721,25 @@ function renderRunHistory() {
     title.append(titleCopy, stateChip(run.state));
     const meta = makeElement("div", "resource-meta");
     addMeta(meta, "Pattern", run.pattern);
+    if (run.turnCount) addMeta(meta, "Turns", run.turnCount.toString());
     addMeta(meta, "Updated", formatRunTime(run.updatedAt));
     addMeta(meta, "Snapshot", `v${run.version} · ${run.snapshotHash.slice(0, 18)}…`);
     content.append(title, meta);
     card.append(content);
     const actions = makeElement("div", "resource-actions");
-    if (!terminalStates.includes(run.state)) {
+    if (run.conversationId) {
+      const details = makeElement("button", "secondary-action", "Open conversation");
+      details.type = "button";
+      details.addEventListener("click", () => openRunDetails(run.conversationId));
+      actions.append(details);
+    }
+    if (!terminalStates.includes(run.state) && run.state !== "NeedsResume") {
       const cancel = makeElement("button", "secondary-action", "Cancel run");
       cancel.type = "button";
       cancel.addEventListener("click", async () => {
         cancel.disabled = true;
         try {
-          await adminMutation(`/api/v1/admin/runs/${run.taskId}/cancel`);
+          await adminMutation(`/api/v1/admin/runs/${run.latestTaskId || run.taskId}/cancel`);
           await loadRuns("Run canceled. Refreshing snapshots…", false);
         } catch (error) {
           workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Run cancellation failed.", "error");
@@ -727,11 +747,19 @@ function renderRunHistory() {
         }
       });
       actions.append(cancel);
-    } else {
+    } else if (run.state === "NeedsResume") {
+      const resume = makeElement("button", "setup-submit", "Resume turn");
+      resume.type = "button";
+      resume.addEventListener("click", async () => {
+        await openRunDetails(run.conversationId);
+        elements.resumeRunTurn.focus();
+      });
+      actions.append(resume);
+    } else if (run.sourceTaskId || !run.conversationId) {
       const learn = makeElement("button", "secondary-action", "Capture learning");
       learn.type = "button";
       learn.addEventListener("click", async () => {
-        admin.pendingLearningTaskId = run.taskId;
+        admin.pendingLearningTaskId = run.sourceTaskId || run.taskId;
         if (window.location.hash === "#learning") await loadLearning();
         else window.location.hash = "#learning";
       });
@@ -752,6 +780,156 @@ function renderRunHistory() {
   elements.runPageSummary.textContent = `Page ${admin.runPage} of ${pageCount}`;
   elements.runPagePrevious.disabled = admin.runPage <= 1;
   elements.runPageNext.disabled = admin.runPage >= pageCount;
+}
+
+async function openRunDetails(conversationId) {
+  try {
+    workspaceStatus(elements.runsMessage, "Loading hash-verified conversation artifacts…");
+    const payload = await adminRead(`/api/v1/admin/runs/${conversationId}`);
+    admin.selectedRunDetails = payload;
+    elements.runDetails.hidden = false;
+    elements.runDetailsTitle.textContent = payload.run.name;
+    elements.runDetailsMeta.replaceChildren();
+    addMeta(elements.runDetailsMeta, "Conversation", payload.run.conversationId);
+    addMeta(elements.runDetailsMeta, "State", payload.run.state);
+    addMeta(elements.runDetailsMeta, "Model", `${payload.provider.model} · provider v${payload.provider.version}`);
+    addMeta(elements.runDetailsMeta, "Turns", payload.turns.length.toString());
+    addMeta(elements.runDetailsMeta, "Policy", `${payload.policySnapshotHash.slice(0, 20)}…`);
+    addMeta(elements.runDetailsMeta, "Skills", payload.skillIds.length ? payload.skillIds.join(", ") : "None");
+    elements.runTranscript.replaceChildren();
+    for (const item of payload.turns) {
+      const turn = makeElement("article", "conversation-turn");
+      const user = makeElement("div", "conversation-message user");
+      user.append(makeElement("span", "", `Turn ${item.sequence} · You`), makeElement("p", "", item.prompt));
+      turn.append(user);
+      if (item.response) {
+        const assistant = makeElement("div", "conversation-message assistant");
+        assistant.append(makeElement("span", "", "Agent"), makeElement("p", "", item.response));
+        turn.append(assistant);
+      }
+      const usage = item.usage
+        ? `${item.usage.inputTokens.toLocaleString()} in · ${item.usage.outputTokens.toLocaleString()} out`
+        : "usage unavailable";
+      turn.append(makeElement("div", "conversation-turn-footer",
+        `Turn ${item.sequence} · ${item.state} · ${item.responseDepth} · ${usage} · ${formatRunTime(item.updatedAt)}`));
+      elements.runTranscript.append(turn);
+    }
+    const latest = payload.turns[payload.turns.length - 1];
+    const agent = admin.agents.find(item => item.id === payload.run.agentId);
+    const maximum = Math.min(262144, Number(agent?.budget?.maxOutputTokens || 262144));
+    elements.runFollowUpTokens.max = maximum;
+    if (Number(elements.runFollowUpTokens.value) > maximum) elements.runFollowUpTokens.value = maximum;
+    elements.continueRun.disabled = !payload.run.canContinue;
+    elements.runFollowUp.disabled = !payload.run.canContinue;
+    elements.resumeRunTurn.hidden = !payload.run.resumable;
+    elements.resumeRunTurn.dataset.turnId = latest.id;
+    elements.runContinueHelp.textContent = payload.run.resumable
+      ? "This turn has durable input but no final assistant artifact. Resume will reclaim only an expired or ready retry lease."
+      : payload.run.canContinue
+        ? "A follow-up creates a new durable task and supplies bounded prior turns to the exact pinned model."
+        : "This conversation cannot accept another turn in its current state.";
+    workspaceStatus(elements.runsMessage, `${payload.turns.length} hash-verified conversation ${payload.turns.length === 1 ? "turn" : "turns"} loaded.`, "ok");
+    elements.runDetails.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "Conversation details could not be loaded.", "error");
+  }
+}
+
+async function streamConversationTurn(path, body, startingMessage) {
+  elements.runOutput.hidden = false;
+  elements.runOutputState.textContent = "Starting";
+  elements.runOutputState.className = "state-chip running";
+  elements.runOutputText.textContent = "";
+  elements.runOutputMeta.textContent = startingMessage;
+  elements.cancelInteraction.hidden = true;
+  admin.activeTaskId = null;
+  let terminalEvent = null;
+  let providerLabel = "Pinned local model";
+  let usageLabel = "Token usage pending";
+  await adminStreamMutation(path, body, async (eventName, payload) => {
+    if (eventName === "run-started") {
+      admin.activeTaskId = payload.taskId;
+      providerLabel = `${payload.provider.name} · ${payload.provider.model}`;
+      elements.runOutputState.textContent = payload.resumed ? "Resumed" : "Running";
+      elements.runOutputMeta.textContent = `${providerLabel} · turn ${payload.configuration.turn} · ${payload.configuration.responseDepth}`;
+      elements.cancelInteraction.hidden = false;
+    } else if (eventName === "model-started") {
+      elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
+    } else if (eventName === "output-delta") {
+      elements.runOutputText.textContent += payload.text || "";
+      elements.runOutputText.scrollTop = elements.runOutputText.scrollHeight;
+    } else if (eventName === "usage" && payload.usage) {
+      usageLabel = `${payload.usage.inputTokens.toLocaleString()} input · ${payload.usage.outputTokens.toLocaleString()} output tokens`;
+      elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel}`;
+    } else if (eventName === "completed") {
+      terminalEvent = eventName;
+      elements.runOutputState.textContent = "Completed";
+      elements.runOutputState.className = "state-chip completed";
+      elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel} · ${payload.finishReason}`;
+      elements.cancelInteraction.hidden = true;
+    } else if (eventName === "failed") {
+      terminalEvent = eventName;
+      elements.runOutputState.textContent = payload.resumable ? "Needs resume" : "Failed";
+      elements.runOutputState.className = "state-chip failed";
+      elements.runOutputMeta.textContent = `${providerLabel} · ${payload.code}`;
+      elements.cancelInteraction.hidden = true;
+    } else if (eventName === "canceled") {
+      terminalEvent = eventName;
+      elements.runOutputState.textContent = "Canceled";
+      elements.runOutputState.className = "state-chip canceled";
+      elements.cancelInteraction.hidden = true;
+    }
+  });
+  if (!terminalEvent) throw new Error("The model stream closed without a durable turn receipt.");
+  const selectedId = admin.selectedRunDetails?.run?.conversationId;
+  await loadRuns("Conversation turn stored. Refreshing durable history…", false);
+  if (selectedId) await openRunDetails(selectedId);
+}
+
+async function continueRunConversation(event) {
+  event.preventDefault();
+  const details = admin.selectedRunDetails;
+  if (!details?.run?.conversationId || !details.run.canContinue) return;
+  const prompt = elements.runFollowUp.value.trim();
+  if (!prompt) {
+    workspaceStatus(elements.runsMessage, "Enter a follow-up objective before continuing.", "error");
+    return;
+  }
+  setBusy(elements.runContinueForm, true);
+  try {
+    await streamConversationTurn(
+      `/api/v1/admin/runs/${details.run.conversationId}/turns-stream`,
+      {
+        prompt,
+        responseDepth: elements.runFollowUpDepth.value,
+        maximumOutputTokens: Number(elements.runFollowUpTokens.value),
+      },
+      "Persisting the next turn and opening the pinned local-model stream…");
+    elements.runFollowUp.value = "";
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The follow-up turn failed.", "error");
+  } finally {
+    admin.activeTaskId = null;
+    setBusy(elements.runContinueForm, false);
+  }
+}
+
+async function resumeRunConversation() {
+  const details = admin.selectedRunDetails;
+  const turnId = elements.resumeRunTurn.dataset.turnId;
+  if (!details?.run?.conversationId || !turnId) return;
+  setBusy(elements.runContinueForm, true);
+  try {
+    await streamConversationTurn(
+      `/api/v1/admin/runs/${details.run.conversationId}/turns/${turnId}/resume-stream`,
+      {},
+      "Reclaiming the durable turn lease and rebuilding bounded model context…");
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The interrupted turn could not resume.", "error");
+  } finally {
+    admin.activeTaskId = null;
+    setBusy(elements.runContinueForm, false);
+  }
 }
 
 async function loadRuns(message = "Loading durable run snapshots…", resetPage = true) {
@@ -789,6 +967,7 @@ async function createRun(event) {
     let usageLabel = "Token usage pending";
     let terminalMessage = "Local model stream ended.";
     let terminalEvent = null;
+    let completedConversationId = null;
     await adminStreamMutation(
       `/api/v1/admin/agents/${elements.runAgent.value}/test-chat-stream`,
       {
@@ -802,6 +981,7 @@ async function createRun(event) {
       async (eventName, payload) => {
         if (eventName === "run-started") {
           admin.activeTaskId = payload.taskId;
+          completedConversationId = payload.conversationId || null;
           providerLabel = `${payload.provider.name} · ${payload.provider.model}`;
           elements.runOutputState.textContent = "Running";
           const skillLabel = payload.configuration.skillIds.length
@@ -833,8 +1013,10 @@ async function createRun(event) {
           elements.cancelInteraction.hidden = true;
         } else if (eventName === "failed") {
           terminalEvent = eventName;
-          terminalMessage = payload.message || "The model interaction failed.";
-          elements.runOutputState.textContent = "Failed";
+          terminalMessage = payload.resumable
+            ? "The provider interruption is durable and can be resumed from run details."
+            : payload.message || "The model interaction failed.";
+          elements.runOutputState.textContent = payload.resumable ? "Needs resume" : "Failed";
           elements.runOutputState.className = "state-chip failed";
           elements.runOutputMeta.textContent = `${providerLabel} · ${payload.code}`;
           elements.cancelInteraction.hidden = true;
@@ -842,6 +1024,7 @@ async function createRun(event) {
       });
     if (!terminalEvent) throw new Error("The model stream closed without a durable terminal receipt.");
     await loadRuns(terminalMessage);
+    if (completedConversationId) await openRunDetails(completedConversationId);
   } catch (error) {
     elements.runOutputState.textContent = "Failed";
     elements.runOutputState.className = "state-chip failed";
@@ -1416,13 +1599,14 @@ function populateLearningSources() {
   const selected = admin.pendingLearningTaskId || elements.learningSourceRun.value;
   const terminalStates = ["Completed", "Failed", "Canceled", "DeadLettered"];
   elements.learningSourceRun.replaceChildren();
-  for (const run of admin.runs.filter(item => terminalStates.includes(item.state))) {
+  for (const run of admin.runs.filter(item => terminalStates.includes(item.state) &&
+    (item.sourceTaskId || !item.conversationId))) {
     const option = document.createElement("option");
-    option.value = run.taskId;
+    option.value = run.sourceTaskId || run.taskId;
     option.textContent = `${run.name} · ${run.state} · ${formatRunTime(run.updatedAt)}`;
     elements.learningSourceRun.append(option);
   }
-  if (admin.runs.some(run => run.taskId === selected && terminalStates.includes(run.state))) {
+  if (admin.runs.some(run => (run.sourceTaskId || run.taskId) === selected && terminalStates.includes(run.state))) {
     elements.learningSourceRun.value = selected;
   }
   admin.pendingLearningTaskId = null;
@@ -2223,6 +2407,12 @@ elements.agentEditorClose.addEventListener("click", closeAgentEditor);
 elements.agentEditCancel.addEventListener("click", discardAgentEditPreview);
 elements.agentEditApply.addEventListener("click", applyAgentEditPreview);
 elements.runForm.addEventListener("submit", createRun);
+elements.runContinueForm.addEventListener("submit", continueRunConversation);
+elements.resumeRunTurn.addEventListener("click", resumeRunConversation);
+elements.closeRunDetails.addEventListener("click", () => {
+  admin.selectedRunDetails = null;
+  elements.runDetails.hidden = true;
+});
 elements.learningForm.addEventListener("submit", captureLearning);
 elements.learningProposalForm.addEventListener("submit", createLearningProposal);
 elements.learningProposalClose.addEventListener("click", closeLearningProposal);
@@ -2246,6 +2436,11 @@ elements.runAgent.addEventListener("change", loadRunOptions);
 elements.runDepth.addEventListener("change", () => {
   const preset = Number(elements.runDepth.selectedOptions[0]?.dataset.tokens);
   if (Number.isInteger(preset) && preset > 0) elements.runTokenLimit.value = preset;
+});
+elements.runFollowUpDepth.addEventListener("change", () => {
+  const presets = { concise: 512, balanced: 2048, detailed: 8192, extended: 16384, maximum: 262144 };
+  const maximum = Number(elements.runFollowUpTokens.max) || 262144;
+  elements.runFollowUpTokens.value = Math.min(maximum, presets[elements.runFollowUpDepth.value] || 2048);
 });
 elements.runSearch.addEventListener("input", () => {
   admin.runPage = 1;

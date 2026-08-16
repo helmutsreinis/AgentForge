@@ -9,6 +9,7 @@ using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Runtime;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
@@ -19,6 +20,7 @@ using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Runtime;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
 using AgentForge.Domain.Tools;
@@ -66,8 +68,11 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/agents/{agentId:guid}/profile/apply", ApplyAgentProfileAsync);
         group.MapGet("/agents/{agentId:guid}/run-options", GetRunOptionsAsync);
         group.MapGet("/runs", ListRunsAsync);
+        group.MapGet("/runs/{conversationId:guid}", GetRunConversationAsync);
         group.MapPost("/runs", CreateRunAsync);
         group.MapPost("/runs/{taskId:guid}/cancel", CancelRunAsync);
+        group.MapPost("/runs/{conversationId:guid}/turns-stream", ContinueRunConversationAsync);
+        group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/resume-stream", ResumeRunConversationAsync);
         group.MapPost("/agents/{agentId:guid}/test-chat", TestAgentChatAsync);
         group.MapPost("/agents/{agentId:guid}/test-chat-stream", StreamAgentChatAsync);
         group.MapGet("/skills", ListSkillsAsync);
@@ -338,6 +343,7 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         ITaskSnapshotStore snapshots,
+        IRunConversationRepository conversations,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -348,11 +354,18 @@ internal static partial class ReadyAdminEndpoints
             return acquired.Failure;
         }
 
+        var conversationItems = await conversations.ListLatestAsync(
+            acquired.Session!.InstallationId, 100, cancellationToken);
+        var conversationTaskIds = conversationItems
+            .SelectMany(item => item.Turns.Select(turn => turn.TaskId))
+            .ToHashSet();
         var items = await snapshots.ListLatestAsync(
             acquired.Session!.InstallationId, 100, cancellationToken);
         return Results.Ok(new
         {
-            runs = items.Select(item => RunResponse(item)),
+            runs = conversationItems.Select(item => (object)ConversationResponse(item))
+                .Concat(items.Where(item => !conversationTaskIds.Contains(item.Definition.Id))
+                    .Select(item => (object)RunResponse(item))),
             correlationId = context.TraceIdentifier,
         });
     }
@@ -662,6 +675,7 @@ internal static partial class ReadyAdminEndpoints
         IProviderProfileRepository providers,
         ITaskOrchestrator orchestrator,
         ITaskSnapshotStore snapshots,
+        IRunConversationService conversations,
         ISkillSnapshotService skillSnapshots,
         ILocalModelInteractionService interactions,
         ReadyActiveInteractionRegistry activeInteractions,
@@ -688,7 +702,10 @@ internal static partial class ReadyAdminEndpoints
         AgentIdentity? agent = null;
         ProviderProfile? provider = null;
         TaskLeaseGrant? claimed = null;
+        RunConversationMutationResult? conversation = null;
         OrchestrationTaskId taskId = default;
+        RunConversationId conversationId = default;
+        RunConversationTurnId turnId = default;
         CorrelationId correlation = default;
         var systemInstruction = string.Empty;
         var runName = string.IsNullOrWhiteSpace(request.Name) ? "Local model run" : request.Name.Trim();
@@ -717,10 +734,10 @@ internal static partial class ReadyAdminEndpoints
                 return;
             }
             if (agent.ModelPolicy.DataLocality is not ModelDataLocality.LocalOnly ||
-                agent.ModelPolicy.AllowFallback || agent.Budget.MaxToolInvocations != 0)
+                agent.ModelPolicy.AllowFallback)
             {
                 await Problem(context, 403, "Agent policy denied",
-                    "Interactive MVP testing requires a local-only, no-fallback agent with a zero tool budget.",
+                    "Interactive conversation runs require a local-only, no-fallback agent. This route always supplies zero tools regardless of the agent's separate tool budget.",
                     "policy-denied").ExecuteAsync(context);
                 return;
             }
@@ -738,6 +755,8 @@ internal static partial class ReadyAdminEndpoints
             var stableRequestIdentity = StableRequestIdentity(
                 session.InstallationId, $"agent-chat-stream:{agentId:D}", idempotencyKey);
             taskId = new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16)));
+            conversationId = new RunConversationId(taskId.Value);
+            turnId = new RunConversationTurnId(new Guid(stableRequestIdentity.AsSpan(16, 16)));
             correlation = new CorrelationId(
                 $"admin-chat-stream:{Convert.ToHexStringLower(stableRequestIdentity)}");
             var agentOutputCeiling = (int)Math.Clamp(
@@ -851,7 +870,7 @@ internal static partial class ReadyAdminEndpoints
                         agent.Budget.MaxInputTokens,
                         maximumOutputTokens,
                         maximumWallClockSeconds),
-                    new TaskRetryPolicy(1, 0))],
+                    new TaskRetryPolicy(2, 0))],
                 1,
                 0,
                 0,
@@ -866,6 +885,37 @@ internal static partial class ReadyAdminEndpoints
                     Streaming = true,
                 }),
                 skillSnapshotHash);
+            var conversationCreated = await conversations.CreateAsync(new CreateRunConversationRequest(
+                conversationId,
+                session.InstallationId,
+                agent.Id,
+                agent.Version,
+                provider.Id,
+                provider.Version,
+                provider.Model,
+                runName,
+                systemInstruction,
+                appliedSkillIds,
+                skillSnapshotHash,
+                definition.PolicySnapshotHash,
+                definition.BudgetSnapshotHash,
+                turnId,
+                taskId,
+                request.Prompt,
+                responseDepth,
+                maximumOutputTokens,
+                maximumWallClockSeconds,
+                session.ActorId,
+                StoredIdempotencyKey("agent-chat-conversation", idempotencyKey),
+                StoredIdempotencyKey("agent-chat-turn", idempotencyKey),
+                correlation), cancellationToken);
+            if (!conversationCreated.IsSuccess)
+            {
+                await DomainProblem(context, conversationCreated.Failure!, "Durable conversation creation failed")
+                    .ExecuteAsync(context);
+                return;
+            }
+            conversation = conversationCreated.Value;
             var created = await orchestrator.CreateAsync(
                 definition,
                 session.ActorId,
@@ -903,6 +953,15 @@ internal static partial class ReadyAdminEndpoints
                 return;
             }
             claimed = claim.Value;
+            var started = await conversations.StartTurnAsync(
+                conversationId, conversation.Snapshot.Version, turnId, cancellationToken);
+            if (!started.IsSuccess)
+            {
+                await DomainProblem(context, started.Failure!, "Durable conversation turn could not start")
+                    .ExecuteAsync(context);
+                return;
+            }
+            conversation = started.Value;
         }
         finally
         {
@@ -942,6 +1001,8 @@ internal static partial class ReadyAdminEndpoints
             await WriteSseAsync(context, "run-started", new
             {
                 taskId = taskId.Value,
+                conversationId = conversationId.Value,
+                turnId = turnId.Value,
                 state = claimed!.Snapshot.State.ToString(),
                 configuration = new
                 {
@@ -992,6 +1053,16 @@ internal static partial class ReadyAdminEndpoints
                     interaction.Failure.Code,
                     interaction.Failure.IsRetryable,
                     CancellationToken.None);
+                var resumable = interaction.Failure.IsRetryable && failed.IsSuccess &&
+                    !OrchestrationTaskStateMachine.IsTerminal(failed.Value.Snapshot.State);
+                var conversationFailure = await conversations.FailTurnAsync(
+                    conversationId,
+                    conversation!.Snapshot.Version,
+                    turnId,
+                    interaction.Failure.Code,
+                    resumable,
+                    failureEvidence,
+                    CancellationToken.None);
                 if (!failed.IsSuccess && await WasDurablyCanceledAsync(snapshots, taskId))
                 {
                     await WriteSseAsync(context, "canceled", new { taskId = taskId.Value },
@@ -1002,7 +1073,10 @@ internal static partial class ReadyAdminEndpoints
                 {
                     code = interaction.Failure.Code.ToString(),
                     interaction.Failure.Message,
-                    run = failed.IsSuccess ? RunResponse(failed.Value.Snapshot) : null,
+                    resumable,
+                    run = conversationFailure.IsSuccess
+                        ? ConversationResponse(conversationFailure.Value.Snapshot)
+                        : null,
                 }, context.RequestAborted);
                 return;
             }
@@ -1032,6 +1106,22 @@ internal static partial class ReadyAdminEndpoints
                 return;
             }
 
+            var conversationCompleted = await conversations.CompleteTurnAsync(
+                conversationId,
+                conversation!.Snapshot.Version,
+                turnId,
+                interaction.Value,
+                CancellationToken.None);
+            if (!conversationCompleted.IsSuccess)
+            {
+                await WriteSseAsync(context, "failed", new
+                {
+                    code = conversationCompleted.Failure!.Code.ToString(),
+                    conversationCompleted.Failure.Message,
+                }, context.RequestAborted);
+                return;
+            }
+
             await WriteSseAsync(context, "completed", new
             {
                 requestId = interaction.Value.RequestId.Value,
@@ -1040,25 +1130,41 @@ internal static partial class ReadyAdminEndpoints
                 interaction.Value.ContextRedactionCount,
                 interaction.Value.EventCount,
                 interaction.Value.EvidenceHash,
-                run = RunResponse(completed.Value.Snapshot),
+                run = ConversationResponse(conversationCompleted.Value.Snapshot),
             }, context.RequestAborted);
         }
         catch (OperationCanceledException) when (activeInteractions.WasCanceled(taskId))
         {
+            await conversations.CancelTurnAsync(
+                conversationId, conversation!.Snapshot.Version, turnId, CancellationToken.None);
             await WriteSseAsync(context, "canceled", new { taskId = taskId.Value },
                 context.RequestAborted);
         }
         catch (OperationCanceledException)
         {
-            await orchestrator.FailAsync(
+            var failureEvidence = SnapshotHash(new
+            {
+                taskId = taskId.Value,
+                code = FailureCode.RecoverableExternalFailure.ToString(),
+                interrupted = true,
+            });
+            var interrupted = await orchestrator.FailAsync(
                 taskId,
                 claimed.Snapshot.Version,
                 new TaskNodeId("local-model"),
                 streamOwner,
                 claimed.LeaseToken,
-                OrchestrationTaskStateMachine.EmptyHash,
+                failureEvidence,
                 FailureCode.RecoverableExternalFailure,
-                retryable: false,
+                retryable: true,
+                CancellationToken.None);
+            await conversations.FailTurnAsync(
+                conversationId,
+                conversation!.Snapshot.Version,
+                turnId,
+                FailureCode.RecoverableExternalFailure,
+                interrupted.IsSuccess && !OrchestrationTaskStateMachine.IsTerminal(interrupted.Value.Snapshot.State),
+                failureEvidence,
                 CancellationToken.None);
         }
         finally
@@ -1074,6 +1180,8 @@ internal static partial class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         ITaskSnapshotStore snapshots,
         ITaskOrchestrator orchestrator,
+        IRunConversationRepository conversationRepository,
+        IRunConversationService conversations,
         ReadyActiveInteractionRegistry activeInteractions,
         IClock clock,
         CancellationToken cancellationToken)
@@ -1093,22 +1201,53 @@ internal static partial class ReadyAdminEndpoints
         }
         if (current.State is OrchestrationTaskState.Canceled)
         {
+            var canceledConversation = await CancelConversationForTaskAsync(
+                acquired.Session.InstallationId, current.Definition.Id,
+                conversationRepository, conversations, cancellationToken);
             activeInteractions.TryCancel(
                 current.Definition.Id, acquired.Session.InstallationId, acquired.Session.Hash);
             context.Response.Headers["Idempotent-Replay"] = "true";
-            return Results.Ok(RunResponse(current, true));
+            return Results.Ok(canceledConversation is null
+                ? RunResponse(current, true)
+                : ConversationResponse(canceledConversation, true));
         }
 
         var result = await orchestrator.CancelAsync(
             current.Definition.Id, current.Version, cancellationToken);
         if (result.IsSuccess)
         {
+            var canceledConversation = await CancelConversationForTaskAsync(
+                acquired.Session.InstallationId, current.Definition.Id,
+                conversationRepository, conversations, cancellationToken);
             activeInteractions.TryCancel(
                 current.Definition.Id, acquired.Session.InstallationId, acquired.Session.Hash);
+            if (canceledConversation is not null)
+            {
+                return Results.Ok(ConversationResponse(canceledConversation));
+            }
         }
         return result.IsSuccess
             ? Results.Ok(RunResponse(result.Value.Snapshot, result.Value.WasReplay))
             : DomainProblem(context, result.Failure!, "Run cancellation failed");
+    }
+
+    private static async Task<RunConversationSnapshot?> CancelConversationForTaskAsync(
+        InstallationId installationId,
+        OrchestrationTaskId taskId,
+        IRunConversationRepository repository,
+        IRunConversationService conversations,
+        CancellationToken cancellationToken)
+    {
+        var conversation = await repository.FindByTaskIdAsync(
+            installationId, taskId, cancellationToken);
+        if (conversation is null || conversation.Turns[^1].TaskId != taskId ||
+            conversation.State is not (RunConversationState.Running or RunConversationState.NeedsResume))
+        {
+            return conversation;
+        }
+        var canceled = await conversations.CancelTurnAsync(
+            conversation.Id, conversation.Version, conversation.Turns[^1].Id, cancellationToken);
+        return canceled.IsSuccess ? canceled.Value.Snapshot : conversation;
     }
 
     private static async Task<IResult> ListSkillsAsync(
@@ -1404,6 +1543,46 @@ internal static partial class ReadyAdminEndpoints
         snapshot.UpdatedAt,
         wasReplay = replay,
     };
+
+    private static object ConversationResponse(RunConversationSnapshot snapshot, bool replay = false)
+    {
+        var latest = snapshot.Turns[^1];
+        var latestCompleted = snapshot.Turns.LastOrDefault(turn =>
+            turn.State is RunConversationTurnState.Completed);
+        return new
+        {
+            taskId = snapshot.Id.Value,
+            conversationId = snapshot.Id.Value,
+            latestTaskId = latest.TaskId.Value,
+            sourceTaskId = latestCompleted?.TaskId.Value,
+            agentId = snapshot.AgentId.Value,
+            agentVersion = snapshot.AgentVersion,
+            name = snapshot.Name,
+            pattern = "Conversation",
+            state = snapshot.State switch
+            {
+                RunConversationState.Ready => "Completed",
+                RunConversationState.NeedsResume => "NeedsResume",
+                _ => snapshot.State.ToString(),
+            },
+            nodes = snapshot.Turns.Select(turn => new
+            {
+                id = turn.Id.Value,
+                name = $"Turn {turn.Sequence}",
+                state = turn.State.ToString(),
+                attempt = 0,
+                failureCode = turn.FailureCode?.ToString(),
+            }),
+            snapshot.Version,
+            snapshot.SnapshotHash,
+            snapshot.CreatedAt,
+            snapshot.UpdatedAt,
+            turnCount = snapshot.Turns.Count,
+            resumable = snapshot.State is RunConversationState.NeedsResume or RunConversationState.Running,
+            canContinue = snapshot.State is RunConversationState.Ready,
+            wasReplay = replay,
+        };
+    }
 
     private static object SkillResponse(RegisteredSkillVersion skill) => new
     {

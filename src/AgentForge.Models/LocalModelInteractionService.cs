@@ -150,7 +150,7 @@ internal sealed class LocalModelInteractionService(
                 > LocalModelInteractionBounds.MaximumEvents ||
             request.Limits.MaximumWallClockSeconds is < 1 or
                 > LocalModelInteractionBounds.MaximumWallClockSeconds ||
-            !Text(request.CorrelationId.Value, 128))
+            !Text(request.CorrelationId.Value, 128) || !ValidHistory(request.ConversationHistory))
         {
             return DomainResult.Fail<LocalModelInteractionResult>(new DomainFailure(
                 FailureCode.ValidationFailure,
@@ -164,13 +164,16 @@ internal sealed class LocalModelInteractionService(
         }
 
         using var disposable = created.Value as IDisposable;
+        var messages = new List<ModelMessage>((request.ConversationHistory?.Count ?? 0) + 2)
+        {
+            new(ModelMessageRole.System, [new ModelTextContent(request.SystemInstruction)]),
+        };
+        messages.AddRange(request.ConversationHistory ?? []);
+        messages.Add(new ModelMessage(ModelMessageRole.User, [new ModelTextContent(request.Prompt)]));
         var modelRequest = new ModelRequest(
             request.RequestId,
             request.Provider.Model,
-            [
-                new ModelMessage(ModelMessageRole.System, [new ModelTextContent(request.SystemInstruction)]),
-                new ModelMessage(ModelMessageRole.User, [new ModelTextContent(request.Prompt)]),
-            ],
+            messages,
             [],
             new ModelResponseFormat(ModelResponseFormatKind.Text),
             request.Limits with { },
@@ -251,6 +254,7 @@ internal sealed class LocalModelInteractionService(
             providerId = request.Provider.Id.Value,
             request.Provider.Version,
             request.Provider.Model,
+            conversationHash = Hash(request.ConversationHistory ?? []),
             outputHash = Hash(text),
             usage,
             completed.FinishReason,
@@ -288,4 +292,22 @@ internal sealed class LocalModelInteractionService(
 
     private static bool Content(string? value, int maximum) => Text(value, maximum) &&
         !value!.Any(character => char.IsControl(character) && character is not ('\r' or '\n' or '\t'));
+
+    private static bool ValidHistory(IReadOnlyList<ModelMessage>? history)
+    {
+        if (history is null) return true;
+        if (history.Count > 40) return false;
+        var totalCharacters = 0L;
+        foreach (var message in history)
+        {
+            if (message is null || message.Role is not (ModelMessageRole.User or ModelMessageRole.Assistant) ||
+                message.Content is not { Count: 1 } || message.Content[0] is not ModelTextContent text ||
+                !Content(text.Text, 16_384))
+            {
+                return false;
+            }
+            totalCharacters += text.Text.Length;
+        }
+        return totalCharacters <= 131_072;
+    }
 }

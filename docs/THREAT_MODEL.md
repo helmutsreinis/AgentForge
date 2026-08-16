@@ -1081,6 +1081,31 @@ returning and never calls the model again for a matching candidate ID. The autom
 and checks the receipt before `Verified`; independent critic, governor, canary, activation, and per-agent grant gates
 remain mandatory because well-formed model output may still be substantively wrong.
 
+## Durable conversation boundary
+
+Conversation prompts, run guidance, prior assistant text, model streams, artifact files, browser-selected run IDs,
+idempotency keys, and interrupted task state are untrusted. Initial and follow-up mutations require the existing
+authenticated Ready session, origin/CSRF controls, rate limits, installation scope, and fresh exact idempotency. The
+server derives conversation, turn, and task identities from the installation and mutation key. A conversation pins the
+exact agent/provider versions, model ID, policy, budget, system instruction, and immutable skill snapshot; continuation
+or resume fails if current authority no longer matches. The browser cannot replace stored context or resume an older
+turn.
+
+Before persistence and model use, system, user, and assistant text pass through the sensitive-data redactor.
+Credential-shaped strings become `[REDACTED]`. Accepted text is stored only as bounded UTF-8 content-addressed
+artifacts; append-only conversation snapshots contain hashes and metadata. Every details/history read verifies media
+type, length, strict UTF-8, and SHA-256 before returning text. Audit contains artifact/request/response/evidence hashes,
+never conversation bodies. Redaction reduces accidental secret retention but is not a general data-loss-prevention
+guarantee; the single operator must still avoid supplying unrecognized secrets.
+
+Every turn owns a distinct durable orchestration task, random hash-only lease, two-attempt retry ceiling, zero model
+tools, and existing output/event/wall-clock limits. At most 20 completed turns and 100,000 characters are reconstructed
+as alternating user/assistant messages; only those roles and single bounded text contents are accepted. A conversation
+holds at most 64 turns. Completed turns cannot resume or replay. A retryable provider/browser interruption becomes
+`NeedsResume`; a crash-orphaned lease can be reclaimed only after expiry. Resume uses the same stored prompt and task
+authority, while an active unexpired lease conflicts. Explicit cancellation durably cancels both the task and current
+conversation turn before signaling the live provider call.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

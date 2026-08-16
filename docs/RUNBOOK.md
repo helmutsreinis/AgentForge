@@ -592,6 +592,11 @@ Failed target, holdout, adversarial, permission, critic, or canary evidence is a
 evidence and issuing a new candidate against the current baseline. The generated down migrations destroy learning
 and proposal provenance; restore the complete stopped pre-0023 backup instead of applying them to operator state.
 
+Migration 0028 adds append-only durable conversation snapshots and fabricates no history for legacy task receipts.
+Stop AgentForge and back up the database, WAL/SHM, and artifact directory together. After upgrade, complete two turns,
+restart, open the same conversation, and verify each text artifact's length and SHA-256. The down migration drops only
+conversation metadata and leaves shared immutable artifacts; restore the full pre-0028 backup for a clean downgrade.
+
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
 SHA-256 for every file, compares the restored set, initializes migrations, verifies
@@ -647,9 +652,10 @@ output-token limit, and choose **Run local model**. Concise, Balanced, Detailed,
 maximum and may not exceed the agent ceiling or the 262,144-token server cap. It does not force the provider to fill
 the allowance; normal model stop conditions may finish earlier. Interactive execution remains limited to 270 seconds.
 The page should show `Starting`, then `Running`, append response deltas, display usage when the provider reports it,
-and finish as `Completed`. The newest durable card must be `Streaming local model test`, state `Completed`,
-snapshot version 2. Refreshing the page intentionally does not restore the raw answer; only the durable receipt
-is retained.
+and finish as `Completed`. Open the resulting conversation card to re-read the hash-verified redacted prompt and
+answer, then send a follow-up. Each follow-up creates a separate leased task while preserving the conversation's exact
+agent/provider versions and policy, budget, system, and skill snapshot hashes. The model receives at most the newest
+20 completed turns and 100,000 history characters; a conversation accepts at most 64 turns.
 
 For a long response, choose **Cancel interaction** once the stream starts. The cancel mutation records the
 durable `Canceled` state before stopping the matching provider call. The page must end at `Canceled`, hide the
@@ -657,10 +663,13 @@ cancel control, and show a version-2 Canceled receipt after the run list refresh
 browser disconnect, stale Ready session, conflicting idempotency key, or provider failure must not display a
 false completion.
 
-If cancellation appears stuck, inspect the newest run snapshot and host health before restarting. Do not edit
-the task row, fabricate completion evidence, or delete WAL files. Restarting clears only the transient stream
-registry; durable Planned/Running recovery remains governed by the orchestration lease rules. Verify that raw
-prompt and response markers are absent from the database, WAL/SHM, artifacts, logs, and exported evidence.
+If a provider or browser interruption is retryable, the conversation shows `Needs resume`. Resume reuses the exact
+stored prompt and bounded completed history, but only after the prior task node is Ready or its worker lease expires;
+it never replays a completed turn. If cancellation or resume appears stuck, inspect the newest conversation and task
+snapshots plus lease expiry before restarting. Do not edit rows, fabricate completion evidence, or delete WAL files.
+Prompts and answers are intentionally retained as redacted content-addressed text artifacts; verify their recorded
+length and SHA-256 hashes, and verify that credential-shaped source values are absent from the database, artifacts,
+logs, audit, and exports.
 
 ## Ready agent and model editing
 

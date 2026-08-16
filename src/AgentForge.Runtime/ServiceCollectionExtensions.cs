@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddScoped<IAgentLoopStepExecutor, UnavailableAgentLoopStepExecutor>();
         services.AddScoped<IAgentLoopService, AgentLoopService>();
+        services.AddScoped<IRunConversationService, RunConversationService>();
         return services;
     }
 }

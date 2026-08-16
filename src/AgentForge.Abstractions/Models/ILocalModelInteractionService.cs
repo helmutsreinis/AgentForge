@@ -10,7 +10,8 @@ public sealed record LocalModelInteractionRequest(
     string SystemInstruction,
     string Prompt,
     ModelInvocationLimits Limits,
-    CorrelationId CorrelationId);
+    CorrelationId CorrelationId,
+    IReadOnlyList<ModelMessage>? ConversationHistory = null);
 
 public sealed record LocalModelInteractionResult(
     ModelRequestId RequestId,

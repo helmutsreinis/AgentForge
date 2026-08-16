@@ -38,6 +38,9 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
     internal DbSet<OrchestrationTaskSnapshotEntity> OrchestrationTaskSnapshots =>
         Set<OrchestrationTaskSnapshotEntity>();
 
+    internal DbSet<RunConversationSnapshotEntity> RunConversationSnapshots =>
+        Set<RunConversationSnapshotEntity>();
+
     internal DbSet<DelegationGrantEntity> DelegationGrants => Set<DelegationGrantEntity>();
 
     internal DbSet<ScheduleSnapshotEntity> ScheduleSnapshots => Set<ScheduleSnapshotEntity>();
@@ -574,6 +577,28 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.HasOne<AgentIdentityEntity>()
                 .WithMany()
                 .HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey, item.Version }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<RunConversationSnapshotEntity>(entity =>
+        {
+            entity.ToTable("run_conversation_snapshots");
+            entity.HasKey(item => new { item.ConversationId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>().WithMany().HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>().WithMany().HasForeignKey(item => item.ProviderId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey, item.Version }).IsUnique();
             entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.UpdatedAtUtcTicks });
