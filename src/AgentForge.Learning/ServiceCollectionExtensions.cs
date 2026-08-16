@@ -10,6 +10,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<ILearningGovernanceService, LearningGovernanceService>();
         services.AddScoped<ILearningCandidateProposalService, LearningCandidateProposalService>();
+        services.AddScoped<ILearningCandidateEvaluator, IsolatedLearningCandidateEvaluator>();
         return services;
     }
 }

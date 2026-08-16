@@ -448,6 +448,10 @@ main {
 .learning-gate-form { margin-top: 14px; border-color: rgba(72, 214, 208, .28); background: rgba(72, 214, 208, .025); }
 .learning-gate-form[hidden] { display: none; }
 #learning-gate-fields, #skill-gate-fields { display: grid; gap: 12px; }
+.learning-evaluation-receipt { margin-top: 14px; padding: 13px; border: 1px solid rgba(72, 214, 208, .28); border-radius: 9px; background: rgba(72, 214, 208, .035); overflow-wrap: anywhere; }
+.learning-evaluation-checks { display: grid; gap: 7px; margin: 10px 0; padding: 0; list-style: none; font-size: .82rem; }
+.learning-evaluation-checks .pass { color: var(--green); }
+.learning-evaluation-checks .fail { color: var(--danger); }
 .learning-gate-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; padding: 13px; border: 1px solid var(--line); border-radius: 9px; }
 .run-composer .gate-check { display: flex; align-items: center; gap: 9px; min-height: 36px; color: var(--muted); font-size: 10px; letter-spacing: 0; text-transform: none; }
 .run-composer .gate-check input { min-height: 0; width: 16px; height: 16px; padding: 0; }

@@ -490,10 +490,10 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(candidateId, listedCandidate.GetProperty("id").GetGuid());
         const string evaluationHash =
             "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-        using var verificationWithoutEvidence = await MutationAsync(
+        using var rejectedManualVerification = await MutationAsync(
             client,
             $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
-            "learning-verify-no-evidence",
+            "learning-manual-verify-rejected",
             adminCsrf,
             JsonContent.Create(new
             {
@@ -506,33 +506,32 @@ public sealed class WebSetupWizardTests : IDisposable
                 baselineMetric = 0,
                 candidateMetric = 1,
             }));
-        Assert.Equal(HttpStatusCode.BadRequest, verificationWithoutEvidence.StatusCode);
-        var verificationBody = new
-        {
-            action = "verify",
-            expectedVersion = 0,
-            targetPassed = true,
-            holdoutPassed = true,
-            adversarialPassed = true,
-            permissionDiffApproved = true,
-            baselineMetric = 0,
-            candidateMetric = 1,
-            evidenceHash = evaluationHash,
-        };
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedManualVerification.StatusCode);
+        var evaluationBody = new { expectedVersion = 0 };
         using var verifiedCandidate = await MutationAsync(
             client,
-            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
-            "learning-verify-candidate",
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/evaluate",
+            "learning-evaluate-candidate",
             adminCsrf,
-            JsonContent.Create(verificationBody));
+            JsonContent.Create(evaluationBody));
         Assert.Equal(HttpStatusCode.OK, verifiedCandidate.StatusCode);
-        Assert.Contains("\"state\":\"Verified\"", await verifiedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var verifiedDocument = JsonDocument.Parse(await verifiedCandidate.Content.ReadAsByteArrayAsync());
+        Assert.Equal("Verified", verifiedDocument.RootElement.GetProperty("candidate").GetProperty("state").GetString());
+        var evaluationReceipt = verifiedDocument.RootElement.GetProperty("receipt");
+        Assert.Equal("agentforge-managed-isolated-v1", evaluationReceipt.GetProperty("evaluator").GetString());
+        Assert.Equal(5, evaluationReceipt.GetProperty("checks").GetArrayLength());
+        Assert.All(evaluationReceipt.GetProperty("checks").EnumerateArray(),
+            check => Assert.True(check.GetProperty("passed").GetBoolean(), check.GetProperty("summary").GetString()));
+        Assert.Equal("application/vnd.agentforge.learning-evaluation+json",
+            evaluationReceipt.GetProperty("evidence").GetProperty("mediaType").GetString());
+        Assert.Equal(evaluationReceipt.GetProperty("evidence").GetProperty("contentHash").GetString(),
+            evaluationReceipt.GetProperty("evaluation").GetProperty("evidenceHash").GetString());
         using var verifiedReplay = await MutationAsync(
             client,
-            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
-            "learning-verify-candidate",
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/evaluate",
+            "learning-evaluate-candidate",
             adminCsrf,
-            JsonContent.Create(verificationBody));
+            JsonContent.Create(evaluationBody));
         Assert.Equal(HttpStatusCode.OK, verifiedReplay.StatusCode);
         Assert.True(verifiedReplay.Headers.Contains("Idempotent-Replay"));
         using var staleCritique = await MutationAsync(

@@ -89,6 +89,27 @@ public sealed record ProposeNewSkillFromSignalResult(
     LearningCandidate Candidate,
     bool WasReplay);
 
+public sealed record LearningEvaluationCheck(
+    string Code,
+    bool Passed,
+    string Summary);
+
+public sealed record AutomatedLearningEvaluationReceipt(
+    LearningCandidateId CandidateId,
+    long CandidateVersion,
+    string CandidateSnapshotHash,
+    string CandidatePackageHash,
+    string ProposalWorkspaceHash,
+    string Evaluator,
+    IReadOnlyList<LearningEvaluationCheck> Checks,
+    LearningCandidateEvaluation Evaluation,
+    ArtifactReference Evidence);
+
+public sealed record AutomatedLearningEvaluationResult(
+    LearningCandidate Candidate,
+    AutomatedLearningEvaluationReceipt Receipt,
+    bool WasReplay);
+
 public sealed record SynthesizeSkillBundleRequest(
     SkillBundleProposalId ProposalId,
     SkillBundleId BundleId,
@@ -191,5 +212,13 @@ public interface ILearningCandidateProposalService
 {
     Task<DomainResult<ProposeNewSkillFromSignalResult>> ProposeNewSkillAsync(
         ProposeNewSkillFromSignalRequest request,
+        CancellationToken cancellationToken);
+}
+
+public interface ILearningCandidateEvaluator
+{
+    Task<DomainResult<AutomatedLearningEvaluationResult>> EvaluateAsync(
+        LearningCandidateId candidateId,
+        long expectedVersion,
         CancellationToken cancellationToken);
 }

@@ -85,6 +85,7 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/learning/signals", CaptureLearningSignalAsync);
         group.MapGet("/learning/candidates", ListLearningCandidatesAsync);
         group.MapPost("/learning/signals/{signalId:guid}/candidates", ProposeLearningCandidateAsync);
+        group.MapPost("/learning/candidates/{candidateId:guid}/evaluate", EvaluateLearningCandidateAsync);
         group.MapPost("/learning/candidates/{candidateId:guid}/transition", TransitionLearningCandidateAsync);
     }
 

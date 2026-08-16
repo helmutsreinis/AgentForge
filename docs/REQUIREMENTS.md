@@ -69,6 +69,7 @@ passing gate report.
 | AF-LEARN-002 | Existing-skill revisions require usage authority and baseline hashes; deterministic failure always vetoes promotion. | 9 | Verified |
 | AF-LEARN-003 | The Ready operator workspace binds a bounded redacted learning signal to an exact terminal run receipt, deterministically classifies and lists it, preserves exact idempotency and audit evidence, and grants no candidate, policy, tool, or promotion authority. | Post-R1 | Verified |
 | AF-LEARN-004 | A Ready `NewSkill` signal creates at most one immutable AgentProposal package in an isolated content-addressed workspace; versioned verifier, critic, governor, canary, promotion, and rollback controls preserve five-role separation and never make failed or rolled-back candidates available to runs. | Post-R1 | Verified |
+| AF-LEARN-005 | A Proposed learning candidate is evaluated only by the server-owned managed isolated evaluator: it reopens and hash-verifies the immutable workspace, rejects unsafe archive entries, validates the exact installed package twice, runs hostile authority-escalation and bounded permission-diff checks, stores a content-addressed deterministic JSON receipt, and advances or rejects without accepting pass flags, scores, evidence hashes, package content, or permissions from the browser. | Post-R1 | Verified |
 | AF-BUNDLE-001 | Repeated successful chains may produce decomposable skill DAGs with pinned contracts and baseline comparison. | 9 | Verified |
 
 ## Integrations, devices, and delivery

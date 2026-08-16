@@ -190,6 +190,7 @@ const admin = {
   selectedLearningSignal: null,
   selectedLearningCandidate: null,
   learningGateAction: null,
+  lastLearningEvaluation: null,
   activeTaskId: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
@@ -1521,6 +1522,10 @@ function renderLearningCandidates(candidates) {
     addMeta(meta, "Permissions", candidate.requestedPermissions.length
       ? candidate.requestedPermissions.join(", ") : "None declared");
     addMeta(meta, "Role separation", "Worker · proposer · verifier · critic · governor");
+    if (candidate.evaluation) {
+      addMeta(meta, "Automated score", `${candidate.evaluation.candidateScore} / 100`);
+      addMeta(meta, "Evaluation receipt", `${candidate.evaluation.evidenceHash.slice(0, 24)}…`);
+    }
     card.append(
       title,
       makeElement("p", "learning-disposition",
@@ -1528,6 +1533,19 @@ function renderLearningCandidates(candidates) {
           ? "The immutable package passed its governed canary and is active. Individual agents still require an exact skill grant before selection."
           : "The immutable AgentProposal package has no active authority. It cannot be selected by a run or activate itself."),
       meta);
+    const latestReceipt = admin.lastLearningEvaluation;
+    if (latestReceipt?.candidateId === candidate.id) {
+      const evaluation = makeElement("div", "learning-evaluation-receipt");
+      evaluation.append(makeElement("strong", "", "Latest automated evaluation"));
+      const checks = makeElement("ul", "learning-evaluation-checks");
+      for (const check of latestReceipt.checks) {
+        checks.append(makeElement("li", check.passed ? "pass" : "fail",
+          `${check.passed ? "PASS" : "FAIL"} · ${check.code} — ${check.summary}`));
+      }
+      evaluation.append(checks, makeElement("p", "resource-subtitle",
+        `${latestReceipt.evaluator} · ${latestReceipt.evidence.contentHash}`));
+      card.append(evaluation);
+    }
     const action = candidateGateAction(candidate.state);
     if (action) {
       const actions = makeElement("div", "resource-actions");
@@ -1548,7 +1566,7 @@ function renderLearningCandidates(candidates) {
 
 function candidateGateAction(state) {
   return {
-    Proposed: "verify",
+    Proposed: "evaluate",
     Verified: "critique",
     Critiqued: "approve",
     Approved: "start-canary",
@@ -1559,7 +1577,7 @@ function candidateGateAction(state) {
 
 function candidateGateLabel(action) {
   return {
-    verify: "Record verification",
+    evaluate: "Run isolated evaluation",
     critique: "Record critique",
     approve: "Approve candidate",
     "start-canary": "Start scoped canary",
@@ -1615,18 +1633,13 @@ function openLearningGate(candidate, action) {
   elements.learningGateSource.textContent = `${candidate.skillId} ${candidate.candidateVersion} · snapshot version ${candidate.version}`;
   elements.submitLearningGate.textContent = candidateGateLabel(action);
   const fields = elements.learningGateFields;
-  if (action === "verify") {
-    const checks = makeElement("fieldset", "learning-gate-checks");
-    checks.append(
-      gateCheck("Target tests passed", "learning-gate-target"),
-      gateCheck("Holdout tests passed", "learning-gate-holdout"),
-      gateCheck("Adversarial tests passed", "learning-gate-adversarial"),
-      gateCheck("Permission diff approved", "learning-gate-permission"));
-    const metrics = makeElement("div", "learning-proposal-grid");
-    metrics.append(gateField("Baseline score", "learning-gate-baseline", "number", "0"),
-      gateField("Candidate score", "learning-gate-candidate", "number", "1"));
-    fields.append(checks, metrics, evidenceField());
-    elements.learningGateExplanation.textContent = "The assigned verifier must attest target, holdout, adversarial, baseline, and permission-diff evidence. Any failed check rejects the candidate.";
+  if (action === "evaluate") {
+    const summary = makeElement("div", "policy-note");
+    summary.append(
+      makeElement("strong", "", "Server-owned deterministic gate"),
+      makeElement("p", "", "AgentForge will reopen the immutable artifact in a fresh managed sandbox, verify its hash and package contract, reload it against holdout invariants, scan hostile authority-escalation patterns, and enforce an exact bounded permission diff."));
+    fields.append(summary);
+    elements.learningGateExplanation.textContent = "No pass flags or scores come from this browser. The content-addressed evaluator receipt decides whether the candidate advances or is rejected.";
   } else if (action === "critique") {
     fields.append(gateCheck("Independent critique passed", "learning-gate-passed"),
       gateField("Finding codes (comma-separated)", "learning-gate-findings"), evidenceField());
@@ -1671,16 +1684,21 @@ async function transitionLearningCandidate(event) {
   if (!candidate || !action) return;
   setBusy(elements.learningGateForm, true);
   try {
+    if (action === "evaluate") {
+      const result = await adminMutation(
+        `/api/v1/admin/learning/candidates/${candidate.id}/evaluate`,
+        { expectedVersion: candidate.version });
+      admin.lastLearningEvaluation = result.receipt;
+      closeLearningGate();
+      await Promise.all([loadLearning(), loadSkills()]);
+      const failed = result.receipt.checks.filter(check => !check.passed).length;
+      workspaceStatus(elements.learningMessage,
+        `${result.candidate.skillId} ${result.candidate.state}: ${result.receipt.checks.length - failed} passed, ${failed} failed. Receipt ${result.receipt.evidence.contentHash.slice(0, 24)}….`,
+        failed ? "error" : "ok");
+      return;
+    }
     const evidenceHash = await learningEvidenceHash(candidate, action);
     const payload = { action, expectedVersion: candidate.version, evidenceHash };
-    if (action === "verify") Object.assign(payload, {
-      targetPassed: document.querySelector("#learning-gate-target").checked,
-      holdoutPassed: document.querySelector("#learning-gate-holdout").checked,
-      adversarialPassed: document.querySelector("#learning-gate-adversarial").checked,
-      permissionDiffApproved: document.querySelector("#learning-gate-permission").checked,
-      baselineMetric: Number(document.querySelector("#learning-gate-baseline").value),
-      candidateMetric: Number(document.querySelector("#learning-gate-candidate").value),
-    });
     if (action === "critique") Object.assign(payload, {
       passed: document.querySelector("#learning-gate-passed").checked,
       findingCodes: document.querySelector("#learning-gate-findings").value.split(",")

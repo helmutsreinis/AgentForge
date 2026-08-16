@@ -16,15 +16,13 @@ internal sealed record ProposeLearningCandidateWebRequest(
 internal sealed record TransitionLearningCandidateWebRequest(
     string Action,
     long ExpectedVersion,
-    bool? TargetPassed,
-    bool? HoldoutPassed,
-    bool? AdversarialPassed,
-    bool? PermissionDiffApproved,
     bool? Passed,
     decimal? BaselineMetric,
     decimal? CandidateMetric,
     IReadOnlyList<string>? FindingCodes,
     string? EvidenceHash);
+
+internal sealed record EvaluateLearningCandidateWebRequest(long ExpectedVersion);
 
 internal static partial class ReadyAdminEndpoints
 {
@@ -161,6 +159,73 @@ internal static partial class ReadyAdminEndpoints
             new ActorId($"learning-governor:{scope}"));
     }
 
+    private static async Task<IResult> EvaluateLearningCandidateAsync(
+        Guid candidateId,
+        EvaluateLearningCandidateWebRequest request,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        ILearningRepository repository,
+        ILearningCandidateEvaluator evaluator,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(
+            context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            return acquired.Failure;
+        }
+        if (candidateId == Guid.Empty || request.ExpectedVersion < 0)
+        {
+            return Problem(context, 400, "Invalid evaluation request",
+                "Provide a learning candidate ID and its current version.", "validation-failure");
+        }
+
+        var session = acquired.Session!;
+        var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+        var scopedKey = $"learning-evaluation:{candidateId:D}:{idempotencyKey}";
+        var requestHash = SnapshotHash(new { candidateId, request.ExpectedVersion });
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (session.Results.TryGetValue(scopedKey, out var existingResult))
+            {
+                return string.Equals(existingResult.RequestHash, requestHash, StringComparison.Ordinal)
+                    ? Replay(context, existingResult.Response)
+                    : Problem(context, 409, "Idempotency conflict",
+                        "The idempotency key is already bound to another learning evaluation.",
+                        "idempotency-conflict");
+            }
+
+            var id = new LearningCandidateId(candidateId);
+            var current = await repository.FindLatestCandidateAsync(id, cancellationToken);
+            if (current is null || current.InstallationId != session.InstallationId)
+            {
+                return Problem(context, 404, "Learning candidate not found",
+                    "The selected learning candidate does not belong to this installation.", "not-found");
+            }
+
+            var evaluated = await evaluator.EvaluateAsync(id, request.ExpectedVersion, cancellationToken);
+            if (!evaluated.IsSuccess)
+            {
+                return DomainProblem(context, evaluated.Failure!, "Automated learning evaluation failed");
+            }
+
+            var response = new
+            {
+                candidate = LearningCandidateResponse(evaluated.Value.Candidate),
+                receipt = LearningEvaluationResponse(evaluated.Value.Receipt),
+            };
+            StoreIdempotentResult(session, scopedKey, requestHash, response);
+            return Results.Ok(response);
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
+    }
+
     private static async Task<IResult> TransitionLearningCandidateAsync(
         Guid candidateId,
         TransitionLearningCandidateWebRequest request,
@@ -185,7 +250,7 @@ internal static partial class ReadyAdminEndpoints
             .Order(StringComparer.Ordinal)
             .ToArray();
         if (candidateId == Guid.Empty || request.ExpectedVersion < 0 ||
-            action is not ("verify" or "critique" or "approve" or "start-canary" or "finish-canary" or "rollback") ||
+            action is not ("critique" or "approve" or "start-canary" or "finish-canary" or "rollback") ||
             findings.Length > 128 || findings.Any(value => !Text(value, 128)) ||
             findings.Distinct(StringComparer.Ordinal).Count() != findings.Length ||
             RequiresEvidence(action) && !SkillPackageValidator.IsHash(request.EvidenceHash))
@@ -203,10 +268,6 @@ internal static partial class ReadyAdminEndpoints
             candidateId,
             action,
             request.ExpectedVersion,
-            request.TargetPassed,
-            request.HoldoutPassed,
-            request.AdversarialPassed,
-            request.PermissionDiffApproved,
             request.Passed,
             request.BaselineMetric,
             request.CandidateMetric,
@@ -235,18 +296,6 @@ internal static partial class ReadyAdminEndpoints
 
             var transitioned = action switch
             {
-                "verify" when request.TargetPassed is not null && request.HoldoutPassed is not null &&
-                    request.AdversarialPassed is not null && request.PermissionDiffApproved is not null &&
-                    request.BaselineMetric is not null && request.CandidateMetric is not null =>
-                    await governance.VerifyAsync(id, request.ExpectedVersion, current.Roles.Verifier,
-                        new LearningCandidateEvaluation(
-                            request.TargetPassed.Value,
-                            request.HoldoutPassed.Value,
-                            request.AdversarialPassed.Value,
-                            request.PermissionDiffApproved.Value,
-                            request.BaselineMetric.Value,
-                            request.CandidateMetric.Value,
-                            request.EvidenceHash!), cancellationToken),
                 "critique" when request.Passed is not null =>
                     await governance.CritiqueAsync(id, request.ExpectedVersion, current.Roles.Critic,
                         new LearningCritique(request.Passed.Value, findings, request.EvidenceHash!), cancellationToken),
@@ -281,7 +330,25 @@ internal static partial class ReadyAdminEndpoints
     }
 
     private static bool RequiresEvidence(string action) =>
-        action is "verify" or "critique" or "finish-canary" or "rollback";
+        action is "critique" or "finish-canary" or "rollback";
+
+    private static object LearningEvaluationResponse(AutomatedLearningEvaluationReceipt receipt) => new
+    {
+        candidateId = receipt.CandidateId.Value,
+        receipt.CandidateVersion,
+        receipt.CandidateSnapshotHash,
+        receipt.CandidatePackageHash,
+        receipt.ProposalWorkspaceHash,
+        receipt.Evaluator,
+        receipt.Checks,
+        evaluation = receipt.Evaluation,
+        evidence = new
+        {
+            receipt.Evidence.ContentHash,
+            receipt.Evidence.Length,
+            receipt.Evidence.MediaType,
+        },
+    };
 
     private static object LearningCandidateResponse(LearningCandidate candidate) => new
     {

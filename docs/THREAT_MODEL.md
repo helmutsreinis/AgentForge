@@ -1024,6 +1024,34 @@ A same-user filesystem replacement race between validation and managed read rema
 single-operator OS-account boundary; the initial catalog is therefore read-only and grants no credential access.
 Process-backed tools still pass through their declared sandbox and cannot degrade to this built-in execution kind.
 
+## Automated learning-evaluator boundary
+
+Proposal workspace archives, artifact metadata, installed package records, skill Markdown, manifests, declared
+permissions, hostile candidate instructions, and browser requests are untrusted. The Ready endpoint accepts only a
+candidate ID and current version behind the existing authenticated session, same-origin/HTTPS-remote, CSRF,
+idempotency, rate-limit, and installation-scope controls. Verifier pass flags, scores, evidence hashes, content, and
+permission changes are not accepted. The assigned verifier identity remains server-derived from immutable candidate
+state.
+
+Each evaluation opens the exact content-addressed workspace and independently recomputes its length and SHA-256 hash.
+It extracts into a unique AgentForge-data-directory sandbox using regular files only, rejects traversal, rooted paths,
+links, duplicates, unexpected names, file-count and byte-bound violations, then loads the package twice through the
+ordinary strict portable loader. Both canonical loads must match each other, the installed AgentProposal descriptor,
+candidate ID/version/package hash, and exact sorted permission declarations. No process, environment materialization,
+network primitive, provider, tool, or active skill authority is available in this managed evaluator.
+
+The hostile corpus rejects instructions that request policy/approval bypass, secret disclosure, exfiltration, system
+prompt access, or self-granted authority. Automatic permission evaluation permits only exact declarations ending in
+the read-only `:read`, `.read`, `:metadata`, or `.metadata` forms. Every unknown or wider declaration is rejected rather
+than escalated to an implicit approval. Passing evaluation does not activate or
+grant the skill: separate critic, governor, canary, active-version, and per-agent grant gates remain mandatory.
+
+The receipt contains only immutable identifiers/hashes, evaluator version, bounded check codes/summaries, and computed
+scores. It is deterministic JSON in the content-addressed artifact store, and only its hash enters candidate and audit
+state. Sandbox cleanup failure can leave bounded non-secret proposal material under the AgentForge data directory but
+cannot write outside it. Candidate-authored executable behavioral tests are not run by this managed evaluator; adding
+them requires the digest-pinned container isolation boundary and a separately gated test contract.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in
