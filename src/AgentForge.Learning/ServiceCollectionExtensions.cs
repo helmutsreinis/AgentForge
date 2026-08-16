@@ -9,6 +9,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddScoped<ILearningGovernanceService, LearningGovernanceService>();
+        services.AddScoped<ILearningCandidateProposalService, LearningCandidateProposalService>();
         return services;
     }
 }

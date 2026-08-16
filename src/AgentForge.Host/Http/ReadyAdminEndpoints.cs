@@ -67,6 +67,9 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/skills/seed/csharp-review/install", InstallSeedSkillAsync);
         group.MapGet("/learning/signals", ListLearningSignalsAsync);
         group.MapPost("/learning/signals", CaptureLearningSignalAsync);
+        group.MapGet("/learning/candidates", ListLearningCandidatesAsync);
+        group.MapPost("/learning/signals/{signalId:guid}/candidates", ProposeLearningCandidateAsync);
+        group.MapPost("/learning/candidates/{candidateId:guid}/transition", TransitionLearningCandidateAsync);
     }
 
     private static async Task<IResult> CreateSessionAsync(

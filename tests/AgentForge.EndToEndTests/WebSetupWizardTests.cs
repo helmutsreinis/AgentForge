@@ -3,13 +3,18 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.Artifacts;
+using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
+using AgentForge.Abstractions.Skills;
+using AgentForge.Domain.Learning;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
+using AgentForge.Domain.Skills;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +25,7 @@ namespace AgentForge.EndToEndTests;
 
 public sealed class WebSetupWizardTests : IDisposable
 {
+    private static readonly string[] PassingCritiqueFindings = ["bounded-authority-reviewed"];
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-web-setup-{Guid.NewGuid():N}");
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -154,6 +160,8 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"learning-proposal-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"learning-candidate-list\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"agent-editor\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"agent-discover-models\"", appShellHtml, StringComparison.Ordinal);
         using var agentList = await client.GetAsync("/api/v1/admin/agents");
@@ -317,6 +325,10 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, emptyLearning.StatusCode);
         Assert.Equal(0, JsonDocument.Parse(await emptyLearning.Content.ReadAsByteArrayAsync())
             .RootElement.GetProperty("signals").GetArrayLength());
+        using var emptyCandidates = await client.GetAsync("/api/v1/admin/learning/candidates");
+        Assert.Equal(HttpStatusCode.OK, emptyCandidates.StatusCode);
+        Assert.Equal(0, JsonDocument.Parse(await emptyCandidates.Content.ReadAsByteArrayAsync())
+            .RootElement.GetProperty("candidates").GetArrayLength());
         using var nonterminalLearning = await MutationAsync(
             client, "/api/v1/admin/learning/signals", "learning-nonterminal", adminCsrf, JsonContent.Create(new
             {
@@ -350,6 +362,9 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, capturedCorrection.StatusCode);
         Assert.Contains("\"action\":\"Memory\"", await capturedCorrection.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         Assert.Contains("correction-without-revision-authority", await capturedCorrection.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var capturedCorrectionDocument = JsonDocument.Parse(
+            await capturedCorrection.Content.ReadAsByteArrayAsync());
+        var correctionSignalId = capturedCorrectionDocument.RootElement.GetProperty("id").GetGuid();
         using var correctionReplay = await MutationAsync(
             client, "/api/v1/admin/learning/signals", "learning-correction", adminCsrf,
             JsonContent.Create(correctionEvidence));
@@ -374,6 +389,9 @@ public sealed class WebSetupWizardTests : IDisposable
             }));
         Assert.Equal(HttpStatusCode.Created, capturedMissingCapability.StatusCode);
         Assert.Contains("\"action\":\"NewSkill\"", await capturedMissingCapability.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var capturedMissingCapabilityDocument = JsonDocument.Parse(
+            await capturedMissingCapability.Content.ReadAsByteArrayAsync());
+        var missingCapabilitySignalId = capturedMissingCapabilityDocument.RootElement.GetProperty("id").GetGuid();
         using var rejectedSensitiveSummary = await MutationAsync(
             client, "/api/v1/admin/learning/signals", "learning-sensitive", adminCsrf, JsonContent.Create(new
             {
@@ -389,6 +407,194 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(2, learningListDocument.RootElement.GetProperty("signals").GetArrayLength());
         Assert.Equal(runId.ToString("D"), learningListDocument.RootElement.GetProperty("signals")[0]
             .GetProperty("sourceRunId").GetString());
+
+        var candidateBody = new
+        {
+            skillId = "skill:proposal.governed-capability",
+            version = "0.1.0",
+            description = "A proposed bounded capability from durable learning evidence.",
+            requestedPermissions = new[] { "repository:read" },
+        };
+        using var proposalWithoutCsrf = await client.PostAsJsonAsync(
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates", candidateBody);
+        Assert.Equal(HttpStatusCode.Unauthorized, proposalWithoutCsrf.StatusCode);
+        using var rejectedMemoryProposal = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{correctionSignalId:D}/candidates",
+            "learning-memory-candidate",
+            adminCsrf,
+            JsonContent.Create(candidateBody));
+        Assert.Equal(HttpStatusCode.Forbidden, rejectedMemoryProposal.StatusCode);
+        using var invalidProposal = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-invalid-candidate",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                skillId = "not-a-skill-id",
+                candidateBody.version,
+                candidateBody.description,
+                candidateBody.requestedPermissions,
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidProposal.StatusCode);
+        using var proposedCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-new-skill-candidate",
+            adminCsrf,
+            JsonContent.Create(candidateBody));
+        Assert.Equal(HttpStatusCode.Created, proposedCandidate.StatusCode);
+        using var proposedCandidateDocument = JsonDocument.Parse(
+            await proposedCandidate.Content.ReadAsByteArrayAsync());
+        Assert.Equal("Proposed", proposedCandidateDocument.RootElement.GetProperty("state").GetString());
+        Assert.Equal("deterministic-verification",
+            proposedCandidateDocument.RootElement.GetProperty("nextGate").GetString());
+        Assert.False(proposedCandidateDocument.RootElement.GetProperty("activeAuthority").GetBoolean());
+        Assert.Equal("repository:read", proposedCandidateDocument.RootElement
+            .GetProperty("requestedPermissions")[0].GetString());
+        var candidateId = proposedCandidateDocument.RootElement.GetProperty("id").GetGuid();
+        var roleActors = proposedCandidateDocument.RootElement.GetProperty("roles").EnumerateObject()
+            .Select(role => role.Value.GetString()).ToArray();
+        Assert.Equal(5, roleActors.Distinct(StringComparer.Ordinal).Count());
+        using var proposalReplay = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-new-skill-candidate",
+            adminCsrf,
+            JsonContent.Create(candidateBody));
+        Assert.Equal(HttpStatusCode.OK, proposalReplay.StatusCode);
+        Assert.True(proposalReplay.Headers.Contains("Idempotent-Replay"));
+        using var secondProposal = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-new-skill-candidate-second",
+            adminCsrf,
+            JsonContent.Create(candidateBody));
+        Assert.Equal(HttpStatusCode.Conflict, secondProposal.StatusCode);
+        using var candidateList = await client.GetAsync("/api/v1/admin/learning/candidates");
+        Assert.Equal(HttpStatusCode.OK, candidateList.StatusCode);
+        using var candidateListDocument = JsonDocument.Parse(await candidateList.Content.ReadAsByteArrayAsync());
+        var listedCandidate = Assert.Single(candidateListDocument.RootElement.GetProperty("candidates").EnumerateArray());
+        Assert.Equal(candidateId, listedCandidate.GetProperty("id").GetGuid());
+        const string evaluationHash =
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        using var verificationWithoutEvidence = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-verify-no-evidence",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "verify",
+                expectedVersion = 0,
+                targetPassed = true,
+                holdoutPassed = true,
+                adversarialPassed = true,
+                permissionDiffApproved = true,
+                baselineMetric = 0,
+                candidateMetric = 1,
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, verificationWithoutEvidence.StatusCode);
+        var verificationBody = new
+        {
+            action = "verify",
+            expectedVersion = 0,
+            targetPassed = true,
+            holdoutPassed = true,
+            adversarialPassed = true,
+            permissionDiffApproved = true,
+            baselineMetric = 0,
+            candidateMetric = 1,
+            evidenceHash = evaluationHash,
+        };
+        using var verifiedCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-verify-candidate",
+            adminCsrf,
+            JsonContent.Create(verificationBody));
+        Assert.Equal(HttpStatusCode.OK, verifiedCandidate.StatusCode);
+        Assert.Contains("\"state\":\"Verified\"", await verifiedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var verifiedReplay = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-verify-candidate",
+            adminCsrf,
+            JsonContent.Create(verificationBody));
+        Assert.Equal(HttpStatusCode.OK, verifiedReplay.StatusCode);
+        Assert.True(verifiedReplay.Headers.Contains("Idempotent-Replay"));
+        using var staleCritique = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-stale-critique",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "critique",
+                expectedVersion = 0,
+                passed = true,
+                findingCodes = Array.Empty<string>(),
+                evidenceHash = evaluationHash,
+            }));
+        Assert.Equal(HttpStatusCode.Conflict, staleCritique.StatusCode);
+        using var critiquedCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-critique-candidate",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "critique",
+                expectedVersion = 1,
+                passed = true,
+                findingCodes = PassingCritiqueFindings,
+                evidenceHash = evaluationHash,
+            }));
+        Assert.Equal(HttpStatusCode.OK, critiquedCandidate.StatusCode);
+        Assert.Contains("\"state\":\"Critiqued\"", await critiquedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var approvedCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-approve-candidate",
+            adminCsrf,
+            JsonContent.Create(new { action = "approve", expectedVersion = 2 }));
+        Assert.Equal(HttpStatusCode.OK, approvedCandidate.StatusCode);
+        Assert.Contains("\"state\":\"Approved\"", await approvedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var canaryCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-start-canary",
+            adminCsrf,
+            JsonContent.Create(new { action = "start-canary", expectedVersion = 3 }));
+        Assert.Equal(HttpStatusCode.OK, canaryCandidate.StatusCode);
+        Assert.Contains("\"state\":\"Canary\"", await canaryCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var promotedCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-finish-canary",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "finish-canary",
+                expectedVersion = 4,
+                passed = true,
+                baselineMetric = 0,
+                candidateMetric = 1,
+                evidenceHash = evaluationHash,
+            }));
+        Assert.Equal(HttpStatusCode.OK, promotedCandidate.StatusCode);
+        Assert.Contains("\"state\":\"Promoted\"", await promotedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("\"activeAuthority\":true", await promotedCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var rolledBackCandidate = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/candidates/{candidateId:D}/transition",
+            "learning-rollback-candidate",
+            adminCsrf,
+            JsonContent.Create(new { action = "rollback", expectedVersion = 5, evidenceHash = evaluationHash }));
+        Assert.Equal(HttpStatusCode.OK, rolledBackCandidate.StatusCode);
+        Assert.Contains("\"state\":\"RolledBack\"", await rolledBackCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("\"activeAuthority\":false", await rolledBackCandidate.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         using var chat = await MutationAsync(client, $"/api/v1/admin/agents/{agentId:D}/test-chat", "mvp-chat-1", adminCsrf, JsonContent.Create(new
         {
@@ -473,9 +679,12 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("Installed", await skillList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var skillRunOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
         using var skillRunOptionsDocument = JsonDocument.Parse(await skillRunOptions.Content.ReadAsByteArrayAsync());
-        var installedSkillOption = Assert.Single(skillRunOptionsDocument.RootElement.GetProperty("skills").EnumerateArray());
+        var installedSkillOption = skillRunOptionsDocument.RootElement.GetProperty("skills").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "skill:csharp.review");
         Assert.Equal("skill:csharp.review", installedSkillOption.GetProperty("id").GetString());
         Assert.False(installedSkillOption.GetProperty("selectable").GetBoolean());
+        Assert.DoesNotContain(skillRunOptionsDocument.RootElement.GetProperty("skills").EnumerateArray(),
+            item => item.GetProperty("id").GetString() == "skill:proposal.governed-capability");
         using var deniedSkillStream = await StreamMutationAsync(
             client,
             $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
@@ -502,6 +711,26 @@ public sealed class WebSetupWizardTests : IDisposable
             .GetRequiredService<IProviderProfileRepository>().ListAsync(installationId, CancellationToken.None));
         Assert.Equal("qwen3.8", provider.Model);
         Assert.True(provider.SecretReference.IsNoCredential);
+        var learningCandidate = Assert.Single(await verificationScope.ServiceProvider
+            .GetRequiredService<ILearningRepository>().ListCandidatesAsync(
+                installationId, 10, CancellationToken.None));
+        Assert.Equal(candidateId, learningCandidate.Id.Value);
+        Assert.Equal(LearningCandidateState.RolledBack, learningCandidate.State);
+        Assert.Equal("application/vnd.agentforge.learning-workspace+tar",
+            learningCandidate.ProposalWorkspace.MediaType);
+        await using var proposalWorkspace = await verificationScope.ServiceProvider
+            .GetRequiredService<IArtifactStore>().OpenReadAsync(
+                learningCandidate.ProposalWorkspace, CancellationToken.None);
+        Assert.True(proposalWorkspace.Length > 0);
+        var proposedSkill = await verificationScope.ServiceProvider
+            .GetRequiredService<ISkillRegistryRepository>().FindAsync(
+                installationId,
+                new SkillId("skill:proposal.governed-capability"),
+                new SkillVersion("0.1.0"),
+                CancellationToken.None);
+        Assert.NotNull(proposedSkill);
+        Assert.Equal(SkillPackageStatus.Quarantined, proposedSkill.Status);
+        Assert.Equal(SkillPackageProvenance.AgentProposal, proposedSkill.Provenance);
     }
 
     [Fact]

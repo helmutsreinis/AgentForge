@@ -695,6 +695,26 @@ the correlated `learning.signal-classified` audit event. Do not insert or edit l
 generation must use a content-addressed isolated workspace and the separate proposer, verifier, critic, governor,
 evaluation, approval, canary, and rollback transitions.
 
+### New-skill candidate governance
+
+For a card classified `NewSkill`, choose **Create isolated proposal**. Confirm the `skill:` identifier, semantic
+version, description, and declared permissions. Permissions are declarations only; proposal creation grants none.
+The resulting queue card must report `Proposed`, `active authority: None`, the exact package/workspace hashes, five
+separated roles, and `deterministic verification` as its next gate. A second candidate for the same signal must fail.
+
+Use the queue action to record each gate in order. Evidence-bearing gates require a local evidence note; the browser
+hashes the candidate/version/action/note tuple and transmits only its SHA-256 receipt. Keep the underlying test or
+review transcript separately because AgentForge intentionally does not retain the note. Verification requires target,
+holdout, adversarial, permission-diff, baseline, and candidate metrics. A failed verification or critique rejects;
+a failed or regressing canary quarantines. Approval does not activate, and starting a canary does not promote.
+
+Only a passing canary may change the registry package to `Active`; the agent still needs an exact skill grant before
+a run can select it. **Roll back promotion** requires fresh evidence and quarantines the candidate while restoring an
+exact baseline when one exists. Every request is optimistic-versioned and idempotent. On a stale conflict, reload the
+queue and never edit candidate, proposal, registry, or artifact records directly. Until the automated evaluator slice
+lands, these web gate receipts are explicit local-operator attestations rather than proof that AgentForge executed the
+referenced suites itself.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

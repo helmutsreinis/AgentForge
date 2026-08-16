@@ -30,6 +30,11 @@ public interface ILearningRepository
         LearningCandidateId id,
         CancellationToken cancellationToken);
 
+    ValueTask<IReadOnlyList<LearningCandidate>> ListCandidatesAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken);
+
     ValueTask AddBundleAsync(SkillBundleDefinition bundle, CancellationToken cancellationToken);
 
     ValueTask AppendBundleProposalAsync(
@@ -69,6 +74,20 @@ public sealed record ProposeLearningCandidateRequest(
     SkillVersion CandidateVersion,
     ArtifactReference ProposalWorkspace,
     LearningRoleAssignments Roles);
+
+public sealed record ProposeNewSkillFromSignalRequest(
+    LearningCandidateId CandidateId,
+    SkillProposalId SkillProposalId,
+    LearningSignalId SignalId,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    string Description,
+    IReadOnlyList<string> RequestedPermissions,
+    LearningRoleAssignments Roles);
+
+public sealed record ProposeNewSkillFromSignalResult(
+    LearningCandidate Candidate,
+    bool WasReplay);
 
 public sealed record SynthesizeSkillBundleRequest(
     SkillBundleProposalId ProposalId,
@@ -165,5 +184,12 @@ public interface ILearningGovernanceService
         SkillBundleProposalId id,
         long expectedVersion,
         ActorId governor,
+        CancellationToken cancellationToken);
+}
+
+public interface ILearningCandidateProposalService
+{
+    Task<DomainResult<ProposeNewSkillFromSignalResult>> ProposeNewSkillAsync(
+        ProposeNewSkillFromSignalRequest request,
         CancellationToken cancellationToken);
 }

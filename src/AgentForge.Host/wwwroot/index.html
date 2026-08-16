@@ -460,7 +460,45 @@
         </form>
         <div class="scope-notice"><strong>Evidence before authority</strong><span>Corrections without exact skill-usage authority become memory. New-skill classifications still require an isolated proposal workspace, five separated roles, evaluation, critique, approval, canary, and rollback evidence.</span></div>
         <div id="learning-message" class="workspace-message" aria-live="polite">Open this page to load classified evidence.</div>
+        <div class="workspace-subheading">
+          <div><span class="stage-kicker">CLASSIFIED EVIDENCE</span><h3>Signals</h3></div>
+        </div>
         <div id="learning-list" class="resource-list learning-list"></div>
+        <form id="learning-proposal-form" class="run-composer learning-proposal-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div>
+              <span class="stage-kicker">ISOLATED PROPOSAL</span>
+              <h3 id="learning-proposal-title">Create candidate skill</h3>
+              <p id="learning-proposal-source"></p>
+            </div>
+            <button id="learning-proposal-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div class="learning-proposal-grid">
+            <label>Skill ID<input id="learning-proposal-skill-id" maxlength="256" required placeholder="skill:proposal.example"></label>
+            <label>Candidate version<input id="learning-proposal-version" maxlength="64" value="0.1.0" required></label>
+          </div>
+          <label>Description<textarea id="learning-proposal-description" maxlength="512" rows="3" required></textarea></label>
+          <label>Declared permissions <span class="field-note">Comma-separated; declarations are not grants.</span><input id="learning-proposal-permissions" maxlength="2048" placeholder="Leave empty for an authority-free scaffold"></label>
+          <div class="composer-actions">
+            <p>AgentForge writes a content-addressed package into an isolated workspace. It remains inactive until separate verifier, critic, governor, and canary gates pass.</p>
+            <button id="create-learning-proposal" class="setup-submit" type="submit">Create isolated proposal</button>
+          </div>
+        </form>
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">GOVERNED CANDIDATES</span><h3>Proposal queue</h3><p>Immutable candidate packages awaiting independent evidence and approval.</p></div>
+        </div>
+        <div id="learning-candidate-list" class="resource-list learning-list"></div>
+        <form id="learning-gate-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">INDEPENDENT GATE</span><h3 id="learning-gate-title">Review candidate</h3><p id="learning-gate-source"></p></div>
+            <button id="learning-gate-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div id="learning-gate-fields"></div>
+          <div class="composer-actions">
+            <p id="learning-gate-explanation">Every transition is version-bound, role-separated, audited, and incapable of silently skipping a gate.</p>
+            <button id="submit-learning-gate" class="setup-submit" type="submit">Record gate</button>
+          </div>
+        </form>
       </section>
 
       <footer>

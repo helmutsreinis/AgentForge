@@ -851,6 +851,21 @@ the same CSRF, exact-origin, serialized mutation, and idempotency boundary as ot
 installation scoped and bounded. Intake deliberately supplies no usage receipt, revision authorization, or repeated
 skill chain, so hostile browser input cannot claim revision or bundle authority and a `NewSkill` result remains data.
 
+The Ready candidate endpoint accepts only an existing installation-scoped `NewSkill` signal and derives candidate and
+proposal IDs from the installation plus idempotency identity. It writes only two server-generated filenames beneath an
+exact candidate directory, rejects links, unexpected prior content, invalid UTF-8/package metadata, conflicting immutable
+versions, and a second candidate for the same signal. Registry installation uses `AgentProposal` provenance and remains
+`Installed`; the content-addressed PAX workspace and candidate snapshot grant no execution authority.
+
+Candidate transitions accept no source content, package replacement, role identity, permission expansion, provider, tool,
+or policy fields. They resolve the five installation-scoped role actors server-side, require current snapshot versions,
+accept only hash-shaped receipts for evidence-bearing gates, and delegate every change to the existing learning and skill
+state machines. Browser evidence notes are hashed locally and never cross the trust boundary. This protects secrets and
+limits stored content, but it does not prove the stated suite actually ran; R1 post-production UI receipts are explicit
+operator attestations until the isolated automated evaluator replaces those booleans. Promotion changes only the skill
+registry pointer, and agent-level grants remain independently required. Rollback quarantines the candidate and restores
+only an exact hash-bound baseline.
+
 Existing-skill revisions require an exact successful usage receipt or unexpired explicit operator authorization
 for the current skill version and package hash. A candidate must be an immutable agent-proposed package and carry
 a content-addressed isolated-workspace receipt. Worker, proposer, verifier, critic, and governor actors are all

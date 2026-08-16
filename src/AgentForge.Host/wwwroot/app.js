@@ -96,6 +96,23 @@ const elements = {
   captureLearning: document.querySelector("#capture-learning"),
   learningMessage: document.querySelector("#learning-message"),
   learningList: document.querySelector("#learning-list"),
+  learningProposalForm: document.querySelector("#learning-proposal-form"),
+  learningProposalTitle: document.querySelector("#learning-proposal-title"),
+  learningProposalSource: document.querySelector("#learning-proposal-source"),
+  learningProposalSkillId: document.querySelector("#learning-proposal-skill-id"),
+  learningProposalVersion: document.querySelector("#learning-proposal-version"),
+  learningProposalDescription: document.querySelector("#learning-proposal-description"),
+  learningProposalPermissions: document.querySelector("#learning-proposal-permissions"),
+  learningProposalClose: document.querySelector("#learning-proposal-close"),
+  createLearningProposal: document.querySelector("#create-learning-proposal"),
+  learningCandidateList: document.querySelector("#learning-candidate-list"),
+  learningGateForm: document.querySelector("#learning-gate-form"),
+  learningGateTitle: document.querySelector("#learning-gate-title"),
+  learningGateSource: document.querySelector("#learning-gate-source"),
+  learningGateFields: document.querySelector("#learning-gate-fields"),
+  learningGateExplanation: document.querySelector("#learning-gate-explanation"),
+  learningGateClose: document.querySelector("#learning-gate-close"),
+  submitLearningGate: document.querySelector("#submit-learning-gate"),
   accessModeTitle: document.querySelector("#access-mode-title"),
   accessModeDetail: document.querySelector("#access-mode-detail"),
 };
@@ -113,6 +130,11 @@ const admin = {
   runPage: 1,
   runPageSize: 8,
   pendingLearningTaskId: null,
+  learningSignals: [],
+  learningCandidates: [],
+  selectedLearningSignal: null,
+  selectedLearningCandidate: null,
+  learningGateAction: null,
   activeTaskId: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
@@ -865,10 +887,248 @@ function renderLearningSignals(signals) {
       makeElement("p", "resource-description", signal.summary),
       makeElement("p", "learning-disposition", learningActionCopy(signal.action)),
       meta);
+    if (signal.action === "NewSkill") {
+      const existing = admin.learningCandidates.some(candidate => candidate.signalId === signal.id);
+      const actions = makeElement("div", "resource-actions");
+      const propose = makeElement("button", "secondary-action",
+        existing ? "Proposal created" : "Create isolated proposal");
+      propose.type = "button";
+      propose.disabled = existing;
+      propose.addEventListener("click", () => openLearningProposal(signal));
+      actions.append(propose);
+      card.append(actions);
+    }
     elements.learningList.append(card);
   }
   if (!signals.length) {
     elements.learningList.append(makeElement("div", "empty-state", "No learning evidence captured. Use a terminal run receipt to start the governed intake path."));
+  }
+}
+
+function proposalSlug(summary) {
+  const slug = summary.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "")
+    .split(".").filter(Boolean).slice(0, 5).join(".");
+  return slug || "missing.capability";
+}
+
+function openLearningProposal(signal) {
+  admin.selectedLearningSignal = signal;
+  elements.learningProposalTitle.textContent = "Create candidate skill";
+  elements.learningProposalSource.textContent = `${signal.kind} · ${signal.id}`;
+  elements.learningProposalSkillId.value = `skill:proposal.${proposalSlug(signal.summary)}`;
+  elements.learningProposalVersion.value = "0.1.0";
+  elements.learningProposalDescription.value = signal.summary.slice(0, 512);
+  elements.learningProposalPermissions.value = "";
+  elements.learningProposalForm.hidden = false;
+  elements.learningProposalSkillId.focus();
+  elements.learningProposalForm.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function closeLearningProposal() {
+  admin.selectedLearningSignal = null;
+  elements.learningProposalForm.hidden = true;
+  elements.learningProposalForm.reset();
+  elements.learningProposalVersion.value = "0.1.0";
+}
+
+function renderLearningCandidates(candidates) {
+  elements.learningCandidateList.replaceChildren();
+  for (const candidate of candidates) {
+    const card = makeElement("article", "resource-card learning-candidate-card");
+    const title = makeElement("div", "resource-title");
+    const titleCopy = document.createElement("div");
+    titleCopy.append(
+      makeElement("h3", "", `${candidate.skillId} ${candidate.candidateVersion}`),
+      makeElement("p", "resource-subtitle", `${candidate.id} · version ${candidate.version}`));
+    title.append(titleCopy, stateChip(candidate.state));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Next gate", candidate.nextGate.replace(/-/g, " "));
+    addMeta(meta, "Authority", candidate.activeAuthority ? "Active" : "None — package is inert");
+    addMeta(meta, "Package hash", `${candidate.candidatePackageHash.slice(0, 24)}…`);
+    addMeta(meta, "Workspace hash", `${candidate.proposalWorkspace.contentHash.slice(0, 24)}…`);
+    addMeta(meta, "Permissions", candidate.requestedPermissions.length
+      ? candidate.requestedPermissions.join(", ") : "None declared");
+    addMeta(meta, "Role separation", "Worker · proposer · verifier · critic · governor");
+    card.append(
+      title,
+      makeElement("p", "learning-disposition",
+        candidate.activeAuthority
+          ? "The immutable package passed its governed canary and is active. Individual agents still require an exact skill grant before selection."
+          : "The immutable AgentProposal package has no active authority. It cannot be selected by a run or activate itself."),
+      meta);
+    const action = candidateGateAction(candidate.state);
+    if (action) {
+      const actions = makeElement("div", "resource-actions");
+      const gate = makeElement("button", action === "rollback" ? "danger-action" : "secondary-action",
+        candidateGateLabel(action));
+      gate.type = "button";
+      gate.addEventListener("click", () => openLearningGate(candidate, action));
+      actions.append(gate);
+      card.append(actions);
+    }
+    elements.learningCandidateList.append(card);
+  }
+  if (!candidates.length) {
+    elements.learningCandidateList.append(makeElement("div", "empty-state",
+      "No candidates yet. A NewSkill signal may create one isolated, inactive package."));
+  }
+}
+
+function candidateGateAction(state) {
+  return {
+    Proposed: "verify",
+    Verified: "critique",
+    Critiqued: "approve",
+    Approved: "start-canary",
+    Canary: "finish-canary",
+    Promoted: "rollback",
+  }[state] || null;
+}
+
+function candidateGateLabel(action) {
+  return {
+    verify: "Record verification",
+    critique: "Record critique",
+    approve: "Approve candidate",
+    "start-canary": "Start scoped canary",
+    "finish-canary": "Finish canary",
+    rollback: "Roll back promotion",
+  }[action];
+}
+
+function gateField(labelText, id, type = "text", value = "") {
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = type;
+  input.value = value;
+  if (type === "number") {
+    input.min = "0";
+    input.max = "1000000";
+    input.step = "0.01";
+  }
+  label.append(input);
+  return label;
+}
+
+function gateCheck(labelText, id) {
+  const label = makeElement("label", "gate-check");
+  const input = document.createElement("input");
+  input.id = id;
+  input.type = "checkbox";
+  label.append(input, document.createTextNode(labelText));
+  return label;
+}
+
+function evidenceField() {
+  const label = document.createElement("label");
+  label.append(document.createTextNode("Evidence note "));
+  label.append(makeElement("span", "field-note", "Hashed in this browser; note text is not sent or stored."));
+  const textarea = document.createElement("textarea");
+  textarea.id = "learning-gate-evidence";
+  textarea.rows = 4;
+  textarea.maxLength = 4096;
+  textarea.required = true;
+  textarea.placeholder = "Reference the retained test transcript, review, or rollback evidence without including secrets.";
+  label.append(textarea);
+  return label;
+}
+
+function openLearningGate(candidate, action) {
+  admin.selectedLearningCandidate = candidate;
+  admin.learningGateAction = action;
+  elements.learningGateFields.replaceChildren();
+  elements.learningGateTitle.textContent = candidateGateLabel(action);
+  elements.learningGateSource.textContent = `${candidate.skillId} ${candidate.candidateVersion} · snapshot version ${candidate.version}`;
+  elements.submitLearningGate.textContent = candidateGateLabel(action);
+  const fields = elements.learningGateFields;
+  if (action === "verify") {
+    const checks = makeElement("fieldset", "learning-gate-checks");
+    checks.append(
+      gateCheck("Target tests passed", "learning-gate-target"),
+      gateCheck("Holdout tests passed", "learning-gate-holdout"),
+      gateCheck("Adversarial tests passed", "learning-gate-adversarial"),
+      gateCheck("Permission diff approved", "learning-gate-permission"));
+    const metrics = makeElement("div", "learning-proposal-grid");
+    metrics.append(gateField("Baseline score", "learning-gate-baseline", "number", "0"),
+      gateField("Candidate score", "learning-gate-candidate", "number", "1"));
+    fields.append(checks, metrics, evidenceField());
+    elements.learningGateExplanation.textContent = "The assigned verifier must attest target, holdout, adversarial, baseline, and permission-diff evidence. Any failed check rejects the candidate.";
+  } else if (action === "critique") {
+    fields.append(gateCheck("Independent critique passed", "learning-gate-passed"),
+      gateField("Finding codes (comma-separated)", "learning-gate-findings"), evidenceField());
+    elements.learningGateExplanation.textContent = "The critic is separate from the proposer and verifier. A failed critique rejects the candidate.";
+  } else if (action === "finish-canary") {
+    const metrics = makeElement("div", "learning-proposal-grid");
+    metrics.append(gateField("Baseline metric", "learning-gate-baseline", "number", "0"),
+      gateField("Candidate metric", "learning-gate-candidate", "number", "1"));
+    fields.append(gateCheck("Scoped canary passed", "learning-gate-passed"), metrics, evidenceField());
+    elements.learningGateExplanation.textContent = "A passing canary promotes only when its candidate metric meets or exceeds the recorded baseline; failure quarantines the package.";
+  } else if (action === "rollback") {
+    fields.append(evidenceField());
+    elements.learningGateExplanation.textContent = "Rollback atomically removes active authority and restores the exact baseline recorded by governance.";
+  } else if (action === "approve") {
+    elements.learningGateExplanation.textContent = "Governor approval is bound to the current package and baseline hashes. It does not activate the candidate; a scoped canary is still required.";
+  } else {
+    elements.learningGateExplanation.textContent = "Starting the canary grants only the scope already approved by governance. Promotion still requires a passing canary receipt.";
+  }
+  elements.learningGateForm.hidden = false;
+  elements.learningGateForm.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function closeLearningGate() {
+  admin.selectedLearningCandidate = null;
+  admin.learningGateAction = null;
+  elements.learningGateForm.hidden = true;
+  elements.learningGateFields.replaceChildren();
+}
+
+async function learningEvidenceHash(candidate, action) {
+  const note = document.querySelector("#learning-gate-evidence")?.value.trim();
+  if (!note) return null;
+  const bytes = new TextEncoder().encode(`${candidate.id}\n${candidate.version}\n${action}\n${note}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function transitionLearningCandidate(event) {
+  event.preventDefault();
+  const candidate = admin.selectedLearningCandidate;
+  const action = admin.learningGateAction;
+  if (!candidate || !action) return;
+  setBusy(elements.learningGateForm, true);
+  try {
+    const evidenceHash = await learningEvidenceHash(candidate, action);
+    const payload = { action, expectedVersion: candidate.version, evidenceHash };
+    if (action === "verify") Object.assign(payload, {
+      targetPassed: document.querySelector("#learning-gate-target").checked,
+      holdoutPassed: document.querySelector("#learning-gate-holdout").checked,
+      adversarialPassed: document.querySelector("#learning-gate-adversarial").checked,
+      permissionDiffApproved: document.querySelector("#learning-gate-permission").checked,
+      baselineMetric: Number(document.querySelector("#learning-gate-baseline").value),
+      candidateMetric: Number(document.querySelector("#learning-gate-candidate").value),
+    });
+    if (action === "critique") Object.assign(payload, {
+      passed: document.querySelector("#learning-gate-passed").checked,
+      findingCodes: document.querySelector("#learning-gate-findings").value.split(",")
+        .map(value => value.trim()).filter(Boolean),
+    });
+    if (action === "finish-canary") Object.assign(payload, {
+      passed: document.querySelector("#learning-gate-passed").checked,
+      baselineMetric: Number(document.querySelector("#learning-gate-baseline").value),
+      candidateMetric: Number(document.querySelector("#learning-gate-candidate").value),
+    });
+    const result = await adminMutation(`/api/v1/admin/learning/candidates/${candidate.id}/transition`, payload);
+    closeLearningGate();
+    await Promise.all([loadLearning(), loadSkills()]);
+    workspaceStatus(elements.learningMessage,
+      `${result.skillId} advanced to ${result.state}; ${result.activeAuthority ? "active authority granted" : "no active authority"}.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.learningMessage,
+      error instanceof Error ? error.message : "The learning gate could not be recorded.", "error");
+  } finally {
+    setBusy(elements.learningGateForm, false);
   }
 }
 
@@ -880,12 +1140,48 @@ async function loadLearning(message = "Loading classified learning evidence…")
       admin.runs = runs.runs;
     }
     populateLearningSources();
-    const payload = await adminRead("/api/v1/admin/learning/signals");
+    const [payload, candidatePayload] = await Promise.all([
+      adminRead("/api/v1/admin/learning/signals"),
+      adminRead("/api/v1/admin/learning/candidates"),
+    ]);
+    admin.learningSignals = payload.signals;
+    admin.learningCandidates = candidatePayload.candidates;
     renderLearningSignals(payload.signals);
+    renderLearningCandidates(candidatePayload.candidates);
     workspaceStatus(elements.learningMessage,
-      `${payload.signals.length} classified learning ${payload.signals.length === 1 ? "signal" : "signals"} loaded.`, "ok");
+      `${payload.signals.length} classified ${payload.signals.length === 1 ? "signal" : "signals"} · ` +
+      `${candidatePayload.candidates.length} governed ${candidatePayload.candidates.length === 1 ? "candidate" : "candidates"}.`, "ok");
   } catch (error) {
     workspaceStatus(elements.learningMessage, error instanceof Error ? error.message : "Learning evidence could not be loaded.", "error");
+  }
+}
+
+async function createLearningProposal(event) {
+  event.preventDefault();
+  const signal = admin.selectedLearningSignal;
+  if (!signal) {
+    workspaceStatus(elements.learningMessage, "Select a NewSkill signal before creating a proposal.", "error");
+    return;
+  }
+  setBusy(elements.learningProposalForm, true);
+  try {
+    const permissions = elements.learningProposalPermissions.value.split(",")
+      .map(value => value.trim()).filter(Boolean);
+    const result = await adminMutation(`/api/v1/admin/learning/signals/${signal.id}/candidates`, {
+      skillId: elements.learningProposalSkillId.value.trim(),
+      version: elements.learningProposalVersion.value.trim(),
+      description: elements.learningProposalDescription.value.trim(),
+      requestedPermissions: [...new Set(permissions)].sort(),
+    });
+    closeLearningProposal();
+    await loadLearning();
+    workspaceStatus(elements.learningMessage,
+      `${result.skillId} ${result.candidateVersion} is Proposed and inactive; next gate: ${result.nextGate}.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.learningMessage,
+      error instanceof Error ? error.message : "The isolated proposal could not be created.", "error");
+  } finally {
+    setBusy(elements.learningProposalForm, false);
   }
 }
 
@@ -1325,6 +1621,10 @@ elements.agentEditCancel.addEventListener("click", discardAgentEditPreview);
 elements.agentEditApply.addEventListener("click", applyAgentEditPreview);
 elements.runForm.addEventListener("submit", createRun);
 elements.learningForm.addEventListener("submit", captureLearning);
+elements.learningProposalForm.addEventListener("submit", createLearningProposal);
+elements.learningProposalClose.addEventListener("click", closeLearningProposal);
+elements.learningGateForm.addEventListener("submit", transitionLearningCandidate);
+elements.learningGateClose.addEventListener("click", closeLearningGate);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);

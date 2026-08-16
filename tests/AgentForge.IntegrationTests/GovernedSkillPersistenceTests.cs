@@ -194,10 +194,22 @@ public sealed class GovernedSkillPersistenceTests : IDisposable
         ActorId approver,
         string prefix)
     {
+        var proposalId = new SkillProposalId(Guid.NewGuid());
+        var correlationId = new CorrelationId($"{prefix}-proposal");
         var created = await service.CreateProposalAsync(
-            new SkillProposalId(Guid.NewGuid()), installationId, new SkillId("skill:csharp.review"), version,
-            proposer, new CorrelationId($"{prefix}-proposal"), null, CancellationToken.None);
+            proposalId, installationId, new SkillId("skill:csharp.review"), version,
+            proposer, correlationId, null, CancellationToken.None);
         Assert.True(created.IsSuccess, created.Failure?.Message);
+        var replayed = await service.CreateProposalAsync(
+            proposalId, installationId, new SkillId("skill:csharp.review"), version,
+            proposer, correlationId, null, CancellationToken.None);
+        Assert.True(replayed.IsSuccess, replayed.Failure?.Message);
+        Assert.Equal(created.Value.Id, replayed.Value.Id);
+        Assert.Equal(created.Value.Version, replayed.Value.Version);
+        Assert.Equal(created.Value.SnapshotHash, replayed.Value.SnapshotHash);
+        Assert.Equal(created.Value.CandidatePackageHash, replayed.Value.CandidatePackageHash);
+        Assert.Equal(created.Value.AddedPermissions, replayed.Value.AddedPermissions);
+        Assert.Equal(created.Value.RemovedPermissions, replayed.Value.RemovedPermissions);
         var evaluated = await service.EvaluateAsync(
             created.Value.Id, created.Value.Version,
             new SkillEvaluationReceipt(true, true, true, 10, 11, Evidence), CancellationToken.None);
