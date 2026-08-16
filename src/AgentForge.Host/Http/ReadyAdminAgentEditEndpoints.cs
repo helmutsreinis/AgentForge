@@ -29,7 +29,26 @@ internal sealed record ReadyAgentProfileEditWebRequest(
     string TimeZone,
     string ResponseStyle,
     string? DefaultWorkspace,
-    long? MaxOutputTokens);
+    long? MaxOutputTokens,
+    Guid? PrimaryProviderId = null,
+    string? DataLocality = null,
+    bool? AllowFallback = null,
+    string? MemoryScope = null,
+    int? RetentionDays = null,
+    string? NetworkPosture = null,
+    IReadOnlyList<string>? ToolGrants = null,
+    IReadOnlyList<string>? SkillGrants = null,
+    int? MaxTurns = null,
+    int? MaxToolInvocations = null,
+    long? MaxInputTokens = null,
+    int? MaxWallClockSeconds = null,
+    int? MaxChildDepth = null,
+    int? MaxChildren = null,
+    int? MaxChildConcurrency = null,
+    long? MaxChildTokens = null,
+    string? LearningMode = null,
+    string? MutableSkillScope = null,
+    long? ExpectedPrimaryProviderVersion = null);
 
 internal sealed record ReadyEditApplyWebRequest(string PreviewHash);
 
@@ -68,7 +87,9 @@ internal static partial class ReadyAdminEndpoints
                 "The agent's pinned provider profile is unavailable.", "provider-unavailable");
         }
 
-        var providerUsers = (await agents.ListAsync(agent.InstallationId, cancellationToken))
+        var allAgents = await agents.ListAsync(agent.InstallationId, cancellationToken);
+        var allProviders = await providers.ListAsync(agent.InstallationId, cancellationToken);
+        var providerUsers = allAgents
             .Where(item => item.ModelPolicy.PrimaryProviderProfileId == provider.Id)
             .Select(item => new { id = item.Id.Value, item.Name })
             .ToArray();
@@ -86,16 +107,37 @@ internal static partial class ReadyAdminEndpoints
                 provider.Version,
                 sharedBy = providerUsers,
             },
-            immutablePolicy = new
+            providers = allProviders.Select(item => new
             {
-                agent.ModelPolicy.DataLocality,
-                agent.ModelPolicy.AllowFallback,
-                agent.MemoryPolicy,
-                agent.CapabilityPolicy,
-                agent.Budget,
-                agent.ChildLimits,
-                agent.LearningPolicy,
-            },
+                id = item.Id.Value,
+                item.Name,
+                item.ProviderType,
+                endpoint = item.Endpoint.AbsoluteUri,
+                item.Model,
+                item.Version,
+                item.Capabilities,
+                sharedBy = allAgents.Count(identity =>
+                    identity.ModelPolicy.PrimaryProviderProfileId == item.Id),
+            }),
+            policy = EffectivePolicyResponse(new EffectiveAgentDefinition(
+                new AgentIdentityCandidate(
+                    agent.Name,
+                    agent.Expertise,
+                    agent.Mission,
+                    agent.PreferredLanguage,
+                    agent.TimeZone,
+                    agent.ResponseStyle,
+                    agent.DefaultWorkspace,
+                    agent.ModelPolicy,
+                    agent.MemoryPolicy,
+                    agent.CapabilityPolicy,
+                    agent.Budget,
+                    agent.ChildLimits,
+                    agent.LearningPolicy),
+                provider.Name,
+                provider.Model,
+                provider.Capabilities,
+                [])),
             correlationId = context.TraceIdentifier,
         });
     }
@@ -452,6 +494,7 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
+        IProviderProfileRepository providers,
         ILocalAdministratorRepository administrators,
         ISecretStore secretStore,
         ISetupProfileEditor editor,
@@ -486,28 +529,25 @@ internal static partial class ReadyAdminEndpoints
                 return Problem(context, 404, "Agent not found",
                     "The requested agent does not belong to this installation.", "agent-not-found");
             }
-            var maxOutputTokens = request.MaxOutputTokens ?? agent.Budget.MaxOutputTokens;
-            if (maxOutputTokens is < 256 or > 262_144)
+            var candidateResult = AgentCandidate(agent, request);
+            if (!candidateResult.IsSuccess)
             {
-                return Problem(context, 400, "Invalid output ceiling",
-                    "The Ready output-token ceiling must be between 256 and 262,144 tokens.",
-                    "validationfailure");
+                return DomainProblem(context, candidateResult.Failure!, "Agent policy preview failed");
             }
-
-            var candidate = new AgentIdentityCandidate(
-                request.Name,
-                request.Expertise,
-                request.Mission,
-                request.PreferredLanguage,
-                request.TimeZone,
-                request.ResponseStyle,
-                request.DefaultWorkspace,
-                agent.ModelPolicy,
-                agent.MemoryPolicy,
-                agent.CapabilityPolicy,
-                agent.Budget with { MaxOutputTokens = maxOutputTokens },
-                agent.ChildLimits,
-                agent.LearningPolicy);
+            var candidate = candidateResult.Value;
+            var targetProvider = await providers.FindByIdAsync(
+                candidate.ModelPolicy.PrimaryProviderProfileId, cancellationToken);
+            if (targetProvider is null || targetProvider.InstallationId != session.InstallationId)
+            {
+                return Problem(context, 400, "Provider unavailable",
+                    "The selected primary provider does not belong to this installation.", "validationfailure");
+            }
+            if (request.ExpectedPrimaryProviderVersion is { } expectedProviderVersion &&
+                targetProvider.Version != expectedProviderVersion)
+            {
+                return Problem(context, 409, "Provider changed",
+                    "The selected provider version changed; refresh the policy editor.", "concurrency-conflict");
+            }
             var administratorCredential = await MaterializeAdministratorCredentialAsync(
                 session.InstallationId, administrators, secretStore, cancellationToken);
             if (!administratorCredential.IsSuccess)
@@ -536,19 +576,7 @@ internal static partial class ReadyAdminEndpoints
             if (preview.Value.Changes.Count == 0)
             {
                 return Problem(context, 400, "No profile change",
-                    "Change at least one identity or instruction field before previewing.", "validationfailure");
-            }
-
-            var allowedPaths = new HashSet<string>(StringComparer.Ordinal)
-            {
-                "agent.name", "agent.expertise", "agent.mission", "agent.preferredLanguage",
-                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace", "agent.budget",
-            };
-            if (preview.Value.Changes.Any(change => !allowedPaths.Contains(change.Path)))
-            {
-                return Problem(context, 403, "Profile edit boundary",
-                    "The Ready profile editor can change only identity, instructions, and the bounded output-token ceiling.",
-                    "policydenied");
+                    "Change at least one identity or policy field before previewing.", "validationfailure");
             }
 
             RetainBoundedPreviews(session.AgentPreviews, 7);
@@ -563,16 +591,19 @@ internal static partial class ReadyAdminEndpoints
             {
                 previewHash = preview.Value.RequestHash,
                 changes = preview.Value.Changes.Select(ChangeResponse),
-                effective = new
+                effective = EffectivePolicyResponse(preview.Value.Effective),
+                impact = new
                 {
-                    preview.Value.Effective.ProviderName,
-                    preview.Value.Effective.Model,
-                    capabilities = preview.Value.Effective.Capabilities,
+                    currentAgentVersion = agent.Version,
+                    nextAgentVersion = checked(agent.Version + 1),
+                    providerVersion = targetProvider.Version,
+                    invalidatesConversationContinuation = true,
+                    requiresNewConversation = true,
+                    authorityChanged = preview.Value.Changes.Any(change => change.Path is
+                        "agent.modelPolicy" or "agent.memoryPolicy" or "agent.capabilityPolicy" or
+                        "agent.budget" or "agent.childLimits" or "agent.learningPolicy"),
                 },
-                immutableAuthorityPreserved = !preview.Value.Changes.Any(change => change.Path == "agent.budget"),
-                warning = preview.Value.Changes.Any(change => change.Path == "agent.budget")
-                    ? "This raises or lowers the agent's maximum generated-output budget. Other authority remains unchanged."
-                    : "Only the displayed identity and instruction fields will change; effective authority is preserved.",
+                warning = "Applying this exact preview creates a new agent policy version. Existing run snapshots remain immutable; continue with a new conversation.",
                 correlationId = correlation.Value,
             };
             StoreIdempotentResult(session, scopedKey, requestHash, response);
@@ -669,6 +700,61 @@ internal static partial class ReadyAdminEndpoints
         }
     }
 
+    private static DomainResult<AgentIdentityCandidate> AgentCandidate(
+        AgentIdentity current,
+        ReadyAgentProfileEditWebRequest request)
+    {
+        var dataLocality = current.ModelPolicy.DataLocality;
+        var memoryScope = current.MemoryPolicy.Scope;
+        var networkPosture = current.CapabilityPolicy.NetworkPosture;
+        var learningMode = current.LearningPolicy.Mode;
+        var mutableSkillScope = current.LearningPolicy.MutableSkillScope;
+        if (request.DataLocality is not null && !TryEnum(request.DataLocality, out dataLocality) ||
+            request.MemoryScope is not null && !TryEnum(request.MemoryScope, out memoryScope) ||
+            request.NetworkPosture is not null && !TryEnum(request.NetworkPosture, out networkPosture) ||
+            request.LearningMode is not null && !TryEnum(request.LearningMode, out learningMode) ||
+            request.MutableSkillScope is not null && !TryEnum(request.MutableSkillScope, out mutableSkillScope))
+        {
+            return DomainResult.Fail<AgentIdentityCandidate>(new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Agent policy contains an invalid enum selection."));
+        }
+
+        return DomainResult.Success(new AgentIdentityCandidate(
+            request.Name,
+            request.Expertise,
+            request.Mission,
+            request.PreferredLanguage,
+            request.TimeZone,
+            request.ResponseStyle,
+            request.DefaultWorkspace,
+            new AgentModelPolicy(
+                request.PrimaryProviderId is { } providerId
+                    ? new ProviderProfileId(providerId)
+                    : current.ModelPolicy.PrimaryProviderProfileId,
+                dataLocality,
+                request.AllowFallback ?? current.ModelPolicy.AllowFallback),
+            new AgentMemoryPolicy(
+                memoryScope,
+                request.RetentionDays ?? current.MemoryPolicy.RetentionDays),
+            new AgentCapabilityPolicy(
+                networkPosture,
+                request.ToolGrants ?? current.CapabilityPolicy.ToolGrants,
+                request.SkillGrants ?? current.CapabilityPolicy.SkillGrants),
+            new AgentBudget(
+                request.MaxTurns ?? current.Budget.MaxTurns,
+                request.MaxToolInvocations ?? current.Budget.MaxToolInvocations,
+                request.MaxInputTokens ?? current.Budget.MaxInputTokens,
+                request.MaxOutputTokens ?? current.Budget.MaxOutputTokens,
+                request.MaxWallClockSeconds ?? current.Budget.MaxWallClockSeconds),
+            new ChildAgentLimits(
+                request.MaxChildDepth ?? current.ChildLimits.MaxDepth,
+                request.MaxChildren ?? current.ChildLimits.MaxChildren,
+                request.MaxChildConcurrency ?? current.ChildLimits.MaxConcurrency,
+                request.MaxChildTokens ?? current.ChildLimits.MaxTotalTokens),
+            new AgentLearningPolicy(learningMode, mutableSkillScope)));
+    }
+
     private static async Task<DomainResult<(AgentIdentity Agent, ProviderProfile Provider)>> ResolveAgentProviderAsync(
         InstallationId installationId,
         AgentIdentityId agentId,
@@ -723,12 +809,19 @@ internal static partial class ReadyAdminEndpoints
         agent.TimeZone,
         agent.ResponseStyle,
         agent.DefaultWorkspace,
+        agent.ModelPolicy,
+        agent.MemoryPolicy,
+        agent.CapabilityPolicy,
         budget = new
         {
+            agent.Budget.MaxTurns,
+            agent.Budget.MaxToolInvocations,
             agent.Budget.MaxInputTokens,
             agent.Budget.MaxOutputTokens,
             agent.Budget.MaxWallClockSeconds,
         },
+        agent.ChildLimits,
+        agent.LearningPolicy,
         agent.Version,
         agent.UpdatedAt,
     };

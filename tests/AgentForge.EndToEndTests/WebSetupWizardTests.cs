@@ -1284,6 +1284,175 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.NotNull(proposedSkill);
         Assert.Equal(SkillPackageStatus.Quarantined, proposedSkill.Status);
         Assert.Equal(SkillPackageProvenance.AgentProposal, proposedSkill.Provenance);
+
+        using var providerCatalog = await client.GetAsync("/api/v1/admin/providers");
+        Assert.Equal(HttpStatusCode.OK, providerCatalog.StatusCode);
+        using var providerCatalogDocument = JsonDocument.Parse(await providerCatalog.Content.ReadAsByteArrayAsync());
+        var createProviderInstallationVersion = providerCatalogDocument.RootElement
+            .GetProperty("installationVersion").GetInt64();
+        using var providerCreatePreview = await MutationAsync(
+            client,
+            "/api/v1/admin/providers/create/preview",
+            "provider-create-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = createProviderInstallationVersion,
+                name = "secondary",
+                providerType = "openai-compatible",
+                endpoint = "http://192.168.1.89:8000/v1",
+                model = "qwen3.8",
+                credential = "fixture-provider-key",
+            }));
+        Assert.Equal(HttpStatusCode.OK, providerCreatePreview.StatusCode);
+        using var providerCreatePreviewDocument = JsonDocument.Parse(
+            await providerCreatePreview.Content.ReadAsByteArrayAsync());
+        var providerCreateHash = providerCreatePreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        Assert.Equal("OS-backed secret", providerCreatePreviewDocument.RootElement.GetProperty("authentication").GetString());
+        using var wrongProviderCredential = await MutationAsync(
+            client,
+            "/api/v1/admin/providers/create/apply",
+            "provider-create-wrong-credential",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = providerCreateHash, credential = "wrong-fixture-key" }));
+        Assert.Equal(HttpStatusCode.Forbidden, wrongProviderCredential.StatusCode);
+        using var providerCreate = await MutationAsync(
+            client,
+            "/api/v1/admin/providers/create/apply",
+            "provider-create-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = providerCreateHash, credential = "fixture-provider-key" }));
+        Assert.Equal(HttpStatusCode.OK, providerCreate.StatusCode);
+        using var providerCreateDocument = JsonDocument.Parse(await providerCreate.Content.ReadAsByteArrayAsync());
+        var secondaryProviderId = providerCreateDocument.RootElement.GetProperty("provider").GetProperty("id").GetGuid();
+        var agentCreateInstallationVersion = providerCreateDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var secondaryProviderVersion = providerCreateDocument.RootElement.GetProperty("provider").GetProperty("version").GetInt64();
+
+        var createAgentPolicy = new
+        {
+            expectedInstallationVersion = agentCreateInstallationVersion,
+            expectedProviderVersion = secondaryProviderVersion,
+            name = "secondary-agent",
+            expertise = "durable local execution",
+            mission = "exercise complete policy administration",
+            preferredLanguage = "en",
+            timeZone = "UTC",
+            responseStyle = "bounded",
+            defaultWorkspace = (string?)null,
+            primaryProviderId = secondaryProviderId,
+            dataLocality = "LocalOnly",
+            allowFallback = false,
+            memoryScope = "Task",
+            retentionDays = 0,
+            networkPosture = "Denied",
+            toolGrants = Array.Empty<string>(),
+            skillGrants = Array.Empty<string>(),
+            maxTurns = 32,
+            maxToolInvocations = 0,
+            maxInputTokens = 16_000,
+            maxOutputTokens = 8_192,
+            maxWallClockSeconds = 270,
+            maxChildDepth = 0,
+            maxChildren = 0,
+            maxChildConcurrency = 0,
+            maxChildTokens = 0,
+            learningMode = "Off",
+            mutableSkillScope = "None",
+        };
+        using var agentCreatePreview = await MutationAsync(
+            client,
+            "/api/v1/admin/agents/create/preview",
+            "agent-create-preview",
+            adminCsrf,
+            JsonContent.Create(createAgentPolicy));
+        Assert.Equal(HttpStatusCode.OK, agentCreatePreview.StatusCode);
+        using var agentCreatePreviewDocument = JsonDocument.Parse(
+            await agentCreatePreview.Content.ReadAsByteArrayAsync());
+        var agentCreateHash = agentCreatePreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        using var agentCreate = await MutationAsync(
+            client,
+            "/api/v1/admin/agents/create/apply",
+            "agent-create-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = agentCreateHash }));
+        Assert.Equal(HttpStatusCode.OK, agentCreate.StatusCode);
+        using var agentCreateDocument = JsonDocument.Parse(await agentCreate.Content.ReadAsByteArrayAsync());
+        var secondaryAgentId = agentCreateDocument.RootElement.GetProperty("agent").GetProperty("id").GetGuid();
+        var editInstallationVersion = agentCreateDocument.RootElement.GetProperty("installationVersion").GetInt64();
+
+        using var createdAgentEdit = await client.GetAsync($"/api/v1/admin/agents/{secondaryAgentId:D}/edit");
+        Assert.Equal(HttpStatusCode.OK, createdAgentEdit.StatusCode);
+        using var createdAgentEditDocument = JsonDocument.Parse(await createdAgentEdit.Content.ReadAsByteArrayAsync());
+        var createdAgentVersion = createdAgentEditDocument.RootElement.GetProperty("agent").GetProperty("version").GetInt64();
+        var fullPolicyEdit = new
+        {
+            expectedInstallationVersion = editInstallationVersion,
+            expectedAgentVersion = createdAgentVersion,
+            name = "secondary-agent",
+            expertise = "durable local execution",
+            mission = "exercise complete governed policy editing",
+            preferredLanguage = "en",
+            timeZone = "UTC",
+            responseStyle = "evidence-first",
+            defaultWorkspace = toolWorkspace,
+            maxOutputTokens = 16_384,
+            primaryProviderId = secondaryProviderId,
+            dataLocality = "LocalOnly",
+            allowFallback = false,
+            memoryScope = "Agent",
+            retentionDays = 60,
+            networkPosture = "LoopbackOnly",
+            toolGrants = new[] { "tool:workspace.read" },
+            skillGrants = new[] { "skill:csharp.review" },
+            maxTurns = 48,
+            maxToolInvocations = 5,
+            maxInputTokens = 32_000,
+            maxWallClockSeconds = 600,
+            maxChildDepth = 1,
+            maxChildren = 1,
+            maxChildConcurrency = 1,
+            maxChildTokens = 8_000,
+            learningMode = "Propose",
+            mutableSkillScope = "ProposalWorkspaceOnly",
+            expectedPrimaryProviderVersion = secondaryProviderVersion,
+        };
+        using var fullPolicyPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{secondaryAgentId:D}/profile/preview",
+            "full-policy-preview",
+            adminCsrf,
+            JsonContent.Create(fullPolicyEdit));
+        Assert.Equal(HttpStatusCode.OK, fullPolicyPreview.StatusCode);
+        using var fullPolicyPreviewDocument = JsonDocument.Parse(await fullPolicyPreview.Content.ReadAsByteArrayAsync());
+        Assert.True(fullPolicyPreviewDocument.RootElement.GetProperty("impact")
+            .GetProperty("invalidatesConversationContinuation").GetBoolean());
+        var fullPolicyHash = fullPolicyPreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        using var fullPolicyApply = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{secondaryAgentId:D}/profile/apply",
+            "full-policy-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = fullPolicyHash }));
+        Assert.Equal(HttpStatusCode.OK, fullPolicyApply.StatusCode);
+
+        await using var administrationVerification = _factory.Services.CreateAsyncScope();
+        var createdAgents = await administrationVerification.ServiceProvider
+            .GetRequiredService<IAgentIdentityRepository>().ListAsync(installationId, CancellationToken.None);
+        Assert.Equal(2, createdAgents.Count);
+        var secondaryAgent = Assert.Single(createdAgents, item => item.Id.Value == secondaryAgentId);
+        Assert.Equal(AgentForge.Domain.Agents.NetworkPosture.LoopbackOnly,
+            secondaryAgent.CapabilityPolicy.NetworkPosture);
+        Assert.Equal(["tool:workspace.read"], secondaryAgent.CapabilityPolicy.ToolGrants);
+        Assert.Equal(["skill:csharp.review"], secondaryAgent.CapabilityPolicy.SkillGrants);
+        Assert.Equal(5, secondaryAgent.Budget.MaxToolInvocations);
+        Assert.Equal(1, secondaryAgent.ChildLimits.MaxChildren);
+        Assert.Equal(AgentForge.Domain.Agents.AgentMemoryScope.Agent, secondaryAgent.MemoryPolicy.Scope);
+        Assert.Equal(AgentForge.Domain.Agents.LearningMode.Propose, secondaryAgent.LearningPolicy.Mode);
+        var createdProviders = await administrationVerification.ServiceProvider
+            .GetRequiredService<IProviderProfileRepository>().ListAsync(installationId, CancellationToken.None);
+        Assert.Equal(2, createdProviders.Count);
+        Assert.False(Assert.Single(createdProviders, item => item.Id.Value == secondaryProviderId)
+            .SecretReference.IsNoCredential);
     }
 
     [Fact]

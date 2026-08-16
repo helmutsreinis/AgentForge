@@ -38,6 +38,25 @@ const elements = {
   reviewSummary: document.querySelector("#review-summary"),
   agentsMessage: document.querySelector("#agents-message"),
   agentList: document.querySelector("#agent-list"),
+  providerList: document.querySelector("#provider-list"),
+  newProvider: document.querySelector("#new-provider"),
+  newAgent: document.querySelector("#new-agent"),
+  providerCreatePanel: document.querySelector("#provider-create-panel"),
+  providerCreateClose: document.querySelector("#provider-create-close"),
+  providerCreateMessage: document.querySelector("#provider-create-message"),
+  providerCreateForm: document.querySelector("#provider-create-form"),
+  providerCreateName: document.querySelector("#provider-create-name"),
+  providerCreateType: document.querySelector("#provider-create-type"),
+  providerCreateEndpoint: document.querySelector("#provider-create-endpoint"),
+  providerCreateModel: document.querySelector("#provider-create-model"),
+  providerCreateCredential: document.querySelector("#provider-create-credential"),
+  providerCreateReview: document.querySelector("#provider-create-review"),
+  providerCreateWarning: document.querySelector("#provider-create-warning"),
+  providerCreateChanges: document.querySelector("#provider-create-changes"),
+  providerCreatePreviewHash: document.querySelector("#provider-create-preview-hash"),
+  providerCreateCredentialHelp: document.querySelector("#provider-create-credential-help"),
+  providerCreateDiscard: document.querySelector("#provider-create-discard"),
+  providerCreateApply: document.querySelector("#provider-create-apply"),
   agentEditor: document.querySelector("#agent-editor"),
   agentEditorTitle: document.querySelector("#agent-editor-title"),
   agentEditorContext: document.querySelector("#agent-editor-context"),
@@ -56,6 +75,25 @@ const elements = {
   agentEditStyle: document.querySelector("#agent-edit-style"),
   agentEditMaxOutput: document.querySelector("#agent-edit-max-output"),
   agentEditWorkspace: document.querySelector("#agent-edit-workspace"),
+  agentEditProvider: document.querySelector("#agent-edit-provider"),
+  agentEditLocality: document.querySelector("#agent-edit-locality"),
+  agentEditFallback: document.querySelector("#agent-edit-fallback"),
+  agentEditMemoryScope: document.querySelector("#agent-edit-memory-scope"),
+  agentEditRetention: document.querySelector("#agent-edit-retention"),
+  agentEditNetwork: document.querySelector("#agent-edit-network"),
+  agentEditToolGrants: document.querySelector("#agent-edit-tool-grants"),
+  agentEditSkillGrants: document.querySelector("#agent-edit-skill-grants"),
+  agentEditMaxTurns: document.querySelector("#agent-edit-max-turns"),
+  agentEditMaxTools: document.querySelector("#agent-edit-max-tools"),
+  agentEditMaxInput: document.querySelector("#agent-edit-max-input"),
+  agentEditMaxWall: document.querySelector("#agent-edit-max-wall"),
+  agentEditChildDepth: document.querySelector("#agent-edit-child-depth"),
+  agentEditChildren: document.querySelector("#agent-edit-children"),
+  agentEditChildConcurrency: document.querySelector("#agent-edit-child-concurrency"),
+  agentEditChildTokens: document.querySelector("#agent-edit-child-tokens"),
+  agentEditLearning: document.querySelector("#agent-edit-learning"),
+  agentEditMutableScope: document.querySelector("#agent-edit-mutable-scope"),
+  agentProfileSubmit: document.querySelector("#agent-profile-submit"),
   agentEditReview: document.querySelector("#agent-edit-review"),
   agentEditReviewTitle: document.querySelector("#agent-edit-review-title"),
   agentEditReviewWarning: document.querySelector("#agent-edit-review-warning"),
@@ -184,7 +222,11 @@ const admin = {
   actorId: null,
   remoteAccessCode: "",
   agents: [],
+  providers: [],
+  providerInstallationVersion: null,
+  providerCreatePreview: null,
   agentEdit: null,
+  agentEditMode: "edit",
   agentEditPreview: null,
   runs: [],
   runOptions: null,
@@ -381,10 +423,31 @@ async function loadAgents(message = "Loading persisted agent identities…") {
   workspaceStatus(elements.agentsMessage, message);
   try {
     const selectedAgentId = elements.runAgent.value;
-    const payload = await adminRead("/api/v1/admin/agents");
+    const [payload, providerPayload] = await Promise.all([
+      adminRead("/api/v1/admin/agents"),
+      adminRead("/api/v1/admin/providers"),
+    ]);
     admin.agents = payload.agents;
+    admin.providers = providerPayload.providers;
+    admin.providerInstallationVersion = providerPayload.installationVersion;
     elements.agentList.replaceChildren();
+    elements.providerList.replaceChildren();
     elements.runAgent.replaceChildren();
+    for (const provider of admin.providers) {
+      const card = makeElement("article", "resource-card compact-card");
+      const title = makeElement("div", "resource-title");
+      const copy = document.createElement("div");
+      copy.append(
+        makeElement("h3", "", provider.name),
+        makeElement("p", "resource-subtitle", `${provider.providerType} · v${provider.version}`));
+      title.append(copy, stateChip("Ready"));
+      const meta = makeElement("div", "resource-meta");
+      addMeta(meta, "Model", provider.model);
+      addMeta(meta, "Authentication", provider.authentication);
+      addMeta(meta, "Agents", provider.sharedBy.length);
+      card.append(title, makeElement("p", "resource-description", provider.endpoint), meta);
+      elements.providerList.append(card);
+    }
     for (const agent of payload.agents) {
       const option = document.createElement("option");
       option.value = agent.id;
@@ -418,11 +481,154 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       elements.runAgent.value = selectedAgentId;
     }
     if (!payload.agents.length) elements.agentList.append(makeElement("div", "empty-state", "No agents are configured."));
-    workspaceStatus(elements.agentsMessage, `${payload.agents.length} ${payload.agents.length === 1 ? "agent" : "agents"} loaded from durable state.`, "ok");
+    elements.newAgent.disabled = admin.providers.length === 0;
+    workspaceStatus(elements.agentsMessage,
+      `${payload.agents.length} ${payload.agents.length === 1 ? "agent" : "agents"} and ${admin.providers.length} ${admin.providers.length === 1 ? "provider" : "providers"} loaded from durable state.`, "ok");
     return payload.agents;
   } catch (error) {
     workspaceStatus(elements.agentsMessage, error instanceof Error ? error.message : "Agents could not be loaded.", "error");
     return [];
+  }
+}
+
+function discardProviderCreatePreview() {
+  admin.providerCreatePreview = null;
+  elements.providerCreateReview.hidden = true;
+  elements.providerCreateChanges.replaceChildren();
+  elements.providerCreatePreviewHash.textContent = "";
+  elements.providerCreateCredentialHelp.textContent = "";
+}
+
+function openProviderCreate() {
+  closeAgentEditor();
+  discardProviderCreatePreview();
+  const seed = admin.providers[0];
+  elements.providerCreateName.value = "";
+  elements.providerCreateType.value = seed?.providerType ?? "openai-compatible";
+  elements.providerCreateEndpoint.value = seed?.endpoint ?? "http://127.0.0.1:8000/v1";
+  elements.providerCreateModel.value = seed?.model ?? "";
+  elements.providerCreateCredential.value = "";
+  elements.providerCreatePanel.hidden = false;
+  workspaceStatus(elements.providerCreateMessage,
+    "Enter a distinct connection. Verification creates no provider and grants no agent authority.");
+  elements.providerCreatePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeProviderCreate() {
+  elements.providerCreateCredential.value = "";
+  discardProviderCreatePreview();
+  elements.providerCreatePanel.hidden = true;
+}
+
+async function previewProviderCreate(event) {
+  event.preventDefault();
+  setBusy(elements.providerCreateForm, true);
+  discardProviderCreatePreview();
+  workspaceStatus(elements.providerCreateMessage, "Live-probing the exact endpoint and model…");
+  const credential = elements.providerCreateCredential.value;
+  try {
+    const payload = await adminMutation("/api/v1/admin/providers/create/preview", {
+      expectedInstallationVersion: admin.providerInstallationVersion,
+      name: elements.providerCreateName.value.trim(),
+      providerType: elements.providerCreateType.value,
+      endpoint: elements.providerCreateEndpoint.value.trim(),
+      model: elements.providerCreateModel.value.trim(),
+      credential: credential || null,
+    });
+    admin.providerCreatePreview = { hash: payload.previewHash, usesCredential: credential.length > 0 };
+    elements.providerCreateWarning.textContent = payload.warning;
+    renderChanges(elements.providerCreateChanges, payload.changes);
+    elements.providerCreatePreviewHash.textContent = `Bound preview ${payload.previewHash}`;
+    elements.providerCreateCredential.value = "";
+    elements.providerCreateCredentialHelp.textContent = credential
+      ? "Credential cleared. Re-enter the same API key immediately before Create; a different key will fail the bound preview."
+      : "This private provider was verified without an API key.";
+    elements.providerCreateReview.hidden = false;
+    workspaceStatus(elements.providerCreateMessage,
+      `Connection verified in ${Math.round(payload.verification.durationMilliseconds)} ms.`, "ok");
+  } catch (error) {
+    elements.providerCreateCredential.value = "";
+    workspaceStatus(elements.providerCreateMessage,
+      error instanceof Error ? error.message : "Provider verification failed.", "error");
+  } finally {
+    setBusy(elements.providerCreateForm, false);
+  }
+}
+
+async function applyProviderCreate() {
+  if (!admin.providerCreatePreview) return;
+  const credential = elements.providerCreateCredential.value;
+  if (admin.providerCreatePreview.usesCredential && !credential) {
+    workspaceStatus(elements.providerCreateMessage,
+      "Re-enter the same API key before creating this provider.", "error");
+    elements.providerCreateCredential.focus();
+    return;
+  }
+  elements.providerCreateApply.disabled = true;
+  try {
+    await adminMutation("/api/v1/admin/providers/create/apply", {
+      previewHash: admin.providerCreatePreview.hash,
+      credential: credential || null,
+    });
+    elements.providerCreateCredential.value = "";
+    closeProviderCreate();
+    await loadAgents("Refreshing providers and agents…");
+    workspaceStatus(elements.agentsMessage, "Provider created, validated, and audited. It has no agent authority yet.", "ok");
+  } catch (error) {
+    elements.providerCreateCredential.value = "";
+    workspaceStatus(elements.providerCreateMessage,
+      error instanceof Error ? error.message : "Provider creation failed.", "error");
+  } finally {
+    elements.providerCreateApply.disabled = false;
+  }
+}
+
+function renderChanges(container, changes) {
+  container.replaceChildren();
+  for (const change of changes) {
+    const item = document.createElement("div");
+    item.append(
+      makeElement("span", "", change.path),
+      makeElement("strong", "", `${formatPolicyChange(change.path, change.before)} → ${formatPolicyChange(change.path, change.after)}`));
+    container.append(item);
+  }
+  if (!changes.length) container.append(makeElement("div", "", "No effective changes."));
+}
+
+function formatPolicyChange(path, value) {
+  if (value === null || value === undefined || value === "") return "Not set";
+  try {
+    const parsed = typeof value === "object"
+      ? value
+      : String(value).startsWith("{") || String(value).startsWith("[")
+        ? JSON.parse(value)
+        : null;
+    if (parsed === null) return String(value);
+    if (path === "agent.modelPolicy") {
+      const locality = ["LocalOnly", "CloudAllowed"][parsed.dataLocality] ?? parsed.dataLocality;
+      return `provider ${parsed.primaryProviderProfileId?.value ?? "unknown"} · ${locality} · fallback ${parsed.allowFallback ? "allowed" : "denied"}`;
+    }
+    if (path === "agent.memoryPolicy") {
+      return `${["Task", "Agent", "Operator"][parsed.scope] ?? parsed.scope} · ${parsed.retentionDays} days`;
+    }
+    if (path === "agent.capabilityPolicy") {
+      const network = ["Denied", "LoopbackOnly"][parsed.networkPosture] ?? parsed.networkPosture;
+      return `${network} · tools ${(parsed.toolGrants ?? []).join(", ") || "none"} · skills ${(parsed.skillGrants ?? []).join(", ") || "none"}`;
+    }
+    if (path === "agent.budget") {
+      return `${parsed.maxTurns} turns · ${parsed.maxToolInvocations} tools · ${parsed.maxInputTokens}/${parsed.maxOutputTokens} tokens · ${parsed.maxWallClockSeconds}s`;
+    }
+    if (path === "agent.childLimits") {
+      return `${parsed.maxChildren} children · depth ${parsed.maxDepth} · concurrency ${parsed.maxConcurrency} · ${parsed.maxTotalTokens} tokens`;
+    }
+    if (path === "agent.learningPolicy") {
+      const mode = ["Off", "Observe", "Propose", "ScopedAuto"][parsed.mode] ?? parsed.mode;
+      const scope = ["None", "ProposalWorkspaceOnly", "ApprovedSkillClasses"][parsed.mutableSkillScope] ?? parsed.mutableSkillScope;
+      return `${mode} · ${scope}`;
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return String(value);
   }
 }
 
@@ -452,12 +658,88 @@ function discardAgentEditPreview() {
 
 function closeAgentEditor() {
   admin.agentEdit = null;
+  admin.agentEditMode = "edit";
   discardAgentEditPreview();
   elements.agentEditor.hidden = true;
 }
 
-async function openAgentEditor(agentId) {
+function populateProviderOptions(providers, selectedId) {
+  elements.agentEditProvider.replaceChildren();
+  for (const provider of providers) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.dataset.version = provider.version;
+    option.textContent = `${provider.name} · ${provider.model} · v${provider.version}`;
+    elements.agentEditProvider.append(option);
+  }
+  elements.agentEditProvider.value = selectedId ?? providers[0]?.id ?? "";
+}
+
+function writeGrantList(element, grants) {
+  element.value = (grants ?? []).join("\n");
+}
+
+function readGrantList(element) {
+  return element.value.split(/\r?\n|,/).map(value => value.trim()).filter(Boolean);
+}
+
+function populateCompletePolicy(agent, providers) {
+  populateProviderOptions(providers, agent.modelPolicy.primaryProviderProfileId);
+  elements.agentEditLocality.value = agent.modelPolicy.dataLocality;
+  elements.agentEditFallback.checked = agent.modelPolicy.allowFallback;
+  elements.agentEditMemoryScope.value = agent.memoryPolicy.scope;
+  elements.agentEditRetention.value = agent.memoryPolicy.retentionDays;
+  elements.agentEditNetwork.value = agent.capabilityPolicy.networkPosture;
+  writeGrantList(elements.agentEditToolGrants, agent.capabilityPolicy.toolGrants);
+  writeGrantList(elements.agentEditSkillGrants, agent.capabilityPolicy.skillGrants);
+  elements.agentEditMaxTurns.value = agent.budget.maxTurns;
+  elements.agentEditMaxTools.value = agent.budget.maxToolInvocations;
+  elements.agentEditMaxInput.value = agent.budget.maxInputTokens;
+  elements.agentEditMaxOutput.value = agent.budget.maxOutputTokens;
+  elements.agentEditMaxWall.value = agent.budget.maxWallClockSeconds;
+  elements.agentEditChildDepth.value = agent.childLimits.maxDepth;
+  elements.agentEditChildren.value = agent.childLimits.maxChildren;
+  elements.agentEditChildConcurrency.value = agent.childLimits.maxConcurrency;
+  elements.agentEditChildTokens.value = agent.childLimits.maxTotalTokens;
+  elements.agentEditLearning.value = agent.learningPolicy.mode;
+  elements.agentEditMutableScope.value = agent.learningPolicy.mutableSkillScope;
+}
+
+function openAgentCreate() {
+  if (!admin.providers.length) return;
+  closeProviderCreate();
+  admin.agentEditMode = "create";
+  admin.agentEdit = { installationVersion: admin.providerInstallationVersion, providers: admin.providers, agent: null };
+  discardAgentEditPreview();
   elements.agentEditor.hidden = false;
+  elements.agentModelForm.hidden = true;
+  elements.agentEditorTitle.textContent = "Create agent";
+  elements.agentEditorContext.textContent = `Installation v${admin.providerInstallationVersion} · no inherited authority`;
+  elements.agentEditName.value = "";
+  elements.agentEditExpertise.value = "";
+  elements.agentEditMission.value = "";
+  elements.agentEditLanguage.value = "en";
+  elements.agentEditTimezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  elements.agentEditStyle.value = "concise and evidence-backed";
+  elements.agentEditWorkspace.value = "";
+  populateCompletePolicy({
+    modelPolicy: { primaryProviderProfileId: admin.providers[0].id, dataLocality: "LocalOnly", allowFallback: false },
+    memoryPolicy: { scope: "Agent", retentionDays: 30 },
+    capabilityPolicy: { networkPosture: "Denied", toolGrants: [], skillGrants: [] },
+    budget: { maxTurns: 64, maxToolInvocations: 0, maxInputTokens: 16000, maxOutputTokens: 32768, maxWallClockSeconds: 270 },
+    childLimits: { maxDepth: 0, maxChildren: 0, maxConcurrency: 0, maxTotalTokens: 0 },
+    learningPolicy: { mode: "Propose", mutableSkillScope: "ProposalWorkspaceOnly" },
+  }, admin.providers);
+  elements.agentProfileSubmit.textContent = "Preview new agent";
+  setAgentEditorStatus("Define the complete starting policy. Nothing is persisted until the exact preview is applied.");
+  elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openAgentEditor(agentId) {
+  closeProviderCreate();
+  admin.agentEditMode = "edit";
+  elements.agentEditor.hidden = false;
+  elements.agentModelForm.hidden = false;
   discardAgentEditPreview();
   setAgentEditorStatus("Loading the versioned agent profile…");
   try {
@@ -478,9 +760,10 @@ async function openAgentEditor(agentId) {
     elements.agentEditLanguage.value = payload.agent.preferredLanguage;
     elements.agentEditTimezone.value = payload.agent.timeZone;
     elements.agentEditStyle.value = payload.agent.responseStyle;
-    elements.agentEditMaxOutput.value = payload.agent.budget.maxOutputTokens;
     elements.agentEditWorkspace.value = payload.agent.defaultWorkspace ?? "";
-    setAgentEditorStatus("Edit identity fields or discover the endpoint's current model catalog.", "ok");
+    populateCompletePolicy(payload.agent, payload.providers);
+    elements.agentProfileSubmit.textContent = "Preview complete policy";
+    setAgentEditorStatus("Edit identity, routing, authority, budgets, or discover the endpoint's current model catalog.", "ok");
     elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     setAgentEditorStatus(error instanceof Error ? error.message : "The agent editor could not be opened.", "error");
@@ -505,20 +788,12 @@ async function discoverAgentModels() {
 
 function renderAgentEditPreview(kind, payload) {
   admin.agentEditPreview = { kind, hash: payload.previewHash };
-  elements.agentEditReviewTitle.textContent = kind === "model" ? "Review model update" : "Review profile update";
+  elements.agentEditReviewTitle.textContent = kind === "model"
+    ? "Review model update"
+    : kind === "create" ? "Review new agent" : "Review complete policy";
   elements.agentEditReviewWarning.textContent = payload.warning ||
-    "Only the displayed identity fields will change; effective authority is preserved.";
-  elements.agentEditChanges.replaceChildren();
-  for (const change of payload.changes) {
-    const item = document.createElement("div");
-    item.append(
-      makeElement("span", "", change.path),
-      makeElement("strong", "", `${change.before ?? "Not set"} → ${change.after ?? "Not set"}`));
-    elements.agentEditChanges.append(item);
-  }
-  if (!payload.changes.length) {
-    elements.agentEditChanges.append(makeElement("div", "", "No effective changes."));
-  }
+    "Only the displayed exact policy will be committed.";
+  renderChanges(elements.agentEditChanges, payload.changes);
   elements.agentEditPreviewHash.textContent = `Bound preview ${payload.previewHash}`;
   elements.agentEditReview.hidden = false;
   elements.agentEditReview.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -551,23 +826,54 @@ async function previewAgentProfile(event) {
   if (!admin.agentEdit) return;
   setBusy(elements.agentProfileForm, true);
   discardAgentEditPreview();
-  setAgentEditorStatus("Validating the profile and bounded response-budget change…");
+  setAgentEditorStatus("Validating the complete policy and preparing its exact authority diff…");
   try {
-    const payload = await adminMutation(
-      `/api/v1/admin/agents/${admin.agentEdit.agent.id}/profile/preview`, {
+    const selectedProvider = admin.agentEdit.providers.find(
+      provider => provider.id === elements.agentEditProvider.value);
+    const policy = {
+      name: elements.agentEditName.value.trim(),
+      expertise: elements.agentEditExpertise.value.trim() || null,
+      mission: elements.agentEditMission.value.trim() || null,
+      preferredLanguage: elements.agentEditLanguage.value.trim(),
+      timeZone: elements.agentEditTimezone.value.trim(),
+      responseStyle: elements.agentEditStyle.value.trim(),
+      defaultWorkspace: elements.agentEditWorkspace.value.trim() || null,
+      primaryProviderId: elements.agentEditProvider.value,
+      dataLocality: elements.agentEditLocality.value,
+      allowFallback: elements.agentEditFallback.checked,
+      memoryScope: elements.agentEditMemoryScope.value,
+      retentionDays: Number(elements.agentEditRetention.value),
+      networkPosture: elements.agentEditNetwork.value,
+      toolGrants: readGrantList(elements.agentEditToolGrants),
+      skillGrants: readGrantList(elements.agentEditSkillGrants),
+      maxTurns: Number(elements.agentEditMaxTurns.value),
+      maxToolInvocations: Number(elements.agentEditMaxTools.value),
+      maxInputTokens: Number(elements.agentEditMaxInput.value),
+      maxOutputTokens: Number(elements.agentEditMaxOutput.value),
+      maxWallClockSeconds: Number(elements.agentEditMaxWall.value),
+      maxChildDepth: Number(elements.agentEditChildDepth.value),
+      maxChildren: Number(elements.agentEditChildren.value),
+      maxChildConcurrency: Number(elements.agentEditChildConcurrency.value),
+      maxChildTokens: Number(elements.agentEditChildTokens.value),
+      learningMode: elements.agentEditLearning.value,
+      mutableSkillScope: elements.agentEditMutableScope.value,
+    };
+    const creating = admin.agentEditMode === "create";
+    const path = creating
+      ? "/api/v1/admin/agents/create/preview"
+      : `/api/v1/admin/agents/${admin.agentEdit.agent.id}/profile/preview`;
+    const payload = await adminMutation(path, creating ? {
+      expectedInstallationVersion: admin.agentEdit.installationVersion,
+      expectedProviderVersion: Number(selectedProvider?.version),
+      ...policy,
+    } : {
         expectedInstallationVersion: admin.agentEdit.installationVersion,
         expectedAgentVersion: admin.agentEdit.agent.version,
-        name: elements.agentEditName.value.trim(),
-        expertise: elements.agentEditExpertise.value.trim() || null,
-        mission: elements.agentEditMission.value.trim() || null,
-        preferredLanguage: elements.agentEditLanguage.value.trim(),
-        timeZone: elements.agentEditTimezone.value.trim(),
-        responseStyle: elements.agentEditStyle.value.trim(),
-        defaultWorkspace: elements.agentEditWorkspace.value.trim() || null,
-        maxOutputTokens: Number(elements.agentEditMaxOutput.value),
+        expectedPrimaryProviderVersion: Number(selectedProvider?.version),
+        ...policy,
       });
-    renderAgentEditPreview("profile", payload);
-    setAgentEditorStatus("The exact profile diff is ready for review.", "ok");
+    renderAgentEditPreview(creating ? "create" : "profile", payload);
+    setAgentEditorStatus("The exact complete-policy diff is ready for review.", "ok");
   } catch (error) {
     setAgentEditorStatus(error instanceof Error ? error.message : "The profile update could not be previewed.", "error");
   } finally {
@@ -579,17 +885,19 @@ async function applyAgentEditPreview() {
   if (!admin.agentEdit || !admin.agentEditPreview) return;
   elements.agentEditApply.disabled = true;
   const { kind, hash } = admin.agentEditPreview;
-  const agentId = admin.agentEdit.agent.id;
+  const agentId = admin.agentEdit.agent?.id;
   setAgentEditorStatus("Revalidating and atomically applying the approved preview…");
   try {
-    await adminMutation(
-      `/api/v1/admin/agents/${agentId}/${kind === "model" ? "model" : "profile"}/apply`,
+    const result = await adminMutation(
+      kind === "create"
+        ? "/api/v1/admin/agents/create/apply"
+        : `/api/v1/admin/agents/${agentId}/${kind === "model" ? "model" : "profile"}/apply`,
       { previewHash: hash });
     discardAgentEditPreview();
     await loadAgents("Refreshing the updated durable agent…");
-    await openAgentEditor(agentId);
+    await openAgentEditor(kind === "create" ? result.agent.id : agentId);
     await loadRunOptions();
-    setAgentEditorStatus(`${kind === "model" ? "Model" : "Profile"} update committed and audited.`, "ok");
+    setAgentEditorStatus(`${kind === "model" ? "Model" : kind === "create" ? "Agent" : "Complete policy"} committed and audited.`, "ok");
   } catch (error) {
     setAgentEditorStatus(error instanceof Error ? error.message : "The approved edit could not be applied.", "error");
   } finally {
@@ -2400,6 +2708,12 @@ elements.modelForm.addEventListener("submit", selectModel);
 elements.verifyForm.addEventListener("submit", verifyModel);
 elements.agentForm.addEventListener("submit", prepareReview);
 elements.reviewForm.addEventListener("submit", completeSetup);
+elements.newProvider.addEventListener("click", openProviderCreate);
+elements.newAgent.addEventListener("click", openAgentCreate);
+elements.providerCreateClose.addEventListener("click", closeProviderCreate);
+elements.providerCreateForm.addEventListener("submit", previewProviderCreate);
+elements.providerCreateDiscard.addEventListener("click", discardProviderCreatePreview);
+elements.providerCreateApply.addEventListener("click", applyProviderCreate);
 elements.agentModelForm.addEventListener("submit", previewAgentModel);
 elements.agentProfileForm.addEventListener("submit", previewAgentProfile);
 elements.agentDiscoverModels.addEventListener("click", discoverAgentModels);
@@ -2433,6 +2747,17 @@ elements.toolSelector.addEventListener("change", renderToolParameters);
 elements.toolWorkspace.addEventListener("change", renderToolParameters);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);
+elements.agentEditMemoryScope.addEventListener("change", () => {
+  if (elements.agentEditMemoryScope.value === "Task") elements.agentEditRetention.value = 0;
+});
+elements.agentEditLearning.addEventListener("change", () => {
+  const scopes = { Off: "None", Observe: "None", Propose: "ProposalWorkspaceOnly", ScopedAuto: "ApprovedSkillClasses" };
+  elements.agentEditMutableScope.value = scopes[elements.agentEditLearning.value] || "None";
+});
+elements.agentEditToolGrants.addEventListener("input", () => {
+  if (readGrantList(elements.agentEditToolGrants).length === 0) elements.agentEditMaxTools.value = 0;
+  else if (Number(elements.agentEditMaxTools.value) === 0) elements.agentEditMaxTools.value = 10;
+});
 elements.runDepth.addEventListener("change", () => {
   const preset = Number(elements.runDepth.selectedOptions[0]?.dataset.tokens);
   if (Number.isInteger(preset) && preset > 0) elements.runTokenLimit.value = preset;

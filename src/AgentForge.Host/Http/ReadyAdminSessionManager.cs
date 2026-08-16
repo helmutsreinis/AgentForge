@@ -23,6 +23,10 @@ internal sealed record ReadyAdminSession(
 
     public ConcurrentDictionary<string, ReadyAgentEditPreview> AgentPreviews { get; } = new(StringComparer.Ordinal);
 
+    public ConcurrentDictionary<string, ReadyProviderCreatePreview> ProviderCreatePreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyAgentCreatePreview> AgentCreatePreviews { get; } = new(StringComparer.Ordinal);
+
     public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentToolGrantPreview> ToolGrantPreviews { get; } = new(StringComparer.Ordinal);
@@ -47,6 +51,21 @@ internal sealed record ReadyAgentEditPreview(
     AgentIdentityId AgentId,
     long ExpectedInstallationVersion,
     long ExpectedAgentVersion,
+    AgentIdentityCandidate Candidate,
+    CorrelationId CorrelationId,
+    string RequestHash);
+
+internal sealed record ReadyProviderCreatePreview(
+    long ExpectedInstallationVersion,
+    ProviderProfileCandidate Candidate,
+    bool UsesCredential,
+    string CredentialFingerprint,
+    CorrelationId CorrelationId,
+    string RequestHash);
+
+internal sealed record ReadyAgentCreatePreview(
+    long ExpectedInstallationVersion,
+    long ExpectedProviderVersion,
     AgentIdentityCandidate Candidate,
     CorrelationId CorrelationId,
     string RequestHash);

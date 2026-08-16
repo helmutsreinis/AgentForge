@@ -259,11 +259,61 @@
           <div>
             <span class="stage-kicker">IDENTITIES &amp; POLICY</span>
             <h2 id="agents-title">Agents</h2>
-            <p>Inspect the persisted identity, model authority, budgets, and effective safety posture for each local agent.</p>
+            <p>Create providers and agents, then preview the complete versioned policy before any authority changes.</p>
           </div>
-          <button class="secondary-action" type="button" data-reload="agents">Reload agents</button>
+          <div class="stage-actions">
+            <button id="new-provider" class="secondary-action" type="button">New provider</button>
+            <button id="new-agent" class="setup-submit" type="button">New agent</button>
+            <button class="secondary-action" type="button" data-reload="agents">Reload agents</button>
+          </div>
         </div>
         <div id="agents-message" class="workspace-message" aria-live="polite">Open this page to load agents.</div>
+        <div id="provider-list" class="resource-grid compact-resource-grid"></div>
+        <section id="provider-create-panel" class="agent-editor" aria-labelledby="provider-create-title" hidden>
+          <div class="workspace-heading">
+            <div>
+              <span class="stage-kicker">NEW MODEL CONNECTION</span>
+              <h3 id="provider-create-title">Create provider</h3>
+              <p>The endpoint and exact model are live-probed before an OS-backed credential reference can be committed.</p>
+            </div>
+            <button id="provider-create-close" class="secondary-action" type="button">Close</button>
+          </div>
+          <div id="provider-create-message" class="workspace-message" aria-live="polite"></div>
+          <form id="provider-create-form" class="setup-form" autocomplete="off">
+            <div class="form-row">
+              <label>Provider name<input id="provider-create-name" maxlength="128" placeholder="secondary" required></label>
+              <label>Provider type<select id="provider-create-type">
+                <option value="openai-compatible">OpenAI compatible</option>
+                <option value="vllm">vLLM</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+              </select></label>
+            </div>
+            <label>Endpoint<input id="provider-create-endpoint" type="url" maxlength="2048" placeholder="http://127.0.0.1:8000/v1" required></label>
+            <div class="form-row">
+              <label>Model<input id="provider-create-model" maxlength="256" placeholder="qwen3.8" required></label>
+              <label>API key <span class="optional">optional for private local endpoints</span><input id="provider-create-credential" type="password" maxlength="8192" autocomplete="new-password"></label>
+            </div>
+            <div class="stage-actions">
+              <button class="setup-submit" type="submit">Verify and preview</button>
+            </div>
+          </form>
+          <div id="provider-create-review" class="agent-edit-review" hidden>
+            <div>
+              <span class="stage-kicker">EXACT CREATION PREVIEW</span>
+              <h3>Review provider</h3>
+              <p id="provider-create-warning"></p>
+            </div>
+            <div id="provider-create-changes" class="review-grid"></div>
+            <p id="provider-create-preview-hash" class="resource-subtitle"></p>
+            <p id="provider-create-credential-help" class="setup-note"></p>
+            <div class="stage-actions">
+              <button id="provider-create-discard" class="secondary-action" type="button">Discard preview</button>
+              <button id="provider-create-apply" class="setup-submit" type="button">Create exact provider</button>
+            </div>
+          </div>
+        </section>
         <div id="agent-list" class="resource-grid"></div>
         <section id="agent-editor" class="agent-editor" aria-labelledby="agent-editor-title" hidden>
           <div class="workspace-heading">
@@ -293,9 +343,9 @@
             </form>
             <form id="agent-profile-form" class="setup-form" autocomplete="off">
               <div class="stage-heading">
-                <span class="stage-kicker">PROFILE &amp; RESPONSE BUDGET</span>
-                <h3>Agent profile</h3>
-                <p>Identity, instructions, and the generated-output ceiling are versioned here. Tool, skill, network, memory, child-agent, and learning authority remain unchanged.</p>
+                <span class="stage-kicker">COMPLETE VERSIONED POLICY</span>
+                <h3>Agent profile and authority</h3>
+                <p>Identity, routing, memory, exact grants, budgets, child limits, and learning posture are reviewed as one hash-bound policy.</p>
               </div>
               <div class="form-row">
                 <label>Name<input id="agent-edit-name" maxlength="80" required></label>
@@ -308,11 +358,72 @@
               </div>
               <div class="form-row">
                 <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
-                <label>Maximum output tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" step="256" required></label>
+                <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
               </div>
-              <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
+              <details class="policy-editor-group" open>
+                <summary>Model routing &amp; memory</summary>
+                <div class="form-row">
+                  <label>Primary provider<select id="agent-edit-provider" required></select></label>
+                  <label>Data locality<select id="agent-edit-locality">
+                    <option value="LocalOnly">Local only</option>
+                    <option value="CloudAllowed">Cloud allowed</option>
+                  </select></label>
+                </div>
+                <label class="inline-check"><input id="agent-edit-fallback" type="checkbox"> Allow model fallback (not valid with Local only)</label>
+                <div class="form-row">
+                  <label>Memory scope<select id="agent-edit-memory-scope">
+                    <option value="Task">Task</option>
+                    <option value="Agent">Agent</option>
+                    <option value="Operator">Operator</option>
+                  </select></label>
+                  <label>Retention days<input id="agent-edit-retention" type="number" min="0" max="3650" step="1" required></label>
+                </div>
+              </details>
+              <details class="policy-editor-group" open>
+                <summary>Capabilities &amp; exact grants</summary>
+                <label>Tool network posture<select id="agent-edit-network">
+                  <option value="Denied">Denied</option>
+                  <option value="LoopbackOnly">Loopback only</option>
+                </select></label>
+                <label>Tool grants <span class="optional">one exact capability ID per line</span><textarea id="agent-edit-tool-grants" rows="3" placeholder="tool:workspace.read"></textarea></label>
+                <label>Skill grants <span class="optional">one exact active skill ID per line</span><textarea id="agent-edit-skill-grants" rows="3" placeholder="skill:csharp.review"></textarea></label>
+              </details>
+              <details class="policy-editor-group" open>
+                <summary>Run &amp; child-agent budgets</summary>
+                <div class="form-row three-column-row">
+                  <label>Max turns<input id="agent-edit-max-turns" type="number" min="1" max="1000" required></label>
+                  <label>Max tool calls<input id="agent-edit-max-tools" type="number" min="0" max="1000" required></label>
+                  <label>Wall clock seconds<input id="agent-edit-max-wall" type="number" min="1" max="86400" required></label>
+                </div>
+                <div class="form-row">
+                  <label>Maximum input tokens<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
+                  <label>Maximum output tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" required></label>
+                </div>
+                <div class="form-row four-column-row">
+                  <label>Child depth<input id="agent-edit-child-depth" type="number" min="0" max="16" required></label>
+                  <label>Children<input id="agent-edit-children" type="number" min="0" max="100" required></label>
+                  <label>Concurrency<input id="agent-edit-child-concurrency" type="number" min="0" max="32" required></label>
+                  <label>Child tokens<input id="agent-edit-child-tokens" type="number" min="0" required></label>
+                </div>
+              </details>
+              <details class="policy-editor-group" open>
+                <summary>Governed learning</summary>
+                <div class="form-row">
+                  <label>Learning mode<select id="agent-edit-learning">
+                    <option value="Off">Off</option>
+                    <option value="Observe">Observe</option>
+                    <option value="Propose">Propose</option>
+                    <option value="ScopedAuto">Scoped auto</option>
+                  </select></label>
+                  <label>Mutable skill scope<select id="agent-edit-mutable-scope">
+                    <option value="None">None</option>
+                    <option value="ProposalWorkspaceOnly">Proposal workspace only</option>
+                    <option value="ApprovedSkillClasses">Approved skill classes</option>
+                  </select></label>
+                </div>
+              </details>
               <div class="stage-actions">
-                <button class="setup-submit" type="submit">Preview profile update</button>
+                <button id="agent-profile-submit" class="setup-submit" type="submit">Preview complete policy</button>
               </div>
             </form>
           </div>

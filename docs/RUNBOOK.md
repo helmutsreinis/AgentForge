@@ -113,6 +113,24 @@ nonterminal definition can still be canceled. **Skills** lists immutable registr
 packaged C# review seed; an installed version remains inactive until the normal evaluation, separate approval, and
 canary lifecycle.
 
+The **Agents** workspace is also the supported Ready-state profile administration surface. Choose
+**New provider**, enter its exact endpoint and model, and preview the change. AgentForge performs a
+bounded live model probe and immediately clears API-key text from the page. If a credential was used,
+re-enter the same value for apply: the server probes again and accepts only the credential fingerprint
+bound to the exact preview. The browser session stores neither the raw credential nor its secret
+reference. A private loopback/LAN compatible provider may explicitly use no credential; public providers
+require HTTPS and an OS-backed credential reference.
+
+Choose **New agent** to construct a complete policy against an existing provider, or **Edit agent** to
+version an existing one. Review locality/fallback, memory, network posture, exact tool and Active-skill
+grants, run budgets, child-agent limits, and learning authority before apply. `LocalOnly` cannot enable
+cloud fallback; `Task` memory has zero durable retention; a positive tool-call budget requires at least
+one exact tool grant and zero grants require a zero tool-call budget; child concurrency cannot exceed
+the child count; and learning/mutable-skill scope must remain a valid pair. A successful create/edit
+increments the Ready installation version. Editing the pinned agent or provider does not rewrite old run
+snapshots, and an existing conversation must start a new conversation before using the new authority.
+Do not modify provider, agent, grant, or budget rows directly in SQLite.
+
 To use that workspace from another computer, bind the host to a specific LAN HTTPS endpoint, configure that
 exact HTTPS origin, and supply a fresh 20-256 character `AgentForge:Host:RemoteAccessCode` through process or
 protected service configuration. The remote browser prompts once for this temporary code; it is sent only to

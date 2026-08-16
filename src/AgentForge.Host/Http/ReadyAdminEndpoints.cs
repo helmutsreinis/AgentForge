@@ -60,6 +60,11 @@ internal static partial class ReadyAdminEndpoints
         group.MapGet("/session", GetSessionAsync);
         group.MapDelete("/session", DeleteSessionAsync);
         group.MapGet("/agents", ListAgentsAsync);
+        group.MapGet("/providers", ListProvidersAsync);
+        group.MapPost("/providers/create/preview", PreviewProviderCreateAsync);
+        group.MapPost("/providers/create/apply", ApplyProviderCreateAsync);
+        group.MapPost("/agents/create/preview", PreviewAgentCreateAsync);
+        group.MapPost("/agents/create/apply", ApplyAgentCreateAsync);
         group.MapGet("/agents/{agentId:guid}/edit", GetAgentEditAsync);
         group.MapPost("/agents/{agentId:guid}/models/discover", DiscoverAgentModelsAsync);
         group.MapPost("/agents/{agentId:guid}/model/preview", PreviewAgentModelAsync);

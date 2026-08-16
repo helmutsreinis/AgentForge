@@ -966,30 +966,37 @@ server-owned, output/event/token/time limits remain enforced, and browser render
 reused key is rejected instead of regenerating raw output. Client disconnect cancels the invocation but is not
 treated as an operator cancellation; failure evidence is persisted when the lease still permits it.
 
-## Ready profile-edit boundary
+## Ready profile-administration boundary
 
-Ready configuration input, model catalogs, model probe output, browser state, and previously issued previews are
-untrusted. The editor requires the protected operator session, exact same-origin/HTTPS-remote checks, session CSRF,
-and a bounded idempotency key. It scopes every entity to the session installation and authenticates the same local
-administrator again through an invocation-scoped OS-secret lease before the existing setup edit service evaluates
-or commits a candidate.
+Ready configuration input, model catalogs, model probe output, raw credentials, grant identifiers, browser state, and
+previously issued previews are untrusted. Every operation requires the protected operator session, exact
+same-origin/HTTPS-remote checks, session CSRF, and a bounded idempotency key. It scopes every entity to the session
+installation and authenticates the same local administrator again through an invocation-scoped OS-secret lease before
+the setup profile editor evaluates or commits a candidate.
 
-The browser cannot submit provider topology or capability authority. A Ready model edit is reconstructed from the
-current provider and may change only `provider.model`; type, endpoint, and secret reference must compare unchanged.
-The current endpoint is discovered without executing tools, and the selected model must produce visible bounded text
-through a thinking-disabled chat probe both before preview and immediately before apply. Provider credentials are
-materialized only around those calls and never enter the session preview or response.
+Existing-provider model edits preserve the current type, endpoint, and secret reference. New providers accept their
+complete topology, but the selected model must produce visible bounded text through a thinking-disabled probe both
+before preview and immediately before apply. A submitted credential is bounded, briefly placed behind a transient
+OS-backed secret reference for each probe, then deleted; the preview retains only its SHA-256 fingerprint. Apply must
+receive the same credential, and any probe, fingerprint, validation, transaction, or cancellation failure attempts to
+delete the transient or uncommitted final secret. The HTTP request binder necessarily holds its immutable credential
+string until garbage collection, but browser code clears the field immediately and the server never places that value
+in session state, logs, audit, configuration, relational state, artifacts, or responses.
 
-An agent profile edit is reconstructed from current durable policy and may change only bounded identity/instruction
-paths and the generated-output member of its budget record. That ceiling is bounded to 256–262,144 tokens. Model
-policy, data locality/fallback, memory, tool/skill grants, network posture, turns, tool invocations, input tokens,
-wall-clock time, child limits, and learning permissions are copied server-side and rejected if the effective diff
-contains another path. Preview hashes
-bind installation/provider/agent versions, normalized candidate, actor, correlation, and effective evidence. Previews
-are short-lived in-memory session objects; apply requires the exact hash and re-runs validation under optimistic
-concurrency. A committed edit increments the installation while preserving Ready state and transactionally appends
-redacted `setup.provider-edited` or `setup.agent-edited` audit evidence. A crash or stale preview cannot silently apply
-part of a profile or widen authority.
+Agent creation and editing use a complete candidate rather than a sequence of partial grants. Every provider binding,
+locality/fallback choice, memory setting, network posture, exact tool/skill grant, run budget, child limit, and learning
+permission passes the same conservative policy evaluator. Newly added tool grants must exist in the current immutable
+catalog and skill grants must reference current Active skills. Ready-state bounds additionally limit generated output
+to 256–262,144 tokens and tool invocations to 0–1,000, with zero invocations when no tool is granted. Missing or
+unknown authority is denied.
+
+Preview hashes bind installation/provider/agent versions, normalized complete candidate, actor, correlation, and
+credential fingerprint where applicable. Previews are short-lived in-memory session objects; apply requires the exact
+hash and repeats external validation under optimistic concurrency. A committed create/edit increments the installation
+while preserving Ready state and transactionally appends a redacted create/edit audit event. The response reports that
+authority-version changes invalidate continuation: old immutable run snapshots remain evidence, but an existing
+conversation cannot silently adopt the new agent/provider policy. A crash, stale preview, substituted credential, or
+changed grant catalog cannot partially apply or widen authority.
 
 Run response presets and browser numeric bounds are convenience controls, not policy evidence. The authenticated
 stream endpoint independently clamps the effective agent ceiling to the 262,144-token hard cap and rejects an explicit
