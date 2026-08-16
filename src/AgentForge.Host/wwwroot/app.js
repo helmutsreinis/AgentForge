@@ -106,6 +106,36 @@ const elements = {
   skillGrantPreviewHash: document.querySelector("#skill-grant-preview-hash"),
   skillGrantClose: document.querySelector("#skill-grant-close"),
   applySkillGrant: document.querySelector("#apply-skill-grant"),
+  toolsMessage: document.querySelector("#tools-message"),
+  toolList: document.querySelector("#tool-list"),
+  toolGrantForm: document.querySelector("#tool-grant-form"),
+  toolGrantTitle: document.querySelector("#tool-grant-title"),
+  toolGrantSource: document.querySelector("#tool-grant-source"),
+  toolGrantChanges: document.querySelector("#tool-grant-changes"),
+  toolGrantWarning: document.querySelector("#tool-grant-warning"),
+  toolGrantPreviewHash: document.querySelector("#tool-grant-preview-hash"),
+  toolGrantClose: document.querySelector("#tool-grant-close"),
+  applyToolGrant: document.querySelector("#apply-tool-grant"),
+  toolInvocationForm: document.querySelector("#tool-invocation-form"),
+  toolAgent: document.querySelector("#tool-agent"),
+  toolSelector: document.querySelector("#tool-selector"),
+  toolDisposition: document.querySelector("#tool-disposition"),
+  toolWorkspace: document.querySelector("#tool-workspace"),
+  toolParameterFields: document.querySelector("#tool-parameter-fields"),
+  toolRequestSummary: document.querySelector("#tool-request-summary"),
+  previewToolInvocation: document.querySelector("#preview-tool-invocation"),
+  toolApprovalForm: document.querySelector("#tool-approval-form"),
+  toolApprovalTitle: document.querySelector("#tool-approval-title"),
+  toolApprovalSource: document.querySelector("#tool-approval-source"),
+  toolApprovalDetails: document.querySelector("#tool-approval-details"),
+  toolApprovalWarning: document.querySelector("#tool-approval-warning"),
+  toolApprovalPreviewHash: document.querySelector("#tool-approval-preview-hash"),
+  toolApprovalClose: document.querySelector("#tool-approval-close"),
+  applyToolInvocation: document.querySelector("#apply-tool-invocation"),
+  toolOutput: document.querySelector("#tool-output"),
+  toolOutputState: document.querySelector("#tool-output-state"),
+  toolOutputText: document.querySelector("#tool-output-text"),
+  toolOutputMeta: document.querySelector("#tool-output-meta"),
   learningForm: document.querySelector("#learning-form"),
   learningSourceRun: document.querySelector("#learning-source-run"),
   learningKind: document.querySelector("#learning-kind"),
@@ -149,6 +179,9 @@ const admin = {
   selectedSkillProposal: null,
   skillGateAction: null,
   skillGrantPreview: null,
+  toolCatalog: null,
+  toolGrantPreview: null,
+  toolInvocationPreview: null,
   runPage: 1,
   runPageSize: 8,
   pendingLearningTaskId: null,
@@ -1104,6 +1137,278 @@ async function installSeedSkill() {
   }
 }
 
+function selectedTool() {
+  return admin.toolCatalog?.tools.find(tool => `${tool.id}@${tool.version}` === elements.toolSelector.value) ?? null;
+}
+
+function selectedToolAgent() {
+  return admin.toolCatalog?.agents.find(agent => agent.id === elements.toolAgent.value) ?? null;
+}
+
+function populateToolComposer() {
+  const previousAgent = elements.toolAgent.value;
+  elements.toolAgent.replaceChildren();
+  for (const agent of admin.toolCatalog?.agents ?? []) {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = `${agent.name} · policy v${agent.version}`;
+    elements.toolAgent.append(option);
+  }
+  if ([...elements.toolAgent.options].some(option => option.value === previousAgent)) elements.toolAgent.value = previousAgent;
+  populateToolOptions();
+}
+
+function populateToolOptions() {
+  const agent = selectedToolAgent();
+  const previous = elements.toolSelector.value;
+  elements.toolSelector.replaceChildren();
+  for (const tool of admin.toolCatalog?.tools ?? []) {
+    const option = document.createElement("option");
+    option.value = `${tool.id}@${tool.version}`;
+    const granted = agent?.toolGrants.includes(tool.capabilityId) === true;
+    option.textContent = `${tool.name} · ${granted ? "granted" : "grant required"}`;
+    option.disabled = !granted;
+    elements.toolSelector.append(option);
+  }
+  if ([...elements.toolSelector.options].some(option => option.value === previous && !option.disabled)) {
+    elements.toolSelector.value = previous;
+  } else {
+    const first = [...elements.toolSelector.options].find(option => !option.disabled);
+    if (first) elements.toolSelector.value = first.value;
+  }
+  elements.toolWorkspace.value = agent?.defaultWorkspace || elements.toolWorkspace.value;
+  renderToolParameters();
+}
+
+function renderToolParameters() {
+  const tool = selectedTool();
+  const agent = selectedToolAgent();
+  elements.toolParameterFields.replaceChildren();
+  if (!tool || !agent?.toolGrants.includes(tool.capabilityId)) {
+    elements.toolRequestSummary.textContent = "Grant a catalog capability to this agent before preparing an invocation.";
+    elements.previewToolInvocation.disabled = true;
+    return;
+  }
+
+  elements.previewToolInvocation.disabled = false;
+  for (const parameter of tool.parameters) {
+    const label = document.createElement("label");
+    label.append(document.createTextNode(parameter.name));
+    const note = makeElement("span", "field-note", parameter.description);
+    label.append(note);
+    let input;
+    if (parameter.type === "Switch") {
+      input = document.createElement("select");
+      input.append(new Option("False", "false"), new Option("True", "true"));
+    } else {
+      input = document.createElement("input");
+      if (parameter.type === "WholeNumber") {
+        input.type = "number";
+        input.min = String(parameter.minimumInteger);
+        input.max = String(parameter.maximumInteger);
+        input.value = String(Math.min(parameter.maximumInteger, parameter.name === "maximumEntries" ? 100 : 65536));
+      } else {
+        input.type = "text";
+        input.maxLength = parameter.maximumLength;
+        if (parameter.name === tool.targetParameterName && tool.id === "tool:workspace.list") {
+          input.value = elements.toolWorkspace.value;
+        }
+      }
+    }
+    input.dataset.toolParameter = parameter.name;
+    input.dataset.toolType = parameter.type;
+    input.required = parameter.required;
+    label.append(input);
+    elements.toolParameterFields.append(label);
+  }
+  elements.toolRequestSummary.textContent = `${tool.capabilityId} · ${tool.riskClass} · ${tool.sandbox} sandbox · network ${tool.networkPolicy.toLowerCase()}`;
+}
+
+async function loadTools(message = "Loading authoritative tool descriptors…") {
+  workspaceStatus(elements.toolsMessage, message);
+  try {
+    const payload = await adminRead("/api/v1/admin/tools");
+    admin.toolCatalog = payload;
+    elements.toolList.replaceChildren();
+    for (const tool of payload.tools) {
+      const card = makeElement("article", "resource-card");
+      const title = makeElement("div", "resource-title");
+      const copy = document.createElement("div");
+      copy.append(makeElement("h3", "", tool.name),
+        makeElement("p", "resource-subtitle", `${tool.id}@${tool.version} · ${tool.executionKind}`));
+      title.append(copy, stateChip(tool.riskClass));
+      const meta = makeElement("div", "resource-meta");
+      addMeta(meta, "Capability", tool.capabilityId);
+      addMeta(meta, "Side effects", tool.sideEffects);
+      addMeta(meta, "Sandbox / network", `${tool.sandbox} / ${tool.networkPolicy}`);
+      addMeta(meta, "Descriptor hash", `${tool.descriptorHash.slice(0, 31)}…`);
+      card.append(title, makeElement("p", "resource-description", tool.description), meta);
+      const actions = makeElement("div", "resource-actions");
+      for (const agent of payload.agents) {
+        const granted = agent.toolGrants.includes(tool.capabilityId);
+        const button = makeElement("button", granted ? "danger-action" : "secondary-action",
+          `${granted ? "Revoke from" : "Grant to"} ${agent.name}`);
+        button.type = "button";
+        button.addEventListener("click", () => previewToolGrant(agent, tool, !granted));
+        actions.append(button);
+      }
+      card.append(actions);
+      elements.toolList.append(card);
+    }
+    if (!payload.tools.length) elements.toolList.append(makeElement("div", "empty-state", "No authoritative tools are installed."));
+    populateToolComposer();
+    workspaceStatus(elements.toolsMessage,
+      `${payload.tools.length} immutable descriptor${payload.tools.length === 1 ? "" : "s"} loaded.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.toolsMessage, error instanceof Error ? error.message : "Tools could not be loaded.", "error");
+  }
+}
+
+function closeToolGrant() {
+  admin.toolGrantPreview = null;
+  elements.toolGrantForm.hidden = true;
+  elements.toolGrantChanges.replaceChildren();
+  elements.toolGrantPreviewHash.textContent = "";
+}
+
+async function previewToolGrant(agent, tool, grant) {
+  closeToolGrant();
+  workspaceStatus(elements.toolsMessage, `Preparing an exact ${grant ? "grant" : "revocation"} preview…`);
+  try {
+    const preview = await adminMutation(`/api/v1/admin/agents/${agent.id}/tool-grants/preview`, {
+      expectedInstallationVersion: admin.toolCatalog.installationVersion,
+      expectedAgentVersion: agent.version,
+      capabilityId: tool.capabilityId,
+      grant,
+      maximumToolInvocations: grant ? 10 : agent.maxToolInvocations,
+    });
+    admin.toolGrantPreview = { agentId: agent.id, previewHash: preview.previewHash, grant };
+    elements.toolGrantTitle.textContent = `${grant ? "Grant" : "Revoke"} ${tool.capabilityId}`;
+    elements.toolGrantSource.textContent = `${agent.name} · ${preview.descriptors.length} exact descriptor${preview.descriptors.length === 1 ? "" : "s"}`;
+    elements.toolGrantWarning.textContent = preview.warning;
+    elements.toolGrantChanges.replaceChildren();
+    for (const change of preview.changes) {
+      const item = document.createElement("div");
+      item.append(makeElement("span", "", change.path),
+        makeElement("strong", "", change.path === "agent.budget" ? `${preview.maximumToolInvocations} calls per run` : "One exact capability"));
+      elements.toolGrantChanges.append(item);
+    }
+    elements.toolGrantPreviewHash.textContent = `Bound preview ${preview.previewHash}`;
+    elements.applyToolGrant.textContent = grant ? "Apply exact grant" : "Apply exact revocation";
+    elements.toolGrantForm.hidden = false;
+    elements.toolGrantForm.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    workspaceStatus(elements.toolsMessage, error instanceof Error ? error.message : "The tool grant could not be previewed.", "error");
+  }
+}
+
+async function applyToolGrant(event) {
+  event.preventDefault();
+  if (!admin.toolGrantPreview) return;
+  setBusy(elements.toolGrantForm, true);
+  try {
+    const preview = admin.toolGrantPreview;
+    const result = await adminMutation(`/api/v1/admin/agents/${preview.agentId}/tool-grants/apply`, {
+      previewHash: preview.previewHash,
+    });
+    closeToolGrant();
+    await Promise.all([loadTools(), loadAgents()]);
+    workspaceStatus(elements.toolsMessage,
+      `${result.capabilityId} ${result.granted ? "granted" : "revoked"}; invocation ceiling ${result.maximumToolInvocations}.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.toolsMessage, error instanceof Error ? error.message : "The tool grant could not be applied.", "error");
+  } finally {
+    setBusy(elements.toolGrantForm, false);
+  }
+}
+
+function closeToolApproval() {
+  admin.toolInvocationPreview = null;
+  elements.toolApprovalForm.hidden = true;
+  elements.toolApprovalDetails.replaceChildren();
+  elements.toolApprovalPreviewHash.textContent = "";
+}
+
+async function previewToolInvocation(event) {
+  event.preventDefault();
+  closeToolApproval();
+  const tool = selectedTool();
+  const agent = selectedToolAgent();
+  if (!tool || !agent) return;
+  const parameters = {};
+  for (const input of elements.toolParameterFields.querySelectorAll("[data-tool-parameter]")) {
+    parameters[input.dataset.toolParameter] = input.dataset.toolType === "WholeNumber"
+      ? Number(input.value)
+      : input.dataset.toolType === "Switch" ? input.value === "true" : input.value;
+  }
+  setBusy(elements.toolInvocationForm, true);
+  try {
+    const preview = await adminMutation(`/api/v1/admin/agents/${agent.id}/tool-invocations/preview`, {
+      expectedInstallationVersion: admin.toolCatalog.installationVersion,
+      expectedAgentVersion: agent.version,
+      toolId: tool.id,
+      toolVersion: tool.version,
+      workspace: elements.toolWorkspace.value.trim(),
+      parameters,
+      disposition: elements.toolDisposition.value,
+      approvalSeconds: 300,
+    });
+    admin.toolInvocationPreview = { agentId: agent.id, previewHash: preview.previewHash };
+    const denying = preview.disposition === "Deny";
+    elements.toolApprovalTitle.textContent = denying ? "Record exact denial" : "Approve one exact execution";
+    elements.toolApprovalSource.textContent = `${preview.tool.id}@${preview.tool.version} · expires ${new Date(preview.expiresAt).toLocaleTimeString()}`;
+    elements.toolApprovalWarning.textContent = preview.warning;
+    elements.toolApprovalDetails.replaceChildren();
+    const details = [
+      ["Descriptor", preview.tool.descriptorHash],
+      ["Capability / risk", `${preview.tool.capabilityId} / ${preview.tool.riskClass}`],
+      ["Parameters", preview.parametersJson],
+      ["Target", preview.targetJson],
+      ["Workspace", preview.workspaceJson],
+      ["Sandbox / network", `${preview.tool.sandbox} / ${preview.tool.networkPolicy}`],
+    ];
+    for (const [label, value] of details) {
+      const item = document.createElement("div");
+      item.append(makeElement("span", "", label), makeElement("strong", "", value));
+      elements.toolApprovalDetails.append(item);
+    }
+    elements.toolApprovalPreviewHash.textContent = `Approval ${preview.previewHash} · request ${preview.requestHash}`;
+    elements.applyToolInvocation.textContent = denying ? "Record exact denial" : "Approve and run once";
+    elements.toolApprovalForm.hidden = false;
+    elements.toolApprovalForm.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    workspaceStatus(elements.toolsMessage, error instanceof Error ? error.message : "The exact tool request could not be previewed.", "error");
+  } finally {
+    setBusy(elements.toolInvocationForm, false);
+  }
+}
+
+async function applyToolInvocation(event) {
+  event.preventDefault();
+  if (!admin.toolInvocationPreview) return;
+  setBusy(elements.toolApprovalForm, true);
+  try {
+    const preview = admin.toolInvocationPreview;
+    const result = await adminMutation(`/api/v1/admin/agents/${preview.agentId}/tool-invocations/apply`, {
+      previewHash: preview.previewHash,
+    });
+    closeToolApproval();
+    elements.toolOutput.hidden = false;
+    elements.toolOutputState.className = `state-chip ${result.executed ? "active" : ""}`;
+    elements.toolOutputState.textContent = result.executed ? result.state : result.disposition;
+    elements.toolOutputText.textContent = result.executed ? result.output || result.standardError || "(no output)" : "No tool execution occurred.";
+    elements.toolOutputMeta.textContent = result.executed
+      ? `${result.outputLength} bytes · ${result.outputHash} · ${result.sandbox.kind}`
+      : `Exact request ${result.requestHash} denied until ${new Date(result.expiresAt).toLocaleTimeString()}.`;
+    workspaceStatus(elements.toolsMessage,
+      result.executed ? "Single-use approval consumed; bounded execution completed." : "Exact denial recorded; no execution occurred.", "ok");
+  } catch (error) {
+    workspaceStatus(elements.toolsMessage, error instanceof Error ? error.message : "The tool request could not be applied.", "error");
+  } finally {
+    setBusy(elements.toolApprovalForm, false);
+  }
+}
+
 function populateLearningSources() {
   const selected = admin.pendingLearningTaskId || elements.learningSourceRun.value;
   const terminalStates = ["Completed", "Failed", "Canceled", "DeadLettered"];
@@ -1481,6 +1786,7 @@ const viewDetails = {
   agents: ["IDENTITIES", "Your local agents"],
   runs: ["ORCHESTRATION", "Durable runs"],
   skills: ["REGISTRY", "Governed skills"],
+  tools: ["CAPABILITIES", "Tools and approvals"],
   learning: ["LEARNING", "Evidence inbox"],
 };
 
@@ -1498,6 +1804,7 @@ async function showCurrentView() {
   if (view === "agents") await loadAgents();
   if (view === "runs") await loadRuns();
   if (view === "skills") await loadSkills();
+  if (view === "tools") await loadTools();
   if (view === "learning") await loadLearning();
 }
 
@@ -1897,6 +2204,14 @@ elements.skillGateClose.addEventListener("click", closeSkillGate);
 elements.skillGrantForm.addEventListener("submit", applySkillGrant);
 elements.skillGrantClose.addEventListener("click", closeSkillGrant);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
+elements.toolGrantForm.addEventListener("submit", applyToolGrant);
+elements.toolGrantClose.addEventListener("click", closeToolGrant);
+elements.toolInvocationForm.addEventListener("submit", previewToolInvocation);
+elements.toolApprovalForm.addEventListener("submit", applyToolInvocation);
+elements.toolApprovalClose.addEventListener("click", closeToolApproval);
+elements.toolAgent.addEventListener("change", populateToolOptions);
+elements.toolSelector.addEventListener("change", renderToolParameters);
+elements.toolWorkspace.addEventListener("change", renderToolParameters);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);
 elements.runDepth.addEventListener("change", () => {
@@ -1941,6 +2256,7 @@ for (const button of document.querySelectorAll("[data-reload]")) {
     if (button.dataset.reload === "agents") loadAgents("Refreshing agent identities…");
     if (button.dataset.reload === "runs") loadRuns("Refreshing durable snapshots…");
     if (button.dataset.reload === "skills") loadSkills("Refreshing the skill registry…");
+    if (button.dataset.reload === "tools") loadTools("Refreshing the authoritative tool catalog…");
     if (button.dataset.reload === "learning") loadLearning("Refreshing classified evidence…");
   });
 }

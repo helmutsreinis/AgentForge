@@ -950,6 +950,198 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, appliedRegrant.StatusCode);
         Assert.Contains("\"granted\":true", await appliedRegrant.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        var toolWorkspace = Path.GetFullPath(_directory);
+        var toolTextPath = Path.Combine(toolWorkspace, "tool-smoke.txt");
+        await File.WriteAllTextAsync(toolTextPath, "bounded workspace evidence");
+        using var initialTools = await client.GetAsync("/api/v1/admin/tools");
+        Assert.Equal(HttpStatusCode.OK, initialTools.StatusCode);
+        using var initialToolsDocument = JsonDocument.Parse(await initialTools.Content.ReadAsByteArrayAsync());
+        Assert.Equal(2, initialToolsDocument.RootElement.GetProperty("tools").GetArrayLength());
+        var toolInstallationVersion = initialToolsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var toolAgentVersion = initialToolsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+
+        using var invalidToolDisposition = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/preview",
+            "workspace-list-invalid-disposition",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = toolInstallationVersion,
+                expectedAgentVersion = toolAgentVersion,
+                toolId = "tool:workspace.list",
+                toolVersion = "1.0.0",
+                workspace = toolWorkspace,
+                parameters = new { directory = toolWorkspace, maximumEntries = 20 },
+                disposition = "maybe",
+                approvalSeconds = 300,
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidToolDisposition.StatusCode);
+
+        using var deniedBeforeGrant = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/preview",
+            "workspace-list-before-grant",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = toolInstallationVersion,
+                expectedAgentVersion = toolAgentVersion,
+                toolId = "tool:workspace.list",
+                toolVersion = "1.0.0",
+                workspace = toolWorkspace,
+                parameters = new { directory = toolWorkspace, maximumEntries = 20 },
+                disposition = "grant",
+                approvalSeconds = 300,
+            }));
+        Assert.Equal(HttpStatusCode.Forbidden, deniedBeforeGrant.StatusCode);
+
+        using var toolGrantPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-grants/preview",
+            "workspace-read-grant-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = toolInstallationVersion,
+                expectedAgentVersion = toolAgentVersion,
+                capabilityId = "tool:workspace.read",
+                grant = true,
+                maximumToolInvocations = 10,
+            }));
+        Assert.Equal(HttpStatusCode.OK, toolGrantPreview.StatusCode);
+        using var toolGrantPreviewDocument = JsonDocument.Parse(await toolGrantPreview.Content.ReadAsByteArrayAsync());
+        var toolGrantPreviewHash = toolGrantPreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        Assert.Equal(2, toolGrantPreviewDocument.RootElement.GetProperty("changes").GetArrayLength());
+        using var toolGrant = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-grants/apply",
+            "workspace-read-grant-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = toolGrantPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, toolGrant.StatusCode);
+        Assert.Contains("\"maximumToolInvocations\":10", await toolGrant.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var grantedTools = await client.GetAsync("/api/v1/admin/tools");
+        using var grantedToolsDocument = JsonDocument.Parse(await grantedTools.Content.ReadAsByteArrayAsync());
+        var grantedToolInstallationVersion = grantedToolsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var grantedToolAgentVersion = grantedToolsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+        Assert.Contains("tool:workspace.read", grantedToolsDocument.RootElement.GetProperty("agents")[0]
+            .GetProperty("toolGrants").EnumerateArray().Select(item => item.GetString()));
+
+        using var escapedTarget = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/preview",
+            "workspace-list-escape",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = grantedToolInstallationVersion,
+                expectedAgentVersion = grantedToolAgentVersion,
+                toolId = "tool:workspace.list",
+                toolVersion = "1.0.0",
+                workspace = toolWorkspace,
+                parameters = new { directory = Path.GetFullPath(Path.GetTempPath()), maximumEntries = 20 },
+                disposition = "grant",
+                approvalSeconds = 300,
+            }));
+        Assert.Equal(HttpStatusCode.Forbidden, escapedTarget.StatusCode);
+
+        using var invocationPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/preview",
+            "workspace-list-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = grantedToolInstallationVersion,
+                expectedAgentVersion = grantedToolAgentVersion,
+                toolId = "tool:workspace.list",
+                toolVersion = "1.0.0",
+                workspace = toolWorkspace,
+                parameters = new { directory = toolWorkspace, maximumEntries = 20 },
+                disposition = "grant",
+                approvalSeconds = 300,
+            }));
+        Assert.Equal(HttpStatusCode.OK, invocationPreview.StatusCode);
+        using var invocationPreviewDocument = JsonDocument.Parse(await invocationPreview.Content.ReadAsByteArrayAsync());
+        var invocationPreviewHash = invocationPreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        Assert.Equal("RequireApproval",
+            invocationPreviewDocument.RootElement.GetProperty("policy").GetProperty("decision").GetString());
+        Assert.Equal("BuiltIn", invocationPreviewDocument.RootElement.GetProperty("tool").GetProperty("sandbox").GetString());
+        using var invocation = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/apply",
+            "workspace-list-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = invocationPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, invocation.StatusCode);
+        var invocationBody = await invocation.Content.ReadAsStringAsync();
+        Assert.Contains("tool-smoke.txt", invocationBody, StringComparison.Ordinal);
+        Assert.Contains("\"kind\":\"BuiltIn\"", invocationBody, StringComparison.Ordinal);
+        using var consumedPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/apply",
+            "workspace-list-consumed-preview",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = invocationPreviewHash }));
+        Assert.Equal(HttpStatusCode.Forbidden, consumedPreview.StatusCode);
+
+        using var denialPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/preview",
+            "workspace-read-denial-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = grantedToolInstallationVersion,
+                expectedAgentVersion = grantedToolAgentVersion,
+                toolId = "tool:workspace.read-text",
+                toolVersion = "1.0.0",
+                workspace = toolWorkspace,
+                parameters = new { path = toolTextPath, maximumBytes = 1024 },
+                disposition = "deny",
+                approvalSeconds = 300,
+            }));
+        Assert.Equal(HttpStatusCode.OK, denialPreview.StatusCode);
+        using var denialPreviewDocument = JsonDocument.Parse(await denialPreview.Content.ReadAsByteArrayAsync());
+        using var denial = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-invocations/apply",
+            "workspace-read-denial-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = denialPreviewDocument.RootElement.GetProperty("previewHash").GetString() }));
+        Assert.Equal(HttpStatusCode.OK, denial.StatusCode);
+        Assert.Contains("\"executed\":false", await denial.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var finalTools = await client.GetAsync("/api/v1/admin/tools");
+        using var finalToolsDocument = JsonDocument.Parse(await finalTools.Content.ReadAsByteArrayAsync());
+        var toolRevokeInstallationVersion = finalToolsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var toolRevokeAgentVersion = finalToolsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+        using var toolRevokePreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-grants/preview",
+            "workspace-read-revoke-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = toolRevokeInstallationVersion,
+                expectedAgentVersion = toolRevokeAgentVersion,
+                capabilityId = "tool:workspace.read",
+                grant = false,
+                maximumToolInvocations = 10,
+            }));
+        Assert.Equal(HttpStatusCode.OK, toolRevokePreview.StatusCode);
+        using var toolRevokePreviewDocument = JsonDocument.Parse(await toolRevokePreview.Content.ReadAsByteArrayAsync());
+        using var toolRevoke = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/tool-grants/apply",
+            "workspace-read-revoke-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = toolRevokePreviewDocument.RootElement.GetProperty("previewHash").GetString() }));
+        Assert.Equal(HttpStatusCode.OK, toolRevoke.StatusCode);
+        Assert.Contains("\"maximumToolInvocations\":0", await toolRevoke.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
         await using var verificationScope = _factory.Services.CreateAsyncScope();
         var configuredAgent = Assert.Single(await verificationScope.ServiceProvider
             .GetRequiredService<IAgentIdentityRepository>().ListAsync(installationId, CancellationToken.None));

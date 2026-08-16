@@ -126,6 +126,9 @@ public sealed class ToolCatalog : IToolCatalog
             !IsBoundedText(definition.Description, 4096) || !IsCatalogId(definition.CapabilityId) ||
             !Enum.IsDefined(definition.RiskClass) || !Enum.IsDefined(definition.TargetKind) ||
             !Enum.IsDefined(definition.OutputSensitivity) || !Enum.IsDefined(definition.OperationKind) ||
+            !Enum.IsDefined(definition.ExecutionKind) ||
+            definition.ExecutionKind is ToolExecutionKind.Process && definition.BuiltInHandlerId is not null ||
+            definition.ExecutionKind is ToolExecutionKind.BuiltIn && !IsCatalogId(definition.BuiltInHandlerId) ||
             (definition.SideEffects & ~KnownSideEffects) != 0 ||
             definition.RiskClass < MinimumRisk(definition.SideEffects) ||
             !ValidateProvenance(definition.Provenance) || definition.Parameters is null ||
@@ -173,10 +176,21 @@ public sealed class ToolCatalog : IToolCatalog
         }
 
         if (definition.OperationKind is ToolOperationKind.AvailabilityProbe &&
-            !ValidateAvailabilityProbe(definition, process.Value))
+            (definition.ExecutionKind is not ToolExecutionKind.Process ||
+            !ValidateAvailabilityProbe(definition, process.Value)))
         {
             return Invalid<ToolDescriptor>(
                 "Availability probes require inventory-only authority and strict isolated bounds.");
+        }
+
+        if (definition.ExecutionKind is ToolExecutionKind.BuiltIn &&
+            (process.Value.RequiredSandbox is not ProcessSandboxKind.BuiltIn ||
+            process.Value.NetworkPolicy is not ProcessNetworkPolicy.Denied ||
+            definition.Provenance.SourceKind is not ToolCatalogSourceKind.BuiltIn ||
+            definition.Provenance.TrustLevel is not ToolTrustLevel.BuiltIn))
+        {
+            return Invalid<ToolDescriptor>(
+                "Built-in tools require the managed built-in sandbox, denied network, and built-in provenance.");
         }
 
         var normalized = definition with

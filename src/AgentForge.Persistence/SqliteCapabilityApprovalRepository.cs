@@ -23,6 +23,15 @@ internal sealed class SqliteCapabilityApprovalRepository(AgentForgeDbContext dbC
     {
         ArgumentNullException.ThrowIfNull(approval);
         var entity = Map(approval);
+        var tracked = dbContext.CapabilityApprovals.Local.SingleOrDefault(item => item.Id == entity.Id);
+        if (tracked is not null)
+        {
+            dbContext.Entry(tracked).CurrentValues.SetValues(entity);
+            dbContext.Entry(tracked).Property(item => item.Version).OriginalValue = expectedVersion;
+            await ValueTask.CompletedTask;
+            return;
+        }
+
         dbContext.Attach(entity);
         dbContext.Entry(entity).State = EntityState.Modified;
         dbContext.Entry(entity).Property(item => item.Version).OriginalValue = expectedVersion;

@@ -42,6 +42,10 @@
           <span class="nav-icon" aria-hidden="true">□</span>
           Skills
         </a>
+        <a class="nav-item" href="#tools" data-view="tools">
+          <span class="nav-icon" aria-hidden="true">⌗</span>
+          Tools
+        </a>
         <a class="nav-item" href="#learning" data-view="learning">
           <span class="nav-icon" aria-hidden="true">∞</span>
           Learning
@@ -464,6 +468,70 @@
             <button id="apply-skill-grant" class="setup-submit" type="submit">Apply exact grant</button>
           </div>
         </form>
+      </section>
+
+      <section id="tools" class="workspace-panel app-view" aria-labelledby="tools-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">EXACT CAPABILITIES</span>
+            <h2 id="tools-title">Tools and approvals</h2>
+            <p>Grant catalog visibility to an agent, then review every exact target and parameter set before one bounded execution.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="tools">Reload tools</button>
+        </div>
+        <div class="scope-notice"><strong>No unrestricted shell</strong><span>The initial tools are managed, read-only workspace handlers. They start no process, inherit no environment, use no network, reject links, and persist only hashes and lengths.</span></div>
+        <div id="tools-message" class="workspace-message" aria-live="polite">Open this page to load the authoritative tool catalog.</div>
+        <div id="tool-list" class="resource-list"></div>
+
+        <form id="tool-grant-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">AGENT TOOL POLICY</span><h3 id="tool-grant-title">Review capability grant</h3><p id="tool-grant-source"></p></div>
+            <button id="tool-grant-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="tool-grant-changes" class="review-grid"></div>
+          <p id="tool-grant-warning" class="review-warning"></p>
+          <code id="tool-grant-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>A catalog grant never executes a tool. Invocation approval remains exact, expiring, and single-use.</p>
+            <button id="apply-tool-grant" class="setup-submit" type="submit">Apply exact policy change</button>
+          </div>
+        </form>
+
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">ONE BOUNDED EXECUTION</span><h3>Prepare a tool request</h3><p>The review is bound to the current installation and agent versions, immutable descriptor hash, canonical parameters, target, and workspace.</p></div>
+        </div>
+        <form id="tool-invocation-form" class="run-composer" autocomplete="off">
+          <div class="learning-primary-grid">
+            <label>Agent<select id="tool-agent" required></select></label>
+            <label>Tool<select id="tool-selector" required></select></label>
+            <label>Decision<select id="tool-disposition" required><option value="grant">Approve one execution</option><option value="deny">Record exact denial</option></select></label>
+          </div>
+          <label>Workspace<input id="tool-workspace" maxlength="2048" required placeholder="Absolute workspace directory"></label>
+          <div id="tool-parameter-fields" class="learning-proposal-grid"></div>
+          <div class="composer-actions">
+            <p id="tool-request-summary">Select a granted tool. Exact path containment is verified again immediately before execution.</p>
+            <button id="preview-tool-invocation" class="setup-submit" type="submit">Review exact request</button>
+          </div>
+        </form>
+
+        <form id="tool-approval-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">SINGLE-USE APPROVAL</span><h3 id="tool-approval-title">Review exact execution</h3><p id="tool-approval-source"></p></div>
+            <button id="tool-approval-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="tool-approval-details" class="review-grid"></div>
+          <p id="tool-approval-warning" class="review-warning"></p>
+          <code id="tool-approval-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>Changing any displayed value invalidates this preview. An approval is consumed before the handler starts and cannot be replayed.</p>
+            <button id="apply-tool-invocation" class="setup-submit" type="submit">Approve and run once</button>
+          </div>
+        </form>
+        <article id="tool-output" class="run-output" hidden>
+          <div class="resource-title"><h3>Tool result</h3><span id="tool-output-state" class="state-chip"></span></div>
+          <pre id="tool-output-text"></pre>
+          <p id="tool-output-meta" class="resource-subtitle"></p>
+        </article>
       </section>
 
       <section id="learning" class="workspace-panel app-view" aria-labelledby="learning-title" hidden>

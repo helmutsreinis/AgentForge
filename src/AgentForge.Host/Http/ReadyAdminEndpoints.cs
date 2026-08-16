@@ -12,13 +12,16 @@ using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Learning;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
+using AgentForge.Domain.Tools;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 
@@ -73,6 +76,11 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/skills/proposals/{proposalId:guid}/transition", TransitionSkillProposalAsync);
         group.MapPost("/agents/{agentId:guid}/skill-grants/preview", PreviewAgentSkillGrantAsync);
         group.MapPost("/agents/{agentId:guid}/skill-grants/apply", ApplyAgentSkillGrantAsync);
+        group.MapGet("/tools", ListToolsAsync);
+        group.MapPost("/agents/{agentId:guid}/tool-grants/preview", PreviewAgentToolGrantAsync);
+        group.MapPost("/agents/{agentId:guid}/tool-grants/apply", ApplyAgentToolGrantAsync);
+        group.MapPost("/agents/{agentId:guid}/tool-invocations/preview", PreviewToolInvocationAsync);
+        group.MapPost("/agents/{agentId:guid}/tool-invocations/apply", ApplyToolInvocationAsync);
         group.MapGet("/learning/signals", ListLearningSignalsAsync);
         group.MapPost("/learning/signals", CaptureLearningSignalAsync);
         group.MapGet("/learning/candidates", ListLearningCandidatesAsync);

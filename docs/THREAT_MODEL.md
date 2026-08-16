@@ -998,6 +998,32 @@ event configuration, idempotency request hash, and provider request. A larger ou
 network, skill, file, message, device, credential, or fallback authority; interactive wall-clock time remains capped at
 270 seconds and the corresponding node lease never exceeds five minutes.
 
+## Ready tool-approval boundary
+
+Tool catalog data, browser parameters, filesystem paths, previously issued previews, and handler output are untrusted.
+The Ready surface lists only immutable authoritative descriptors and reconstructs every grant candidate from the current
+agent. A grant may change one exact tool capability and only the per-run tool-invocation ceiling; network posture,
+skills, every other budget member, and all other agent authority must compare unchanged. The existing administrator
+secret, CSRF/origin/session checks, optimistic installation/agent versions, preview hash, audit, and transaction remain
+mandatory. Catalog visibility alone never authorizes execution.
+
+Invocation preview and execution share one canonical planner. It fixes capability, risk, target kind, side effects,
+sandbox, network policy, timeout, output limit, and handler from the exact tool/version/descriptor hash; the caller can
+provide typed descriptor parameters and an absolute workspace only. Authorization binds canonical parameters,
+normalized target/workspace, actor, agent policy version, installation version, expiry, correlation, and request hash.
+Missing grants deny, grant/deny decisions are exact and expiring, a grant is consumed before execution, and a consumed
+preview cannot be reused. Raw output is returned only to the authenticated response and is never placed in relational
+state, audit, or idempotent durable replay; only hashes, lengths, exit state, and approval evidence persist.
+
+The initial managed workspace handlers are not a weak process sandbox. They start no process, receive no environment,
+and have no networking primitive. Preview and execution independently require an existing absolute target contained by
+an existing absolute workspace, reject UNC workspace roots on Windows and every traversed link/reparse point, enumerate
+only direct children without following links, cap entry/output counts, and read only bounded strict-UTF8 files. Unknown
+handlers, detected traversal/link paths, binary input, oversized files/output, cancellation, and I/O errors fail typed.
+A same-user filesystem replacement race between validation and managed read remains possible under the documented
+single-operator OS-account boundary; the initial catalog is therefore read-only and grants no credential access.
+Process-backed tools still pass through their declared sandbox and cannot degrade to this built-in execution kind.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

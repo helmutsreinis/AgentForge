@@ -4,7 +4,9 @@ using System.Text;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
+using AgentForge.Domain.Tools;
 
 namespace AgentForge.Host.Http;
 
@@ -22,6 +24,10 @@ internal sealed record ReadyAdminSession(
     public ConcurrentDictionary<string, ReadyAgentEditPreview> AgentPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyAgentToolGrantPreview> ToolGrantPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyToolInvocationPreview> ToolInvocationPreviews { get; } = new(StringComparer.Ordinal);
 
     public SemaphoreSlim MutationGate { get; } = new(1, 1);
 }
@@ -56,6 +62,24 @@ internal sealed record ReadyAgentSkillGrantPreview(
     AgentIdentityCandidate Candidate,
     CorrelationId CorrelationId,
     string RequestHash);
+
+internal sealed record ReadyAgentToolGrantPreview(
+    AgentIdentityId AgentId,
+    long ExpectedInstallationVersion,
+    long ExpectedAgentVersion,
+    string CapabilityId,
+    bool Grant,
+    AgentIdentityCandidate Candidate,
+    CorrelationId CorrelationId,
+    string RequestHash);
+
+internal sealed record ReadyToolInvocationPreview(
+    ToolInvocationPlan Plan,
+    IReadOnlyDictionary<string, ToolParameterValue> Parameters,
+    CapabilityApprovalDisposition Disposition,
+    DateTimeOffset ExpiresAt,
+    CorrelationId CorrelationId,
+    string PreviewHash);
 
 internal sealed record CreatedReadyAdminSession(string Token, ReadyAdminSession Session);
 

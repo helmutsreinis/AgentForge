@@ -9,6 +9,7 @@ using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
@@ -17,6 +18,7 @@ using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Domain.Skills;
+using AgentForge.Domain.Tools;
 
 namespace AgentForge.Setup;
 
@@ -25,6 +27,7 @@ internal sealed class SetupProfileEditor(
     IProviderProfileRepository providers,
     IAgentIdentityRepository agents,
     ISkillRegistryRepository skills,
+    IToolCatalog tools,
     IProviderProfileDefinitionEvaluator providerDefinitions,
     IProviderProfileValidator providerValidator,
     IAgentDefinitionEvaluator agentDefinitions,
@@ -451,14 +454,26 @@ internal sealed class SetupProfileEditor(
             };
             var budgetChanged = changes.Any(change => change.Path == "agent.budget");
             var capabilityChanged = changes.Any(change => change.Path == "agent.capabilityPolicy");
-            if (changes.Any(change => !readyFields.Contains(change.Path)) ||
-                budgetChanged && !IsReadyOutputBudgetChange(current.Budget, effectiveAgent.Budget) ||
-                capabilityChanged && (changes.Count != 1 ||
-                    !IsReadySkillGrantChange(current.CapabilityPolicy, effectiveAgent.CapabilityPolicy)))
+            var skillGrantChanged = capabilityChanged &&
+                IsReadySkillGrantChange(current.CapabilityPolicy, effectiveAgent.CapabilityPolicy);
+            var toolGrantChanged = capabilityChanged &&
+                IsReadyToolGrantChange(current.CapabilityPolicy, effectiveAgent.CapabilityPolicy);
+            var validBudgetChange = toolGrantChanged
+                ? IsReadyToolBudgetChange(
+                    current.CapabilityPolicy,
+                    effectiveAgent.CapabilityPolicy,
+                    current.Budget,
+                    effectiveAgent.Budget)
+                : !budgetChanged || !capabilityChanged &&
+                    IsReadyOutputBudgetChange(current.Budget, effectiveAgent.Budget);
+            if (changes.Any(change => !readyFields.Contains(change.Path)) || !validBudgetChange ||
+                capabilityChanged && (!skillGrantChanged && !toolGrantChanged ||
+                    skillGrantChanged && changes.Count != 1 ||
+                    toolGrantChanged && changes.Count is < 1 or > 2))
             {
                 return DomainResult.Fail<AgentPreparation>(new DomainFailure(
                     FailureCode.PolicyDenied,
-                    "A Ready agent edit may change identity, instructions, the bounded output-token ceiling, or one exact skill grant."));
+                    "A Ready agent edit may change identity, instructions, the bounded output-token ceiling, one exact skill grant, or one exact tool capability with its bounded invocation ceiling."));
             }
 
             var addedSkill = effectiveAgent.CapabilityPolicy.SkillGrants
@@ -470,6 +485,21 @@ internal sealed class SetupProfileEditor(
                 return DomainResult.Fail<AgentPreparation>(new DomainFailure(
                     FailureCode.PolicyDenied,
                     "A skill can be granted only while an exact promoted version is active."));
+            }
+
+            var addedTool = effectiveAgent.CapabilityPolicy.ToolGrants
+                .Except(current.CapabilityPolicy.ToolGrants, StringComparer.Ordinal)
+                .SingleOrDefault();
+            if (addedTool is not null)
+            {
+                var available = await tools.SearchAsync(
+                    new ToolSearchRequest(string.Empty, addedTool, null, 1), cancellationToken);
+                if (!available.IsSuccess || available.Value.Count == 0)
+                {
+                    return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                        FailureCode.PolicyDenied,
+                        "A tool capability can be granted only while an exact descriptor is available in the authoritative catalog."));
+                }
             }
         }
         var requestHash = ComputeHash(new
@@ -624,6 +654,35 @@ internal sealed class SetupProfileEditor(
         return effective.NetworkPosture == current.NetworkPosture &&
             effective.ToolGrants.SequenceEqual(current.ToolGrants, StringComparer.Ordinal) &&
             difference.Count == 1;
+    }
+
+    private static bool IsReadyToolGrantChange(
+        AgentCapabilityPolicy current,
+        AgentCapabilityPolicy effective)
+    {
+        var difference = current.ToolGrants.ToHashSet(StringComparer.Ordinal);
+        difference.SymmetricExceptWith(effective.ToolGrants);
+        return effective.NetworkPosture == current.NetworkPosture &&
+            effective.SkillGrants.SequenceEqual(current.SkillGrants, StringComparer.Ordinal) &&
+            difference.Count == 1;
+    }
+
+    private static bool IsReadyToolBudgetChange(
+        AgentCapabilityPolicy currentPolicy,
+        AgentCapabilityPolicy effectivePolicy,
+        AgentBudget current,
+        AgentBudget effective)
+    {
+        var granting = effectivePolicy.ToolGrants.Count > currentPolicy.ToolGrants.Count;
+        var expectedCeiling = granting
+            ? effective.MaxToolInvocations is >= 1 and <= 1000
+            : effective.MaxToolInvocations == (effectivePolicy.ToolGrants.Count == 0
+                ? 0
+                : current.MaxToolInvocations);
+        return expectedCeiling && effective.MaxTurns == current.MaxTurns &&
+            effective.MaxInputTokens == current.MaxInputTokens &&
+            effective.MaxOutputTokens == current.MaxOutputTokens &&
+            effective.MaxWallClockSeconds == current.MaxWallClockSeconds;
     }
 
     private static void AddChange(

@@ -4,6 +4,7 @@ public enum ProcessSandboxKind
 {
     RestrictedHost,
     Container,
+    BuiltIn,
 }
 
 public enum ProcessNetworkPolicy
