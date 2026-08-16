@@ -11,7 +11,14 @@ public sealed record LocalModelInteractionRequest(
     string Prompt,
     ModelInvocationLimits Limits,
     CorrelationId CorrelationId,
-    IReadOnlyList<ModelMessage>? ConversationHistory = null);
+    IReadOnlyList<ModelMessage>? ConversationHistory = null,
+    IReadOnlyList<ModelToolDefinition>? Tools = null,
+    IReadOnlyList<ModelMessage>? ContinuationMessages = null);
+
+public sealed record LocalModelToolCall(
+    string ToolCallId,
+    string ToolName,
+    string ArgumentsJson);
 
 public sealed record LocalModelInteractionResult(
     ModelRequestId RequestId,
@@ -20,7 +27,10 @@ public sealed record LocalModelInteractionResult(
     ModelFinishReason FinishReason,
     int ContextRedactionCount,
     int EventCount,
-    string EvidenceHash);
+    string EvidenceHash)
+{
+    public IReadOnlyList<LocalModelToolCall> ToolCalls { get; init; } = [];
+}
 
 public enum LocalModelInteractionProgressKind
 {

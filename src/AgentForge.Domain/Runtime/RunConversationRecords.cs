@@ -39,6 +39,26 @@ public enum RunConversationTurnState
     Canceled,
 }
 
+public enum RunConversationToolCallState
+{
+    AwaitingApproval,
+    Executed,
+    Denied,
+}
+
+public sealed record RunConversationToolCall(
+    RunConversationTurnId TurnId,
+    string ToolCallId,
+    string ToolName,
+    string ArgumentsJson,
+    string RequestHash,
+    RunConversationToolCallState State,
+    string? ResultJson,
+    string? ResultHash,
+    bool IsError,
+    DateTimeOffset RequestedAt,
+    DateTimeOffset UpdatedAt);
+
 public sealed record RunConversationTurn(
     RunConversationTurnId Id,
     int Sequence,
@@ -86,7 +106,10 @@ public sealed record RunConversationSnapshot(
     ActorId ActorId,
     string IdempotencyKey,
     CorrelationId CorrelationId,
-    CorrelationId? CausationId);
+    CorrelationId? CausationId)
+{
+    public IReadOnlyList<RunConversationToolCall> ToolCalls { get; init; } = [];
+}
 
 public static class RunConversationStateMachine
 {
@@ -282,6 +305,90 @@ public static class RunConversationStateMachine
             occurredAt));
     }
 
+    public static DomainResult<RunConversationSnapshot> AwaitToolApproval(
+        RunConversationSnapshot current,
+        RunConversationTurnId turnId,
+        RunConversationToolCall toolCall,
+        string evidenceHash,
+        DateTimeOffset occurredAt)
+    {
+        if (!CanMutate(current, occurredAt) || current.State is not RunConversationState.Running ||
+            toolCall is null || toolCall.TurnId != turnId ||
+            toolCall.State is not RunConversationToolCallState.AwaitingApproval ||
+            !ValidToolCall(toolCall, occurredAt) || !Hash(evidenceHash) ||
+            current.ToolCalls.Count >= 32 || current.ToolCalls.Any(item =>
+                string.Equals(item.ToolCallId, toolCall.ToolCallId, StringComparison.Ordinal)))
+        {
+            return Invalid("A pending tool call requires current bounded model evidence and a unique identity.");
+        }
+
+        var index = FindTurn(current, turnId);
+        if (index != current.Turns.Count - 1 ||
+            current.Turns[index].State is not RunConversationTurnState.Running)
+        {
+            return Conflict("Only the running current turn can await a tool approval.");
+        }
+
+        var turns = current.Turns.ToArray();
+        turns[index] = turns[index] with
+        {
+            State = RunConversationTurnState.NeedsResume,
+            EvidenceHash = evidenceHash,
+            FailureCode = FailureCode.ApprovalRequired,
+            Retryable = true,
+            UpdatedAt = occurredAt,
+        };
+        var next = Next(current, turns, RunConversationState.NeedsResume, occurredAt) with
+        {
+            ToolCalls = [.. current.ToolCalls, toolCall],
+            SnapshotHash = EmptyHash,
+        };
+        return DomainResult.Success(next with { SnapshotHash = ComputeHash(next) });
+    }
+
+    public static DomainResult<RunConversationSnapshot> ResolveToolCall(
+        RunConversationSnapshot current,
+        RunConversationTurnId turnId,
+        string toolCallId,
+        string resultJson,
+        string resultHash,
+        bool isError,
+        bool denied,
+        DateTimeOffset occurredAt)
+    {
+        if (!CanMutate(current, occurredAt) || current.State is not RunConversationState.NeedsResume ||
+            !Text(toolCallId, 256) || !JsonObject(resultJson, 65_536) || !Hash(resultHash))
+        {
+            return Invalid("Tool resolution requires the current pending call and bounded JSON evidence.");
+        }
+
+        var index = current.ToolCalls.ToList().FindIndex(item =>
+            item.TurnId == turnId && string.Equals(item.ToolCallId, toolCallId, StringComparison.Ordinal));
+        if (index < 0 || current.ToolCalls[index].State is not RunConversationToolCallState.AwaitingApproval)
+        {
+            return Conflict("The requested tool call is not awaiting an operator decision.");
+        }
+
+        var toolCalls = current.ToolCalls.ToArray();
+        toolCalls[index] = toolCalls[index] with
+        {
+            State = denied ? RunConversationToolCallState.Denied : RunConversationToolCallState.Executed,
+            ResultJson = resultJson,
+            ResultHash = resultHash,
+            IsError = isError || denied,
+            UpdatedAt = occurredAt,
+        };
+        var next = current with
+        {
+            Version = current.Version + 1,
+            ToolCalls = toolCalls,
+            PreviousSnapshotHash = current.SnapshotHash,
+            SnapshotHash = EmptyHash,
+            UpdatedAt = occurredAt,
+        };
+        return DomainResult.Success(next with { SnapshotHash = ComputeHash(next) });
+    }
+
     public static DomainResult<RunConversationSnapshot> CancelTurn(
         RunConversationSnapshot current,
         RunConversationTurnId turnId,
@@ -325,6 +432,9 @@ public static class RunConversationStateMachine
         snapshot.Turns.Select(turn => turn.Id).Distinct().Count() == snapshot.Turns.Count &&
         snapshot.Turns.Select(turn => turn.TaskId).Distinct().Count() == snapshot.Turns.Count &&
         snapshot.Turns.Select(turn => turn.IdempotencyKey).Distinct(StringComparer.Ordinal).Count() == snapshot.Turns.Count &&
+        snapshot.ToolCalls is { Count: <= 32 } && snapshot.ToolCalls.All(item =>
+            ValidToolCall(item, snapshot.UpdatedAt) && snapshot.Turns.Any(turn => turn.Id == item.TurnId)) &&
+        snapshot.ToolCalls.Select(item => item.ToolCallId).Distinct(StringComparer.Ordinal).Count() == snapshot.ToolCalls.Count &&
         StateMatches(snapshot) && Hash(snapshot.PreviousSnapshotHash) && Hash(snapshot.SnapshotHash) &&
         snapshot.CreatedAt != default && snapshot.UpdatedAt >= snapshot.CreatedAt &&
         Text(snapshot.ActorId.Value, 256) && Text(snapshot.IdempotencyKey, 256) &&
@@ -435,6 +545,20 @@ public static class RunConversationStateMachine
             Append(builder, turn.CreatedAt.UtcTicks);
             Append(builder, turn.UpdatedAt.UtcTicks);
         }
+        foreach (var toolCall in snapshot.ToolCalls)
+        {
+            Append(builder, toolCall.TurnId);
+            Append(builder, toolCall.ToolCallId);
+            Append(builder, toolCall.ToolName);
+            Append(builder, toolCall.ArgumentsJson);
+            Append(builder, toolCall.RequestHash);
+            Append(builder, toolCall.State);
+            Append(builder, toolCall.ResultJson ?? string.Empty);
+            Append(builder, toolCall.ResultHash ?? string.Empty);
+            Append(builder, toolCall.IsError);
+            Append(builder, toolCall.RequestedAt.UtcTicks);
+            Append(builder, toolCall.UpdatedAt.UtcTicks);
+        }
         Append(builder, snapshot.PreviousSnapshotHash);
         Append(builder, snapshot.CreatedAt.UtcTicks);
         Append(builder, snapshot.UpdatedAt.UtcTicks);
@@ -463,6 +587,35 @@ public static class RunConversationStateMachine
         Hash(artifact.ContentHash) && artifact.Length is >= 1 and <= 4_194_304 &&
         string.Equals(artifact.MediaType, "text/plain; charset=utf-8", StringComparison.Ordinal) &&
         artifact.CreatedAt != default;
+
+    private static bool ValidToolCall(RunConversationToolCall? call, DateTimeOffset ceiling)
+    {
+        if (call is null || call.TurnId.Value == Guid.Empty || !Text(call.ToolCallId, 256) ||
+            !Text(call.ToolName, 128) || !JsonObject(call.ArgumentsJson, 16_384) ||
+            !Hash(call.RequestHash) || !Enum.IsDefined(call.State) || call.RequestedAt == default ||
+            call.UpdatedAt < call.RequestedAt || call.UpdatedAt > ceiling)
+        {
+            return false;
+        }
+        return call.State is RunConversationToolCallState.AwaitingApproval
+            ? call.ResultJson is null && call.ResultHash is null && !call.IsError
+            : JsonObject(call.ResultJson, 65_536) && Hash(call.ResultHash);
+    }
+
+    private static bool JsonObject(string? value, int maximum)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > maximum ||
+            value.Any(character => character == '\0')) return false;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(value);
+            return document.RootElement.ValueKind is System.Text.Json.JsonValueKind.Object;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
 
     private static bool Hash(string? value) => value is { Length: 71 } &&
         value.StartsWith("sha256:", StringComparison.Ordinal) &&

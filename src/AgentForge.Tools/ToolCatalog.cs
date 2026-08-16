@@ -185,12 +185,12 @@ public sealed class ToolCatalog : IToolCatalog
 
         if (definition.ExecutionKind is ToolExecutionKind.BuiltIn &&
             (process.Value.RequiredSandbox is not ProcessSandboxKind.BuiltIn ||
-            process.Value.NetworkPolicy is not ProcessNetworkPolicy.Denied ||
+            !ValidBuiltInNetworkBoundary(definition, process.Value) ||
             definition.Provenance.SourceKind is not ToolCatalogSourceKind.BuiltIn ||
             definition.Provenance.TrustLevel is not ToolTrustLevel.BuiltIn))
         {
             return Invalid<ToolDescriptor>(
-                "Built-in tools require the managed built-in sandbox, denied network, and built-in provenance.");
+                "Built-in tools require the managed sandbox, an exact network boundary, and built-in provenance.");
         }
 
         var normalized = definition with
@@ -307,6 +307,26 @@ public sealed class ToolCatalog : IToolCatalog
         process.MaximumOutputBytes <= 65_536 &&
         process.RequiredFeatures.HasFlag(ProcessIsolationFeature.NetworkIsolation) &&
         process.FixedArguments.Count + process.ArgumentBindings.Count > 0;
+
+    private static bool ValidBuiltInNetworkBoundary(
+        ToolDescriptorDefinition definition,
+        ToolProcessDefinition process) => process.NetworkPolicy switch
+        {
+            ProcessNetworkPolicy.Denied => true,
+            ProcessNetworkPolicy.FixedEndpointOnly =>
+                definition.TargetKind is AuthorizationTargetKind.Uri &&
+                definition.TargetParameterName is not null &&
+                definition.Parameters.Single(item => item.Name == definition.TargetParameterName) is
+                {
+                    Type: ToolParameterType.Text,
+                    Required: true,
+                    AllowedValues.Count: 1,
+                } target && Uri.TryCreate(target.AllowedValues[0], UriKind.Absolute, out var uri) &&
+                uri.Scheme is "https" && string.IsNullOrEmpty(uri.UserInfo) &&
+                definition.SideEffects.HasFlag(ToolSideEffectKind.ReadsNetwork) &&
+                !definition.SideEffects.HasFlag(ToolSideEffectKind.ExternalMutation),
+            _ => false,
+        };
 
     private static bool ValidateBinding(
         ToolArgumentBinding binding,

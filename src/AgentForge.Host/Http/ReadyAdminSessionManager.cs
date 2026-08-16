@@ -4,6 +4,7 @@ using System.Text;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Runtime;
 using AgentForge.Domain.Scheduling;
 using AgentForge.Domain.Search;
 using AgentForge.Domain.Security;
@@ -42,6 +43,8 @@ internal sealed record ReadyAdminSession(
     public ConcurrentDictionary<string, ReadyAgentToolGrantPreview> ToolGrantPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyToolInvocationPreview> ToolInvocationPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyConversationToolPreview> ConversationToolPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyModelCatalogObservation> ModelCatalogObservations { get; } = new(StringComparer.Ordinal);
 
@@ -144,6 +147,12 @@ internal sealed record ReadyToolInvocationPreview(
     DateTimeOffset ExpiresAt,
     CorrelationId CorrelationId,
     string PreviewHash);
+
+internal sealed record ReadyConversationToolPreview(
+    RunConversationId ConversationId,
+    RunConversationTurnId TurnId,
+    string ToolCallId,
+    ReadyToolInvocationPreview Invocation);
 
 internal sealed record CreatedReadyAdminSession(string Token, ReadyAdminSession Session);
 

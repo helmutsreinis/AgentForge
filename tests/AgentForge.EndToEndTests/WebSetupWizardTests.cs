@@ -1308,7 +1308,13 @@ public sealed class WebSetupWizardTests : IDisposable
         using var initialTools = await client.GetAsync("/api/v1/admin/tools");
         Assert.Equal(HttpStatusCode.OK, initialTools.StatusCode);
         using var initialToolsDocument = JsonDocument.Parse(await initialTools.Content.ReadAsByteArrayAsync());
-        Assert.Equal(2, initialToolsDocument.RootElement.GetProperty("tools").GetArrayLength());
+        var initialToolIds = initialToolsDocument.RootElement.GetProperty("tools").EnumerateArray()
+            .Select(item => item.GetProperty("id").GetString())
+            .ToArray();
+        Assert.Equal(3, initialToolIds.Length);
+        Assert.Contains("tool:workspace.list", initialToolIds);
+        Assert.Contains("tool:workspace.read-text", initialToolIds);
+        Assert.Contains("tool:search.brave", initialToolIds);
         var toolInstallationVersion = initialToolsDocument.RootElement.GetProperty("installationVersion").GetInt64();
         var toolAgentVersion = initialToolsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
 

@@ -385,6 +385,23 @@ public sealed class ToolCatalogTests
         Assert.NotEqual(firstDescriptor.Value.DescriptorHash, secondDescriptor.Value.DescriptorHash);
     }
 
+    [Fact]
+    public void Built_in_network_tool_requires_one_fixed_https_target_without_mutation()
+    {
+        var valid = FixedEndpointDefinition();
+        Assert.True(ToolCatalog.Create([valid]).IsSuccess);
+
+        var target = valid.Parameters.Single(item => item.Name == "endpoint");
+        var invalid = new[]
+        {
+            valid with { Parameters = [target with { AllowedValues = [] }] },
+            valid with { Parameters = [target with { AllowedValues = ["http://api.example.test/search"] }] },
+            valid with { SideEffects = valid.SideEffects | ToolSideEffectKind.ExternalMutation },
+            valid with { Process = valid.Process with { NetworkPolicy = ProcessNetworkPolicy.InheritHost } },
+        };
+        Assert.All(invalid, item => Assert.False(ToolCatalog.Create([item]).IsSuccess));
+    }
+
     private static ToolDescriptorDefinition ValidDefinition() => new(
         "tool:file.write",
         "1.0.0",
@@ -425,6 +442,34 @@ public sealed class ToolCatalogTests
         RiskClass = CapabilityRiskClass.Read,
         SideEffects = ToolSideEffectKind.ReadsFileSystem,
     };
+
+    private static ToolDescriptorDefinition FixedEndpointDefinition() => new(
+        "tool:search.fixture",
+        "1.0.0",
+        "Search fixture",
+        "Searches one fixed endpoint.",
+        "Returns bounded public citations from an exact HTTPS target.",
+        "tool:search.web",
+        CapabilityRiskClass.Credential,
+        AuthorizationTargetKind.Uri,
+        "endpoint",
+        ToolSideEffectKind.ReadsNetwork | ToolSideEffectKind.CredentialAccess,
+        ToolOutputSensitivity.Public,
+        [TextParameter("endpoint") with { AllowedValues = ["https://api.example.test/search"] }],
+        new ToolProcessDefinition(
+            Path.Combine(Path.GetTempPath(), "agentforge-search-tool"),
+            [], [new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "endpoint", null)], [],
+            ProcessSandboxKind.BuiltIn, ProcessNetworkPolicy.FixedEndpointOnly,
+            ProcessIsolationFeature.BoundedOutput | ProcessIsolationFeature.NetworkIsolation,
+            30, 65_536),
+        new ToolProvenance(
+            ToolCatalogSourceKind.BuiltIn,
+            ToolTrustLevel.BuiltIn,
+            "agentforge.search",
+            "1.0.0",
+            EvidenceHash),
+        ExecutionKind: ToolExecutionKind.BuiltIn,
+        BuiltInHandlerId: "search.fixture");
 
     private static ToolDescriptorDefinition ValidProbeDefinition() => new(
         "tool:fixture.availability",

@@ -95,6 +95,31 @@ public sealed class AgentDefinitionEvaluatorTests
     }
 
     [Fact]
+    public void Approved_search_endpoint_requires_exact_approval_without_external_network_authority()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            CapabilityPolicy = new AgentCapabilityPolicy(
+                NetworkPosture.ApprovedEndpointsOnly,
+                ["tool:search.web"],
+                []),
+        };
+
+        var normalized = evaluator.NormalizeAndValidate(candidate);
+        Assert.True(normalized.IsSuccess, normalized.Failure?.Message);
+
+        var result = evaluator.Evaluate(normalized.Value, CreateProvider());
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        AssertDecision(result.Value, "network.approved-endpoints", CapabilityDecision.RequireApproval);
+        AssertDecision(result.Value, "tool:search.web", CapabilityDecision.RequireApproval);
+        AssertDecision(result.Value, "network.external", CapabilityDecision.Deny);
+        AssertDecision(result.Value, "credentials.materialize", CapabilityDecision.Deny);
+    }
+
+    [Fact]
     public void Local_only_policy_rejects_public_provider()
     {
         using var services = BuildServices();

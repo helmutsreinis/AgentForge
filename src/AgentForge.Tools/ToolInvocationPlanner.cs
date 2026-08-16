@@ -114,6 +114,8 @@ internal sealed class ToolInvocationPlanner(
                     authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!, requireDirectory: true),
                 "workspace.read-text" => WorkspacePathGuard.ResolveTarget(
                     authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!, requireDirectory: false),
+                "search.brave" => DomainResult.Success(new ContainedWorkspaceTarget(
+                    authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!)),
                 _ => DomainResult.Fail<ContainedWorkspaceTarget>(new DomainFailure(
                     FailureCode.UnsupportedCapability,
                     "The built-in tool handler is not available.")),
@@ -226,6 +228,8 @@ internal sealed class ToolInvocationPlanner(
     {
         NetworkPosture.Denied => policy is ProcessNetworkPolicy.Denied,
         NetworkPosture.LoopbackOnly => policy is ProcessNetworkPolicy.Denied or ProcessNetworkPolicy.LoopbackOnly,
+        NetworkPosture.ApprovedEndpointsOnly => policy is ProcessNetworkPolicy.Denied or
+            ProcessNetworkPolicy.LoopbackOnly or ProcessNetworkPolicy.FixedEndpointOnly,
         _ => false,
     };
 

@@ -11,6 +11,7 @@ public enum ProcessNetworkPolicy
 {
     Denied,
     LoopbackOnly,
+    FixedEndpointOnly,
     InheritHost,
 }
 

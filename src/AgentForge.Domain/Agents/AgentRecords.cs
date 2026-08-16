@@ -25,6 +25,7 @@ public enum NetworkPosture
 {
     Denied,
     LoopbackOnly,
+    ApprovedEndpointsOnly,
 }
 
 public enum LearningMode

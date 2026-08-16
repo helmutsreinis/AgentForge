@@ -190,6 +190,89 @@ public sealed class RunConversationPersistenceTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Pending_search_call_survives_restart_and_exact_result_resumes_the_turn()
+    {
+        await using var services = BuildServices();
+        await InitializeAsync(services);
+        var installationId = new InstallationId(Guid.NewGuid());
+        var agentId = new AgentIdentityId(Guid.NewGuid());
+        var providerId = ProviderProfileId.New();
+        await SeedAuthorityAsync(services, installationId, agentId, providerId);
+        var conversationId = new RunConversationId(Guid.NewGuid());
+        RunConversationSnapshot awaiting;
+
+        await using (var first = services.CreateAsyncScope())
+        {
+            var service = first.ServiceProvider.GetRequiredService<IRunConversationService>();
+            var created = await service.CreateAsync(new CreateRunConversationRequest(
+                conversationId, installationId, agentId, 3, providerId, 2, "qwen3.8",
+                "Governed search", "Use search only after approval.", [], Hash('b'), Hash('c'), Hash('d'),
+                new RunConversationTurnId(Guid.NewGuid()), new OrchestrationTaskId(Guid.NewGuid()),
+                "Find current AgentForge sources.", "balanced", 2_048, 120,
+                new ActorId("operator"), "search-conversation", "search-turn",
+                new CorrelationId("search-test")), CancellationToken.None);
+            var started = await service.StartTurnAsync(
+                conversationId, created.Value.Snapshot.Version, created.Value.Turn.Id, CancellationToken.None);
+            var paused = await service.AwaitToolApprovalAsync(
+                conversationId,
+                started.Value.Snapshot.Version,
+                started.Value.Turn.Id,
+                new LocalModelToolCall(
+                    "call-search", "search_web", "{\"query\":\"AgentForge\",\"maximumResults\":3}"),
+                Hash('e'),
+                CancellationToken.None);
+            Assert.True(paused.IsSuccess, paused.Failure?.Message);
+            Assert.Equal(RunConversationState.NeedsResume, paused.Value.Snapshot.State);
+            Assert.Equal(FailureCode.ApprovalRequired, paused.Value.Turn.FailureCode);
+            awaiting = paused.Value.Snapshot;
+        }
+
+        await using (var restarted = services.CreateAsyncScope())
+        {
+            var service = restarted.ServiceProvider.GetRequiredService<IRunConversationService>();
+            var details = await service.GetDetailsAsync(conversationId, CancellationToken.None);
+            Assert.True(details.IsSuccess, details.Failure?.Message);
+            var pending = Assert.Single(details.Value.Snapshot.ToolCalls);
+            Assert.Equal(RunConversationToolCallState.AwaitingApproval, pending.State);
+            Assert.Equal(awaiting.SnapshotHash, details.Value.Snapshot.SnapshotHash);
+
+            var resolved = await service.ResolveToolCallAsync(
+                conversationId,
+                details.Value.Snapshot.Version,
+                pending.TurnId,
+                pending.ToolCallId,
+                "{\"citations\":[{\"source\":\"https://example.test/agentforge\"}]}",
+                false,
+                false,
+                CancellationToken.None);
+            Assert.True(resolved.IsSuccess, resolved.Failure?.Message);
+            Assert.Equal(RunConversationToolCallState.Executed, resolved.Value.Snapshot.ToolCalls[0].State);
+
+            var resumed = await service.StartTurnAsync(
+                conversationId,
+                resolved.Value.Snapshot.Version,
+                pending.TurnId,
+                CancellationToken.None);
+            Assert.True(resumed.IsSuccess, resumed.Failure?.Message);
+            var completed = await service.CompleteTurnAsync(
+                conversationId,
+                resumed.Value.Snapshot.Version,
+                pending.TurnId,
+                new LocalModelInteractionResult(
+                    new ModelRequestId(resumed.Value.Turn.TaskId.Value),
+                    "Answer with cited source.",
+                    new ModelUsage(40, 8, 1, null, null),
+                    ModelFinishReason.Stop,
+                    0,
+                    4,
+                    Hash('f')),
+                CancellationToken.None);
+            Assert.True(completed.IsSuccess, completed.Failure?.Message);
+            Assert.Equal(RunConversationState.Ready, completed.Value.Snapshot.State);
+        }
+    }
+
     private ServiceProvider BuildServices()
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

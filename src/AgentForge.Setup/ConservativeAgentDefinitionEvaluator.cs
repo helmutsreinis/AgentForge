@@ -124,11 +124,19 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
                 "Tool calls require both provider support, an exact grant, and runtime approval."),
             new(
                 "network.loopback",
-                normalizedCandidate.CapabilityPolicy.NetworkPosture is NetworkPosture.LoopbackOnly
+                normalizedCandidate.CapabilityPolicy.NetworkPosture is
+                    NetworkPosture.LoopbackOnly or NetworkPosture.ApprovedEndpointsOnly
                     ? CapabilityDecision.Allow
                     : CapabilityDecision.Deny,
                 "The configured network posture is applied exactly."),
-            Deny("network.external", "No external network grant exists in the bootstrap policy."),
+            new(
+                "network.approved-endpoints",
+                normalizedCandidate.CapabilityPolicy.NetworkPosture is NetworkPosture.ApprovedEndpointsOnly &&
+                    normalizedCandidate.CapabilityPolicy.ToolGrants.Contains("tool:search.web", StringComparer.Ordinal)
+                    ? CapabilityDecision.RequireApproval
+                    : CapabilityDecision.Deny,
+                "External requests are limited to fixed tool endpoints and still require an exact approval."),
+            Deny("network.external", "Unrestricted external network access is never granted by this posture."),
             Deny("credentials.materialize", "Agents cannot directly materialize provider credentials."),
             new(
                 "agent.children",

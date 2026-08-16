@@ -1105,13 +1105,23 @@ type, length, strict UTF-8, and SHA-256 before returning text. Audit contains ar
 never conversation bodies. Redaction reduces accidental secret retention but is not a general data-loss-prevention
 guarantee; the single operator must still avoid supplying unrecognized secrets.
 
-Every turn owns a distinct durable orchestration task, random hash-only lease, two-attempt retry ceiling, zero model
-tools, and existing output/event/wall-clock limits. At most 20 completed turns and 100,000 characters are reconstructed
+Every turn owns a distinct durable orchestration task, random hash-only lease, bounded retry/tool ceilings, and existing
+output/event/wall-clock limits. A tool-capable provider receives only descriptors intersected by the exact current
+agent grant and network posture; today that model-facing set is either empty or the single bounded `search_web`
+contract. At most 20 completed turns and 100,000 characters are reconstructed
 as alternating user/assistant messages; only those roles and single bounded text contents are accepted. A conversation
 holds at most 64 turns. Completed turns cannot resume or replay. A retryable provider/browser interruption becomes
 `NeedsResume`; a crash-orphaned lease can be reclaimed only after expiry. Resume uses the same stored prompt and task
 authority, while an active unexpired lease conflicts. Explicit cancellation durably cancels both the task and current
 conversation turn before signaling the live provider call.
+
+An accepted model tool call is not authority to execute. AgentForge validates the exact tool name and JSON schema,
+stores the canonical call in the conversation hash chain, moves both task and turn to `ApprovalRequired`, and exposes
+only an authenticated approval preview. Grant and denial bind the official endpoint, query/result count, descriptor,
+agent/installation versions, actor, expiry, correlation, and request hash. A grant is consumed once before the managed
+handler runs; a denial performs no network request. The bounded JSON result is hash-chained and supplied as a typed
+tool-result continuation. Unknown tools, changed policy, malformed arguments, stale previews, missing credentials,
+exhausted budgets, or unresolved calls fail closed and cannot silently become text-only execution claims.
 
 ## Scheduled execution and attached-context boundary
 
@@ -1145,11 +1155,13 @@ hash includes the opaque reference identity, so rotation, enablement, safe-searc
 stale research approvals and cache keys. A managed Brave invocation fails closed unless the request carries that exact
 evidence hash.
 
-Memory and citation bodies are enclosed in an explicit untrusted-reference boundary before model use. Embedded
-instructions cannot change policy, grants, tools, or system text. Context evidence identities enter the policy and
-budget snapshot hashes; the complete redacted system context is additionally content-addressed for continuation and
-restart. The local model receives zero tools and no network/retrieval capability. Search adapter configuration or
-credentials may be absent; this returns typed unsupported capability and deterministic providers cover acceptance.
+Memory, citations, and runtime search results are enclosed in an explicit untrusted-reference boundary before model
+use. Embedded instructions cannot change policy, grants, tools, or system text. Context evidence identities enter the
+policy and budget snapshot hashes; the complete redacted system context is additionally content-addressed for
+continuation and restart. The local model never receives a network client or credential: when all policy intersections
+pass it receives only the `search_web` schema, and AgentForge performs the eventual approved request through the fixed
+managed Brave adapter. Missing or changed search configuration/credentials returns typed failure; deterministic
+providers and restart fixtures cover the approval and continuation boundary.
 
 ## R1 final disposition
 

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
@@ -42,6 +43,7 @@ internal sealed class SetupProfileEditor(
 {
     private const long MaximumReadyOutputTokens = 262_144;
     private static readonly JsonSerializerOptions HashSerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions DisplaySerializerOptions = CreateDisplaySerializerOptions();
 
     public async Task<DomainResult<ProviderCreatePreview>> PreviewProviderCreateAsync(
         PreviewProviderCreateRequest request,
@@ -1189,7 +1191,14 @@ internal sealed class SetupProfileEditor(
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, HashSerializerOptions)))
             .ToLowerInvariant();
 
-    private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, HashSerializerOptions);
+    private static JsonSerializerOptions CreateDisplaySerializerOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
+    }
+
+    private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, DisplaySerializerOptions);
 
     private static string Reference(SecretReference value) => $"{value.Store}:{value.Key}";
 

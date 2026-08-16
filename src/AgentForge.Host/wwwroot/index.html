@@ -334,26 +334,11 @@
           </div>
           <div id="agent-editor-message" class="workspace-message" aria-live="polite"></div>
           <div class="agent-editor-grid">
-            <form id="agent-model-form" class="setup-form" autocomplete="off">
-              <div class="stage-heading">
-                <span class="stage-kicker">MODEL CONNECTION</span>
-                <h3>Pinned local model</h3>
-                <p>The endpoint and credential stay unchanged. Discovery and a live bounded probe are required.</p>
-              </div>
-              <div id="agent-provider-summary" class="policy-preview"></div>
-              <label>Available model
-                <select id="agent-edit-model" required></select>
-              </label>
-              <div class="stage-actions">
-                <button id="agent-discover-models" class="secondary-action" type="button">Discover models</button>
-                <button class="setup-submit" type="submit">Preview model update</button>
-              </div>
-            </form>
             <form id="agent-profile-form" class="setup-form" autocomplete="off">
               <div class="stage-heading">
-                <span class="stage-kicker">COMPLETE VERSIONED POLICY</span>
-                <h3>Agent profile and authority</h3>
-                <p>Identity, routing, memory, exact grants, budgets, child limits, and learning posture are reviewed as one hash-bound policy.</p>
+                <span class="stage-kicker">PRIMARY AGENT</span>
+                <h3>Profile and capabilities</h3>
+                <p>Start with the choices that change how the agent behaves. Technical policy values remain available under Advanced.</p>
               </div>
               <div class="form-row">
                 <label>Name<input id="agent-edit-name" maxlength="80" required></label>
@@ -368,62 +353,77 @@
                 <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
                 <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
               </div>
-              <details class="policy-editor-group" open>
-                <summary>Model routing &amp; memory</summary>
-                <div class="form-row">
-                  <label>Primary provider<select id="agent-edit-provider" required></select></label>
-                  <label>Data locality<select id="agent-edit-locality">
-                    <option value="LocalOnly">Local only</option>
-                    <option value="CloudAllowed">Cloud allowed</option>
-                  </select></label>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-capabilities-title">
+                <div class="stage-heading compact-heading">
+                  <span class="stage-kicker">WHAT THIS AGENT CAN DO</span>
+                  <h3 id="agent-capabilities-title">Capabilities</h3>
                 </div>
-                <label class="inline-check"><input id="agent-edit-fallback" type="checkbox"> Allow model fallback (not valid with Local only)</label>
+                <label class="capability-choice">
+                  <input id="agent-edit-search" type="checkbox">
+                  <span><strong>Search the web with Brave</strong><small>The agent may propose a query. Every exact search still waits for your approval; the API key stays hidden.</small></span>
+                </label>
+                <label class="capability-choice">
+                  <input id="agent-edit-workspace-read" type="checkbox">
+                  <span><strong>Read approved workspace files</strong><small>Grants catalog access only. Every exact path and file read still needs approval.</small></span>
+                </label>
                 <div class="form-row">
-                  <label>Memory scope<select id="agent-edit-memory-scope">
-                    <option value="Task">Task</option>
-                    <option value="Agent">Agent</option>
-                    <option value="Operator">Operator</option>
-                  </select></label>
+                  <label>Maximum tool requests per run<input id="agent-edit-max-tools" type="number" min="0" max="32" required></label>
+                  <label>Active skill grants <span class="optional">one skill ID per line</span><textarea id="agent-edit-skill-grants" rows="3" placeholder="skill:csharp.review"></textarea></label>
+                </div>
+              </section>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-context-title">
+                <div class="stage-heading compact-heading">
+                  <span class="stage-kicker">LONG CONVERSATIONS</span>
+                  <h3 id="agent-context-title">Context and response size</h3>
+                </div>
+                <div class="context-capacity-summary">
+                  <span>Endpoint-discovered context</span>
+                  <strong id="agent-edit-context-discovered">Not discovered</strong>
+                  <small id="agent-edit-context-effective">Effective fallback: run input budget</small>
+                </div>
+                <div class="form-row">
+                  <label>Maximum response tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" required></label>
+                  <label>Lower context limit <span class="optional">optional</span><input id="agent-edit-context-override" type="number" min="1" max="100000000" placeholder="Use discovered capacity"></label>
+                </div>
+                <div class="form-row">
+                  <label class="inline-check"><input id="agent-edit-context-compression" type="checkbox"> Compress older active context automatically</label>
+                  <label>Start compression at %<input id="agent-edit-context-threshold" type="number" min="50" max="95" required></label>
+                </div>
+                <p class="field-note">The full transcript remains durable. Only the active model context is compressed when it reaches your threshold.</p>
+              </section>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-memory-title">
+                <div class="stage-heading compact-heading"><span class="stage-kicker">MEMORY &amp; LEARNING</span><h3 id="agent-memory-title">Retention and improvement</h3></div>
+                <div class="form-row">
+                  <label>Memory scope<select id="agent-edit-memory-scope"><option value="Task">Current task only</option><option value="Agent">This agent</option><option value="Operator">Operator</option></select></label>
                   <label>Retention days<input id="agent-edit-retention" type="number" min="0" max="3650" step="1" required></label>
                 </div>
-              </details>
-              <details class="policy-editor-group" open>
-                <summary>Capabilities &amp; exact grants</summary>
-                <label>Tool network posture<select id="agent-edit-network">
-                  <option value="Denied">Denied</option>
-                  <option value="LoopbackOnly">Loopback only</option>
-                </select></label>
-                <label>Tool grants <span class="optional">one exact capability ID per line</span><textarea id="agent-edit-tool-grants" rows="3" placeholder="tool:workspace.read"></textarea></label>
-                <label>Skill grants <span class="optional">one exact active skill ID per line</span><textarea id="agent-edit-skill-grants" rows="3" placeholder="skill:csharp.review"></textarea></label>
-              </details>
-              <details class="policy-editor-group" open>
-                <summary>Run &amp; child-agent budgets</summary>
+                <div class="form-row">
+                  <label>Learning mode<select id="agent-edit-learning"><option value="Off">Off</option><option value="Observe">Observe only</option><option value="Propose">Propose improvements</option><option value="ScopedAuto">Scoped automatic canaries</option></select></label>
+                  <label>Mutable skill scope<select id="agent-edit-mutable-scope"><option value="None">None</option><option value="ProposalWorkspaceOnly">Proposal workspace only</option><option value="ApprovedSkillClasses">Approved skill classes</option></select></label>
+                </div>
+              </section>
+
+              <details class="policy-editor-group advanced-policy-group">
+                <summary>Advanced policy and budgets</summary>
+                <p class="field-note">These values are version-bound safety controls. The common capability switches above keep the raw grants synchronized.</p>
                 <div class="form-row three-column-row">
                   <label>Max turns<input id="agent-edit-max-turns" type="number" min="1" max="1000" required></label>
-                  <label>Max tool calls<input id="agent-edit-max-tools" type="number" min="0" max="1000" required></label>
                   <label>Wall clock seconds<input id="agent-edit-max-wall" type="number" min="1" max="86400" required></label>
+                  <label>Input-token budget<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
                 </div>
                 <div class="form-row">
-                  <label>Run input-token budget<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
-                  <label>Maximum output tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" required></label>
+                  <label>Primary provider<select id="agent-edit-provider" required></select></label>
+                  <label>Data locality<select id="agent-edit-locality"><option value="LocalOnly">Local only</option><option value="CloudAllowed">Cloud allowed</option></select></label>
                 </div>
-                <div class="context-policy-editor">
-                  <div class="context-capacity-summary">
-                    <span>Endpoint-discovered context</span>
-                    <strong id="agent-edit-context-discovered">Not discovered</strong>
-                    <small id="agent-edit-context-effective">Effective fallback: run input budget</small>
-                  </div>
-                  <div class="form-row">
-                    <label>Lower context override <span class="optional">optional</span><input id="agent-edit-context-override" type="number" min="1" max="100000000" placeholder="Use discovered ceiling"></label>
-                    <label>Protect recent turns<input id="agent-edit-context-recent-turns" type="number" min="1" max="32" required></label>
-                  </div>
-                  <label class="inline-check"><input id="agent-edit-context-compression" type="checkbox"> Compress older conversation context near capacity</label>
-                  <div class="form-row">
-                    <label>Compression starts at %<input id="agent-edit-context-threshold" type="number" min="50" max="95" required></label>
-                    <label>Compression target %<input id="agent-edit-context-target" type="number" min="10" max="75" required></label>
-                  </div>
-                  <p class="field-note">Discovery is the hard ceiling. An override can only lower it; the full transcript remains durable when older active context is compressed.</p>
+                <label class="inline-check"><input id="agent-edit-fallback" type="checkbox"> Allow model fallback</label>
+                <div class="form-row">
+                  <label>Network boundary<select id="agent-edit-network"><option value="Denied">No tool network</option><option value="LoopbackOnly">Loopback tools only</option><option value="ApprovedEndpointsOnly">Fixed approved endpoints</option></select></label>
+                  <label>Protect recent turns<input id="agent-edit-context-recent-turns" type="number" min="1" max="32" required></label>
                 </div>
+                <div class="form-row"><label>Compression target %<input id="agent-edit-context-target" type="number" min="10" max="75" required></label><label>Raw tool grants <span class="optional">one capability ID per line</span><textarea id="agent-edit-tool-grants" rows="3"></textarea></label></div>
                 <div class="form-row four-column-row">
                   <label>Child depth<input id="agent-edit-child-depth" type="number" min="0" max="16" required></label>
                   <label>Children<input id="agent-edit-children" type="number" min="0" max="100" required></label>
@@ -431,25 +431,22 @@
                   <label>Child tokens<input id="agent-edit-child-tokens" type="number" min="0" required></label>
                 </div>
               </details>
-              <details class="policy-editor-group" open>
-                <summary>Governed learning</summary>
-                <div class="form-row">
-                  <label>Learning mode<select id="agent-edit-learning">
-                    <option value="Off">Off</option>
-                    <option value="Observe">Observe</option>
-                    <option value="Propose">Propose</option>
-                    <option value="ScopedAuto">Scoped auto</option>
-                  </select></label>
-                  <label>Mutable skill scope<select id="agent-edit-mutable-scope">
-                    <option value="None">None</option>
-                    <option value="ProposalWorkspaceOnly">Proposal workspace only</option>
-                    <option value="ApprovedSkillClasses">Approved skill classes</option>
-                  </select></label>
+              <div class="stage-actions">
+                <button id="agent-profile-submit" class="setup-submit" type="submit">Review and save changes</button>
+              </div>
+            </form>
+
+            <form id="agent-model-form" class="setup-form agent-model-compact" autocomplete="off">
+              <details class="policy-editor-group">
+                <summary>Change pinned model</summary>
+                <p>The endpoint and credential stay unchanged. AgentForge discovers models and runs a bounded verification before saving.</p>
+                <div id="agent-provider-summary" class="policy-preview"></div>
+                <label>Available model<select id="agent-edit-model" required></select></label>
+                <div class="stage-actions">
+                  <button id="agent-discover-models" class="secondary-action" type="button">Refresh model list</button>
+                  <button class="setup-submit" type="submit">Review model change</button>
                 </div>
               </details>
-              <div class="stage-actions">
-                <button id="agent-profile-submit" class="setup-submit" type="submit">Preview complete policy</button>
-              </div>
             </form>
           </div>
           <div id="agent-edit-review" class="agent-edit-review" hidden>
@@ -521,7 +518,7 @@
             <button class="setup-submit" type="submit">Start run</button>
           </div>
         </form>
-        <div class="scope-notice"><strong>Governed local run</strong><span>Only the pinned local/private model and exact Active skills already granted to this agent may enter the run context. Tools and external side effects remain denied.</span></div>
+        <div class="scope-notice"><strong>Governed local run</strong><span>Only the pinned model and granted skills enter the run context. Granted tools may propose exact actions, but AgentForge pauses before any network, file, or external effect until you approve it.</span></div>
         <article id="run-output" class="interaction-output" aria-live="polite" hidden>
           <div class="resource-title">
             <h3>Agent response</h3>
@@ -534,6 +531,21 @@
             <progress id="run-context-progress" max="100" value="0"></progress>
             <small id="run-context-note"></small>
           </div>
+          <section id="run-search-approval" class="run-search-approval" hidden>
+            <div class="resource-title">
+              <div><span class="stage-kicker">EXACT NETWORK APPROVAL</span><h3>Agent requests Brave Search</h3></div>
+              <span class="state-chip warning">Waiting</span>
+            </div>
+            <p id="run-search-query" class="search-request-query"></p>
+            <div id="run-search-preview" class="review-grid" hidden></div>
+            <code id="run-search-preview-hash" class="preview-hash" hidden></code>
+            <p id="run-search-warning" class="field-note">No network request has been made. Review the exact query before deciding.</p>
+            <div class="resource-actions">
+              <button id="run-search-deny" class="secondary-action danger-action" type="button">Review denial</button>
+              <button id="run-search-approve" class="setup-submit" type="button">Review approval</button>
+              <button id="run-search-apply" class="setup-submit" type="button" hidden>Apply exact decision</button>
+            </div>
+          </section>
           <div class="resource-actions">
             <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
           </div>

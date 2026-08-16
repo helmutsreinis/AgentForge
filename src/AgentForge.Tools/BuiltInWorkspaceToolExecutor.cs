@@ -7,8 +7,28 @@ using AgentForge.Domain.Tools;
 
 namespace AgentForge.Tools;
 
-internal sealed class BuiltInWorkspaceToolExecutor(IClock clock) : IBuiltInToolExecutor
+internal sealed class BuiltInToolExecutor(
+    IEnumerable<IBuiltInToolHandler> handlers) : IBuiltInToolExecutor
 {
+    public Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
+        BuiltInToolExecutionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var handler = handlers.SingleOrDefault(item => item.CanHandle(request.HandlerId));
+        return handler is null
+            ? Task.FromResult(DomainResult.Fail<ProcessExecutionResult>(new DomainFailure(
+                FailureCode.UnsupportedCapability,
+                "The built-in tool handler is not available.")))
+            : handler.ExecuteAsync(request, cancellationToken);
+    }
+}
+
+internal sealed class BuiltInWorkspaceToolHandler(IClock clock) : IBuiltInToolHandler
+{
+    public bool CanHandle(string handlerId) =>
+        handlerId is "workspace.list" or "workspace.read-text";
+
     public Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
         BuiltInToolExecutionRequest request,
         CancellationToken cancellationToken)

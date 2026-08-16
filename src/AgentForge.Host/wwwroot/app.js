@@ -81,6 +81,8 @@ const elements = {
   agentEditMemoryScope: document.querySelector("#agent-edit-memory-scope"),
   agentEditRetention: document.querySelector("#agent-edit-retention"),
   agentEditNetwork: document.querySelector("#agent-edit-network"),
+  agentEditSearch: document.querySelector("#agent-edit-search"),
+  agentEditWorkspaceRead: document.querySelector("#agent-edit-workspace-read"),
   agentEditToolGrants: document.querySelector("#agent-edit-tool-grants"),
   agentEditSkillGrants: document.querySelector("#agent-edit-skill-grants"),
   agentEditMaxTurns: document.querySelector("#agent-edit-max-turns"),
@@ -130,6 +132,14 @@ const elements = {
   runContextProgress: document.querySelector("#run-context-progress"),
   runContextNote: document.querySelector("#run-context-note"),
   cancelInteraction: document.querySelector("#cancel-interaction"),
+  runSearchApproval: document.querySelector("#run-search-approval"),
+  runSearchQuery: document.querySelector("#run-search-query"),
+  runSearchPreview: document.querySelector("#run-search-preview"),
+  runSearchPreviewHash: document.querySelector("#run-search-preview-hash"),
+  runSearchWarning: document.querySelector("#run-search-warning"),
+  runSearchDeny: document.querySelector("#run-search-deny"),
+  runSearchApprove: document.querySelector("#run-search-approve"),
+  runSearchApply: document.querySelector("#run-search-apply"),
   runDetails: document.querySelector("#run-details"),
   runDetailsTitle: document.querySelector("#run-details-title"),
   runDetailsMeta: document.querySelector("#run-details-meta"),
@@ -336,6 +346,7 @@ const admin = {
   researchReceipt: null,
   braveConfiguration: null,
   braveConfigurationPreview: null,
+  pendingSearchApproval: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
 if (!isLoopbackBrowser) {
@@ -789,6 +800,9 @@ function closeAgentEditor() {
 }
 
 function populateProviderOptions(providers, selectedId) {
+  const selectedValue = typeof selectedId === "object" && selectedId !== null
+    ? selectedId.value
+    : selectedId;
   elements.agentEditProvider.replaceChildren();
   for (const provider of providers) {
     const option = document.createElement("option");
@@ -797,7 +811,7 @@ function populateProviderOptions(providers, selectedId) {
     option.textContent = `${provider.name} · ${provider.model} · v${provider.version}`;
     elements.agentEditProvider.append(option);
   }
-  elements.agentEditProvider.value = selectedId ?? providers[0]?.id ?? "";
+  elements.agentEditProvider.value = selectedValue ?? providers[0]?.id ?? "";
 }
 
 function writeGrantList(element, grants) {
@@ -808,6 +822,30 @@ function readGrantList(element) {
   return element.value.split(/\r?\n|,/).map(value => value.trim()).filter(Boolean);
 }
 
+function setAgentGrant(capabilityId, enabled) {
+  const grants = new Set(readGrantList(elements.agentEditToolGrants));
+  if (enabled) grants.add(capabilityId);
+  else grants.delete(capabilityId);
+  writeGrantList(elements.agentEditToolGrants, [...grants].sort());
+}
+
+function syncFriendlyCapabilitiesFromPolicy() {
+  const grants = readGrantList(elements.agentEditToolGrants);
+  elements.agentEditSearch.checked = grants.includes("tool:search.web");
+  elements.agentEditWorkspaceRead.checked = grants.includes("tool:workspace.read");
+}
+
+function updateFriendlyCapability(capabilityId, enabled) {
+  setAgentGrant(capabilityId, enabled);
+  const grants = readGrantList(elements.agentEditToolGrants);
+  if (capabilityId === "tool:search.web") {
+    if (enabled) elements.agentEditNetwork.value = "ApprovedEndpointsOnly";
+    else if (elements.agentEditNetwork.value === "ApprovedEndpointsOnly") elements.agentEditNetwork.value = "Denied";
+  }
+  if (grants.length === 0) elements.agentEditMaxTools.value = 0;
+  else if (Number(elements.agentEditMaxTools.value) === 0) elements.agentEditMaxTools.value = 5;
+}
+
 function populateCompletePolicy(agent, providers) {
   populateProviderOptions(providers, agent.modelPolicy.primaryProviderProfileId);
   elements.agentEditLocality.value = agent.modelPolicy.dataLocality;
@@ -816,6 +854,7 @@ function populateCompletePolicy(agent, providers) {
   elements.agentEditRetention.value = agent.memoryPolicy.retentionDays;
   elements.agentEditNetwork.value = agent.capabilityPolicy.networkPosture;
   writeGrantList(elements.agentEditToolGrants, agent.capabilityPolicy.toolGrants);
+  syncFriendlyCapabilitiesFromPolicy();
   writeGrantList(elements.agentEditSkillGrants, agent.capabilityPolicy.skillGrants);
   elements.agentEditMaxTurns.value = agent.budget.maxTurns;
   elements.agentEditMaxTools.value = agent.budget.maxToolInvocations;
@@ -907,7 +946,7 @@ async function openAgentEditor(agentId) {
     elements.agentEditStyle.value = payload.agent.responseStyle;
     elements.agentEditWorkspace.value = payload.agent.defaultWorkspace ?? "";
     populateCompletePolicy(payload.agent, payload.providers);
-    elements.agentProfileSubmit.textContent = "Preview complete policy";
+    elements.agentProfileSubmit.textContent = "Review and save changes";
     setAgentEditorStatus("Agent loaded. Fetching the endpoint's current model and context catalog…", "ok");
     elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
     await discoverAgentModels(true);
@@ -1283,15 +1322,21 @@ async function openRunDetails(conversationId) {
       elements.runTranscript.append(turn);
     }
     const latest = payload.turns[payload.turns.length - 1];
+    const pendingSearch = (payload.toolCalls || []).find(item =>
+      item.turnId === latest.id && item.state === "AwaitingApproval");
+    if (pendingSearch) showRunSearchApproval(payload.run.conversationId, latest.id, pendingSearch);
+    else if (admin.pendingSearchApproval?.conversationId === payload.run.conversationId) resetRunSearchApproval();
     const agent = admin.agents.find(item => item.id === payload.run.agentId);
     const maximum = Math.min(262144, Number(agent?.budget?.maxOutputTokens || 262144));
     elements.runFollowUpTokens.max = maximum;
     if (Number(elements.runFollowUpTokens.value) > maximum) elements.runFollowUpTokens.value = maximum;
     elements.continueRun.disabled = !payload.run.canContinue;
     elements.runFollowUp.disabled = !payload.run.canContinue;
-    elements.resumeRunTurn.hidden = !payload.run.resumable;
+    elements.resumeRunTurn.hidden = !payload.run.resumable || Boolean(pendingSearch);
     elements.resumeRunTurn.dataset.turnId = latest.id;
-    elements.runContinueHelp.textContent = payload.run.resumable
+    elements.runContinueHelp.textContent = pendingSearch
+      ? "This turn is safely paused. Review the exact Brave query above before the model can continue."
+      : payload.run.resumable
       ? "This turn has durable input but no final assistant artifact. Resume will reclaim only an expired or ready retry lease."
       : payload.run.canContinue
         ? "A follow-up creates a new durable task and supplies bounded prior turns to the exact pinned model."
@@ -1316,6 +1361,92 @@ function renderActiveContext(payload) {
       : `Compression disabled · ${payload.source}.`;
 }
 
+function resetRunSearchApproval() {
+  admin.pendingSearchApproval = null;
+  elements.runSearchApproval.hidden = true;
+  elements.runSearchPreview.hidden = true;
+  elements.runSearchPreviewHash.hidden = true;
+  elements.runSearchApply.hidden = true;
+  elements.runSearchApprove.hidden = false;
+  elements.runSearchDeny.hidden = false;
+}
+
+function showRunSearchApproval(conversationId, turnId, toolCall) {
+  const args = toolCall.arguments || {};
+  admin.pendingSearchApproval = {
+    conversationId,
+    turnId,
+    toolCallId: toolCall.toolCallId,
+    query: args.query || "",
+    maximumResults: Number(args.maximumResults || 5),
+    previewHash: null,
+    disposition: null,
+  };
+  elements.runSearchApproval.hidden = false;
+  elements.runSearchQuery.textContent = `“${admin.pendingSearchApproval.query}” · up to ${admin.pendingSearchApproval.maximumResults} cited result${admin.pendingSearchApproval.maximumResults === 1 ? "" : "s"}`;
+  elements.runSearchPreview.replaceChildren();
+  elements.runSearchPreview.hidden = true;
+  elements.runSearchPreviewHash.hidden = true;
+  elements.runSearchApply.hidden = true;
+  elements.runSearchApprove.hidden = false;
+  elements.runSearchDeny.hidden = false;
+  elements.runSearchWarning.textContent = "No network request has been made. Review the exact query before deciding.";
+}
+
+async function previewRunSearch(disposition) {
+  const pending = admin.pendingSearchApproval;
+  if (!pending) return;
+  setBusy(elements.runSearchApproval, true);
+  try {
+    const preview = await adminMutation(
+      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/search/preview`,
+      { disposition, approvalSeconds: 300 });
+    pending.previewHash = preview.previewHash;
+    pending.disposition = disposition;
+    elements.runSearchPreview.replaceChildren();
+    addMeta(elements.runSearchPreview, "Decision", disposition === "deny" ? "Deny; no network request" : "Approve one search");
+    addMeta(elements.runSearchPreview, "Exact query", preview.query);
+    addMeta(elements.runSearchPreview, "Result limit", String(preview.maximumResults));
+    addMeta(elements.runSearchPreview, "Destination", preview.endpoint);
+    addMeta(elements.runSearchPreview, "Credential", "OS-backed; never sent to the model");
+    addMeta(elements.runSearchPreview, "Expires", new Date(preview.expiresAt).toLocaleTimeString());
+    elements.runSearchPreview.hidden = false;
+    elements.runSearchPreviewHash.textContent = preview.previewHash;
+    elements.runSearchPreviewHash.hidden = false;
+    elements.runSearchWarning.textContent = preview.warning;
+    elements.runSearchApprove.hidden = true;
+    elements.runSearchDeny.hidden = true;
+    elements.runSearchApply.hidden = false;
+    elements.runSearchApply.textContent = disposition === "deny" ? "Confirm denial" : "Approve and continue";
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The exact search decision could not be previewed.", "error");
+  } finally {
+    setBusy(elements.runSearchApproval, false);
+  }
+}
+
+async function applyRunSearch() {
+  const pending = admin.pendingSearchApproval;
+  if (!pending?.previewHash) return;
+  setBusy(elements.runSearchApproval, true);
+  try {
+    const result = await adminMutation(
+      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/search/apply`,
+      { previewHash: pending.previewHash });
+    workspaceStatus(elements.runsMessage,
+      result.denied ? "Search denied. Returning the decision to the agent…" : "Approved Brave results attached with citations. Resuming the agent…",
+      "ok");
+    const conversationId = pending.conversationId;
+    resetRunSearchApproval();
+    await openRunDetails(conversationId);
+    await resumeRunConversation();
+  } catch (error) {
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The search decision could not be applied.", "error");
+  } finally {
+    setBusy(elements.runSearchApproval, false);
+  }
+}
+
 async function streamConversationTurn(path, body, startingMessage) {
   elements.runOutput.hidden = false;
   elements.runOutputState.textContent = "Starting";
@@ -1325,6 +1456,7 @@ async function streamConversationTurn(path, body, startingMessage) {
   elements.runContextMeter.hidden = true;
   elements.cancelInteraction.hidden = true;
   admin.activeTaskId = null;
+  resetRunSearchApproval();
   let terminalEvent = null;
   let providerLabel = "Pinned local model";
   let usageLabel = "Token usage pending";
@@ -1351,6 +1483,13 @@ async function streamConversationTurn(path, body, startingMessage) {
       elements.runOutputState.className = "state-chip completed";
       elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel} · ${payload.finishReason}`;
       elements.cancelInteraction.hidden = true;
+    } else if (eventName === "approval-required") {
+      terminalEvent = eventName;
+      elements.runOutputState.textContent = "Approval required";
+      elements.runOutputState.className = "state-chip warning";
+      elements.runOutputMeta.textContent = `${providerLabel} · waiting for exact Brave query approval`;
+      elements.cancelInteraction.hidden = true;
+      showRunSearchApproval(payload.run.conversationId, payload.run.nodes.at(-1).id, payload.toolCall);
     } else if (eventName === "failed") {
       terminalEvent = eventName;
       elements.runOutputState.textContent = payload.resumable ? "Needs resume" : "Failed";
@@ -1443,11 +1582,12 @@ async function createRun(event) {
   elements.cancelInteraction.hidden = true;
   elements.cancelInteraction.disabled = false;
   admin.activeTaskId = null;
+  resetRunSearchApproval();
   try {
     const prompt = document.querySelector("#run-prompt").value.trim();
     const skillIds = [...elements.runSkills.querySelectorAll("input[type='checkbox']:checked")]
       .map(input => input.value);
-    workspaceStatus(elements.runsMessage, "Invoking the pinned local model with tools and fallback disabled…");
+    workspaceStatus(elements.runsMessage, "Invoking the pinned local model within the displayed governed boundaries…");
     let providerLabel = "Pinned local model";
     let usageLabel = "Token usage pending";
     let terminalMessage = "Local model stream ended.";
@@ -1495,6 +1635,14 @@ async function createRun(event) {
           elements.runOutputState.className = "state-chip completed";
           elements.runOutputMeta.textContent = `${providerLabel} · ${usageLabel} · ${payload.finishReason}`;
           elements.cancelInteraction.hidden = true;
+        } else if (eventName === "approval-required") {
+          terminalEvent = eventName;
+          terminalMessage = "The run is paused for an exact Brave Search decision.";
+          elements.runOutputState.textContent = "Approval required";
+          elements.runOutputState.className = "state-chip warning";
+          elements.runOutputMeta.textContent = `${providerLabel} · waiting for exact search approval`;
+          elements.cancelInteraction.hidden = true;
+          showRunSearchApproval(payload.run.conversationId, payload.run.nodes.at(-1).id, payload.toolCall);
         } else if (eventName === "canceled") {
           terminalEvent = eventName;
           terminalMessage = "Interaction canceled. Durable cancellation receipt loaded below.";
@@ -3391,7 +3539,15 @@ elements.agentEditLearning.addEventListener("change", () => {
 elements.agentEditToolGrants.addEventListener("input", () => {
   if (readGrantList(elements.agentEditToolGrants).length === 0) elements.agentEditMaxTools.value = 0;
   else if (Number(elements.agentEditMaxTools.value) === 0) elements.agentEditMaxTools.value = 10;
+  syncFriendlyCapabilitiesFromPolicy();
 });
+elements.agentEditSearch.addEventListener("change", () =>
+  updateFriendlyCapability("tool:search.web", elements.agentEditSearch.checked));
+elements.agentEditWorkspaceRead.addEventListener("change", () =>
+  updateFriendlyCapability("tool:workspace.read", elements.agentEditWorkspaceRead.checked));
+elements.runSearchApprove.addEventListener("click", () => previewRunSearch("grant"));
+elements.runSearchDeny.addEventListener("click", () => previewRunSearch("deny"));
+elements.runSearchApply.addEventListener("click", applyRunSearch);
 elements.agentEditContextOverride.addEventListener("input", refreshEffectiveContext);
 elements.agentEditMaxInput.addEventListener("input", refreshEffectiveContext);
 elements.agentEditMaxOutput.addEventListener("input", refreshEffectiveContext);

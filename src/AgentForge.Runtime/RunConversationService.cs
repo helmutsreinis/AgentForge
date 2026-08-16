@@ -256,6 +256,78 @@ internal sealed class RunConversationService(
             : DomainResult.Fail<RunConversationMutationResult>(failed.Failure!);
     }
 
+    public async Task<DomainResult<RunConversationMutationResult>> AwaitToolApprovalAsync(
+        RunConversationId conversationId,
+        long expectedVersion,
+        RunConversationTurnId turnId,
+        LocalModelToolCall toolCall,
+        string evidenceHash,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(toolCall);
+        if (!Content(toolCall.ToolCallId, 256) || !Content(toolCall.ToolName, 128) ||
+            !Content(toolCall.ArgumentsJson, 16_384))
+        {
+            return Invalid("The model tool request is not bounded printable content.");
+        }
+
+        var current = await ReadCurrentAsync(conversationId, expectedVersion, cancellationToken);
+        if (!current.IsSuccess) return DomainResult.Fail<RunConversationMutationResult>(current.Failure!);
+        var arguments = RedactText(toolCall.ArgumentsJson);
+        var occurredAt = AtLeast(clock.UtcNow, current.Value.UpdatedAt);
+        var pending = new RunConversationToolCall(
+            turnId,
+            toolCall.ToolCallId,
+            toolCall.ToolName,
+            arguments.Text,
+            HashText($"v1\n{turnId.Value:D}\n{toolCall.ToolCallId}\n{toolCall.ToolName}\n{arguments.Text}"),
+            RunConversationToolCallState.AwaitingApproval,
+            null,
+            null,
+            false,
+            occurredAt,
+            occurredAt);
+        var awaiting = RunConversationStateMachine.AwaitToolApproval(
+            current.Value, turnId, pending, evidenceHash, occurredAt);
+        return awaiting.IsSuccess
+            ? await PersistAsync(awaiting.Value, awaiting.Value.Turns[^1],
+                "runtime.conversation-tool-approval-required", arguments.Redactions, cancellationToken)
+            : DomainResult.Fail<RunConversationMutationResult>(awaiting.Failure!);
+    }
+
+    public async Task<DomainResult<RunConversationMutationResult>> ResolveToolCallAsync(
+        RunConversationId conversationId,
+        long expectedVersion,
+        RunConversationTurnId turnId,
+        string toolCallId,
+        string resultJson,
+        bool isError,
+        bool denied,
+        CancellationToken cancellationToken)
+    {
+        if (!Content(toolCallId, 256) || !Content(resultJson, 65_536))
+        {
+            return Invalid("The tool decision result is not bounded printable content.");
+        }
+        var current = await ReadCurrentAsync(conversationId, expectedVersion, cancellationToken);
+        if (!current.IsSuccess) return DomainResult.Fail<RunConversationMutationResult>(current.Failure!);
+        var result = RedactText(resultJson);
+        var resolved = RunConversationStateMachine.ResolveToolCall(
+            current.Value,
+            turnId,
+            toolCallId,
+            result.Text,
+            HashText(result.Text),
+            isError,
+            denied,
+            AtLeast(clock.UtcNow, current.Value.UpdatedAt));
+        return resolved.IsSuccess
+            ? await PersistAsync(resolved.Value, resolved.Value.Turns[^1],
+                denied ? "runtime.conversation-tool-denied" : "runtime.conversation-tool-executed",
+                result.Redactions, cancellationToken)
+            : DomainResult.Fail<RunConversationMutationResult>(resolved.Failure!);
+    }
+
     public async Task<DomainResult<RunConversationMutationResult>> CancelTurnAsync(
         RunConversationId conversationId,
         long expectedVersion,

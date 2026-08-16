@@ -117,6 +117,24 @@ public interface IRunConversationService
         string evidenceHash,
         CancellationToken cancellationToken);
 
+    Task<DomainResult<RunConversationMutationResult>> AwaitToolApprovalAsync(
+        RunConversationId conversationId,
+        long expectedVersion,
+        RunConversationTurnId turnId,
+        LocalModelToolCall toolCall,
+        string evidenceHash,
+        CancellationToken cancellationToken);
+
+    Task<DomainResult<RunConversationMutationResult>> ResolveToolCallAsync(
+        RunConversationId conversationId,
+        long expectedVersion,
+        RunConversationTurnId turnId,
+        string toolCallId,
+        string resultJson,
+        bool isError,
+        bool denied,
+        CancellationToken cancellationToken);
+
     Task<DomainResult<RunConversationMutationResult>> CancelTurnAsync(
         RunConversationId conversationId,
         long expectedVersion,

@@ -1,16 +1,23 @@
+using System.Text;
+using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
+using AgentForge.Abstractions.Security;
+using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Runtime;
+using AgentForge.Domain.Security;
+using AgentForge.Domain.Tools;
 
 namespace AgentForge.Host.Http;
 
@@ -18,6 +25,10 @@ internal sealed record ContinueRunConversationRequest(
     string Prompt,
     string? ResponseDepth,
     int? MaximumOutputTokens);
+
+internal sealed record ConversationSearchPreviewRequest(
+    string Disposition = "grant",
+    int ApprovalSeconds = 300);
 
 internal sealed record PreparedConversationContext(
     IReadOnlyList<ModelMessage> History,
@@ -34,6 +45,267 @@ internal sealed record PreparedConversationContext(
 internal static partial class ReadyAdminEndpoints
 {
     private const string ConversationStreamOwner = "ready-ui:durable-conversation";
+    private const string BraveSearchEndpoint = "https://api.search.brave.com/res/v1/web/search";
+
+    private static async Task<IResult> PreviewConversationSearchAsync(
+        Guid conversationId,
+        Guid turnId,
+        ConversationSearchPreviewRequest request,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        IToolInvocationPlanner planner,
+        ICapabilityApprovalService approvalService,
+        ILocalAdministratorRepository administrators,
+        ISecretStore secretStore,
+        IRunConversationService conversations,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null) return acquired.Failure;
+        if (!string.Equals(request.Disposition, "grant", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.Disposition, "deny", StringComparison.OrdinalIgnoreCase))
+        {
+            return Problem(context, 400, "Invalid search decision",
+                "Choose either grant or deny for this exact search request.", "validation-failure");
+        }
+        var disposition = string.Equals(request.Disposition, "deny", StringComparison.OrdinalIgnoreCase)
+            ? CapabilityApprovalDisposition.Deny
+            : CapabilityApprovalDisposition.Grant;
+        if (request.ApprovalSeconds is < 30 or > 600)
+        {
+            return Problem(context, 400, "Invalid approval lifetime",
+                "Choose an exact approval lifetime from 30 to 600 seconds.", "validation-failure");
+        }
+
+        var session = acquired.Session!;
+        var details = await conversations.GetDetailsAsync(new RunConversationId(conversationId), cancellationToken);
+        if (!details.IsSuccess || details.Value.Snapshot.InstallationId != session.InstallationId)
+        {
+            return Problem(context, 404, "Search request not found",
+                "No matching durable agent search request exists.", "not-found");
+        }
+        var pending = details.Value.Snapshot.ToolCalls.SingleOrDefault(item =>
+            item.TurnId.Value == turnId && item.State is RunConversationToolCallState.AwaitingApproval);
+        if (pending is null || !string.Equals(pending.ToolName, "search_web", StringComparison.Ordinal))
+        {
+            return Problem(context, 409, "Search approval is not pending",
+                "Reload the run; its current turn has no search request awaiting approval.", "concurrency-conflict");
+        }
+        var parameters = ConversationSearchParameters(pending.ArgumentsJson);
+        if (!parameters.IsSuccess) return DomainProblem(context, parameters.Failure!, "Search request is invalid");
+
+        var installation = await stateReader.ReadAsync(cancellationToken);
+        var correlation = new CorrelationId($"run-search:{conversationId:D}:{turnId:D}");
+        var workspace = Path.GetFullPath(AppContext.BaseDirectory);
+        var planned = await planner.PlanAsync(new ToolInvocationPlanRequest(
+            installation.Version,
+            details.Value.Snapshot.AgentId,
+            details.Value.Snapshot.AgentVersion,
+            session.ActorId,
+            "tool:search.brave",
+            "1.0.0",
+            parameters.Value,
+            workspace,
+            correlation,
+            details.Value.Snapshot.CorrelationId), cancellationToken);
+        if (!planned.IsSuccess) return DomainProblem(context, planned.Failure!, "Search request denied");
+
+        var credential = await MaterializeAdministratorCredentialAsync(
+            session.InstallationId, administrators, secretStore, cancellationToken);
+        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Search approval preview failed");
+        var expiresAt = clock.UtcNow.AddSeconds(request.ApprovalSeconds);
+        DomainResult<CapabilityApprovalPreview> preview;
+        await using (var lease = credential.Value)
+        {
+            preview = await approvalService.PreviewAsync(new PreviewCapabilityApprovalRequest(
+                planned.Value.Invocation,
+                disposition,
+                expiresAt,
+                session.ActorId,
+                correlation,
+                lease.Value), cancellationToken);
+        }
+        if (!preview.IsSuccess) return DomainProblem(context, preview.Failure!, "Search approval preview failed");
+
+        RetainBoundedPreviews(session.ConversationToolPreviews, 7);
+        session.ConversationToolPreviews[preview.Value.PreviewHash] = new ReadyConversationToolPreview(
+            details.Value.Snapshot.Id,
+            pending.TurnId,
+            pending.ToolCallId,
+            new ReadyToolInvocationPreview(
+                planned.Value, parameters.Value, disposition, expiresAt, correlation, preview.Value.PreviewHash));
+        return Results.Ok(new
+        {
+            previewHash = preview.Value.PreviewHash,
+            requestHash = preview.Value.RequestHash,
+            disposition = disposition.ToString(),
+            expiresAt,
+            query = parameters.Value["query"].Text,
+            maximumResults = parameters.Value["maximumResults"].WholeNumber,
+            endpoint = BraveSearchEndpoint,
+            risk = "Credential-isolated read from one fixed endpoint",
+            warning = disposition is CapabilityApprovalDisposition.Grant
+                ? "This exact query is approved once. The credential remains OS-backed and hidden from the model."
+                : "The model receives a denial result and no network request is made.",
+        });
+    }
+
+    private static async Task<IResult> ApplyConversationSearchAsync(
+        Guid conversationId,
+        Guid turnId,
+        ReadyEditApplyWebRequest request,
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        ICapabilityApprovalService approvalService,
+        IToolInvocationService invocationService,
+        ILocalAdministratorRepository administrators,
+        ISecretStore secretStore,
+        IRunConversationService conversations,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null) return acquired.Failure;
+        var session = acquired.Session!;
+        if (!Text(request.PreviewHash, 128) ||
+            !session.ConversationToolPreviews.TryGetValue(request.PreviewHash, out var stored) ||
+            stored.ConversationId.Value != conversationId || stored.TurnId.Value != turnId ||
+            stored.Invocation.ExpiresAt <= clock.UtcNow)
+        {
+            return Problem(context, 409, "Search preview unavailable",
+                "Preview this exact pending query again before applying the decision.", "approval-expired");
+        }
+
+        var details = await conversations.GetDetailsAsync(stored.ConversationId, cancellationToken);
+        var pending = details.IsSuccess
+            ? details.Value.Snapshot.ToolCalls.SingleOrDefault(item =>
+                item.TurnId == stored.TurnId && item.ToolCallId == stored.ToolCallId &&
+                item.State is RunConversationToolCallState.AwaitingApproval)
+            : null;
+        if (pending is null)
+        {
+            return Problem(context, 409, "Search request changed",
+                "The pending run changed after preview; reload it before continuing.", "concurrency-conflict");
+        }
+
+        var credential = await MaterializeAdministratorCredentialAsync(
+            session.InstallationId, administrators, secretStore, cancellationToken);
+        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Search approval failed");
+        DomainResult<CapabilityApproval> approval;
+        await using (var lease = credential.Value)
+        {
+            approval = await approvalService.ApplyAsync(new ApplyCapabilityApprovalRequest(
+                stored.Invocation.Plan.Invocation,
+                stored.Invocation.Disposition,
+                stored.Invocation.ExpiresAt,
+                stored.Invocation.PreviewHash,
+                $"run-search-approval:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
+                session.ActorId,
+                stored.Invocation.CorrelationId,
+                lease.Value), cancellationToken);
+        }
+        if (!approval.IsSuccess) return DomainProblem(context, approval.Failure!, "Search approval failed");
+
+        string resultJson;
+        var denied = stored.Invocation.Disposition is CapabilityApprovalDisposition.Deny;
+        var isError = denied;
+        Guid? invocationId = null;
+        if (denied)
+        {
+            resultJson = JsonSerializer.Serialize(new
+            {
+                error = "The operator denied this exact search query.",
+                citations = Array.Empty<object>(),
+            });
+        }
+        else
+        {
+            var invocation = await invocationService.InvokeAsync(new ToolInvocationRequest(
+                stored.Invocation.Plan.Invocation.InstallationVersion,
+                stored.Invocation.Plan.Invocation.AgentId,
+                stored.Invocation.Plan.Invocation.AgentVersion,
+                session.ActorId,
+                "tool:search.brave",
+                "1.0.0",
+                stored.Invocation.Parameters,
+                stored.Invocation.Plan.Authorization.NormalizedWorkspace!,
+                $"run-search:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
+                stored.Invocation.CorrelationId,
+                details.Value.Snapshot.CorrelationId), null, cancellationToken);
+            if (!invocation.IsSuccess) return DomainProblem(context, invocation.Failure!, "Approved search failed");
+            resultJson = Encoding.UTF8.GetString(invocation.Value.StandardOutput);
+            invocationId = invocation.Value.Invocation.Id.Value;
+        }
+
+        var resolved = await conversations.ResolveToolCallAsync(
+            stored.ConversationId,
+            details.Value.Snapshot.Version,
+            stored.TurnId,
+            stored.ToolCallId,
+            resultJson,
+            isError,
+            denied,
+            cancellationToken);
+        if (!resolved.IsSuccess) return DomainProblem(context, resolved.Failure!, "Search result could not be attached");
+        session.ConversationToolPreviews.TryRemove(request.PreviewHash, out _);
+        return Results.Ok(new
+        {
+            approvalId = approval.Value.Id.Value,
+            invocationId,
+            denied,
+            executed = !denied,
+            conversationVersion = resolved.Value.Snapshot.Version,
+            resumePath = $"/api/v1/admin/runs/{conversationId:D}/turns/{turnId:D}/resume-stream",
+        });
+    }
+
+    private static DomainResult<IReadOnlyDictionary<string, ToolParameterValue>> ConversationSearchParameters(
+        string argumentsJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            var root = document.RootElement;
+            var properties = root.ValueKind is JsonValueKind.Object
+                ? root.EnumerateObject().ToArray()
+                : [];
+            if (root.ValueKind is not JsonValueKind.Object || properties.Length is > 2 ||
+                properties.Select(item => item.Name).Distinct(StringComparer.Ordinal).Count() != properties.Length ||
+                properties.Any(item => item.Name is not ("query" or "maximumResults")) ||
+                !root.TryGetProperty("query", out var queryValue) ||
+                queryValue.ValueKind is not JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(queryValue.GetString()) || queryValue.GetString()!.Length > 512)
+            {
+                return InvalidSearchParameters();
+            }
+            var maximumResults = 5L;
+            if (root.TryGetProperty("maximumResults", out var maximumValue) &&
+                (maximumValue.ValueKind is not JsonValueKind.Number ||
+                !maximumValue.TryGetInt64(out maximumResults) || maximumResults is < 1 or > 10))
+            {
+                return InvalidSearchParameters();
+            }
+            return DomainResult.Success<IReadOnlyDictionary<string, ToolParameterValue>>(
+                new Dictionary<string, ToolParameterValue>(StringComparer.Ordinal)
+                {
+                    ["query"] = new(ToolParameterValueKind.Text, queryValue.GetString()!.Trim(), null, null),
+                    ["maximumResults"] = new(ToolParameterValueKind.WholeNumber, null, maximumResults, null),
+                    ["endpoint"] = new(ToolParameterValueKind.Text, BraveSearchEndpoint, null, null),
+                });
+        }
+        catch (JsonException)
+        {
+            return InvalidSearchParameters();
+        }
+    }
+
+    private static DomainResult<IReadOnlyDictionary<string, ToolParameterValue>> InvalidSearchParameters() =>
+        DomainResult.Fail<IReadOnlyDictionary<string, ToolParameterValue>>(new DomainFailure(
+            FailureCode.ValidationFailure,
+            "The model search request must contain one bounded query and an optional result count from 1 to 10."));
 
     private static async Task<IResult> GetRunConversationAsync(
         Guid conversationId,
@@ -167,7 +439,8 @@ internal static partial class ReadyAdminEndpoints
         var definition = ConversationTaskDefinition(
             details.Value.Snapshot,
             added.Value.Turn,
-            authority.Value.Agent.Budget.MaxInputTokens);
+            authority.Value.Agent.Budget.MaxInputTokens,
+            authority.Value.Agent.Budget.MaxToolInvocations);
         var created = await orchestrator.CreateAsync(
             definition,
             session.ActorId,
@@ -287,12 +560,23 @@ internal static partial class ReadyAdminEndpoints
         }
 
         var turn = details.Value.Snapshot.Turns[^1];
+        if (details.Value.Snapshot.ToolCalls.Any(item => item.TurnId == turn.Id &&
+            item.State is RunConversationToolCallState.AwaitingApproval))
+        {
+            await Problem(context, 409, "Search approval required",
+                "Approve or deny the exact pending search request before resuming this turn.",
+                "approval-required").ExecuteAsync(context);
+            return;
+        }
         var currentTask = await taskSnapshots.FindLatestAsync(turn.TaskId, cancellationToken);
         if (currentTask is null)
         {
             var created = await orchestrator.CreateAsync(
                 ConversationTaskDefinition(
-                    details.Value.Snapshot, turn, authority.Value.Agent.Budget.MaxInputTokens),
+                    details.Value.Snapshot,
+                    turn,
+                    authority.Value.Agent.Budget.MaxInputTokens,
+                    authority.Value.Agent.Budget.MaxToolInvocations),
                 session.ActorId,
                 $"resume:{turn.IdempotencyKey}",
                 new CorrelationId($"resume:{turn.TaskId.Value:D}"),
@@ -490,18 +774,27 @@ internal static partial class ReadyAdminEndpoints
             }, context.RequestAborted);
 
             var observer = new SseInteractionObserver(context);
+            var toolContinuation = ConversationToolContinuation(detailsBeforeTurn.Snapshot, turn.Id);
+            var remainingToolCalls = Math.Max(0, agent.Budget.MaxToolInvocations -
+                detailsBeforeTurn.Snapshot.ToolCalls.Count(item => item.TurnId == turn.Id));
+            var searchTools = SearchToolEnabled(agent, provider) && remainingToolCalls > 0
+                ? new[] { BraveSearchModelTool() }
+                : [];
+            var interactionProvider = SearchToolCallProfile(provider, searchTools.Length > 0);
             var interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
                 new ModelRequestId(turn.TaskId.Value),
-                provider,
+                interactionProvider,
                 detailsBeforeTurn.SystemInstruction,
                 detailsBeforeTurn.Turns.Single(item => item.Turn.Id == turn.Id).Prompt,
                 new ModelInvocationLimits(
                     turn.MaximumOutputTokens,
-                    0,
+                    searchTools.Length > 0 ? 1 : 0,
                     Math.Max(4_096, Math.Min(MaximumInteractiveEvents, turn.MaximumOutputTokens + 512)),
                     turn.MaximumWallClockSeconds),
                 started.Snapshot.CorrelationId,
-                preparedContext.Value.History), observer, linkedCancellation.Token);
+                preparedContext.Value.History,
+                searchTools,
+                toolContinuation), observer, linkedCancellation.Token);
             if (!interaction.IsSuccess)
             {
                 var evidence = SnapshotHash(new
@@ -538,6 +831,93 @@ internal static partial class ReadyAdminEndpoints
                     run = conversationFailed.IsSuccess
                         ? ConversationResponse(conversationFailed.Value.Snapshot)
                         : null,
+                }, context.RequestAborted);
+                return;
+            }
+
+            if (interaction.Value.ToolCalls.Count > 0)
+            {
+                var toolCall = interaction.Value.ToolCalls.Single();
+                if (!string.Equals(toolCall.ToolName, "search_web", StringComparison.Ordinal) ||
+                    searchTools.Length == 0)
+                {
+                    var policyEvidence = SnapshotHash(new
+                    {
+                        TaskId = turn.TaskId.Value,
+                        toolCall.ToolName,
+                        Code = FailureCode.PolicyDenied,
+                    });
+                    await orchestrator.FailAsync(
+                        turn.TaskId,
+                        claimed.Snapshot.Version,
+                        new TaskNodeId("local-model"),
+                        ConversationStreamOwner,
+                        claimed.LeaseToken,
+                        policyEvidence,
+                        FailureCode.PolicyDenied,
+                        retryable: false,
+                        CancellationToken.None);
+                    var conversationDenied = await conversations.FailTurnAsync(
+                        conversationId,
+                        started.Snapshot.Version,
+                        turn.Id,
+                        FailureCode.PolicyDenied,
+                        retryable: false,
+                        policyEvidence,
+                        CancellationToken.None);
+                    await WriteSseAsync(context, "failed", new
+                    {
+                        code = FailureCode.PolicyDenied.ToString(),
+                        message = "The model requested a tool outside its exact agent policy.",
+                        resumable = false,
+                        run = conversationDenied.IsSuccess
+                            ? ConversationResponse(conversationDenied.Value.Snapshot)
+                            : null,
+                    }, context.RequestAborted);
+                    return;
+                }
+                var taskPaused = await orchestrator.FailAsync(
+                    turn.TaskId,
+                    claimed.Snapshot.Version,
+                    new TaskNodeId("local-model"),
+                    ConversationStreamOwner,
+                    claimed.LeaseToken,
+                    interaction.Value.EvidenceHash,
+                    FailureCode.ApprovalRequired,
+                    retryable: true,
+                    CancellationToken.None);
+                var resumable = taskPaused.IsSuccess &&
+                    !OrchestrationTaskStateMachine.IsTerminal(taskPaused.Value.Snapshot.State);
+                var conversationPaused = resumable
+                    ? await conversations.AwaitToolApprovalAsync(
+                        conversationId,
+                        started.Snapshot.Version,
+                        turn.Id,
+                        toolCall,
+                        interaction.Value.EvidenceHash,
+                        CancellationToken.None)
+                    : await conversations.FailTurnAsync(
+                        conversationId,
+                        started.Snapshot.Version,
+                        turn.Id,
+                        FailureCode.BudgetExceeded,
+                        false,
+                        interaction.Value.EvidenceHash,
+                        CancellationToken.None);
+                await WriteSseAsync(context, resumable ? "approval-required" : "failed", new
+                {
+                    code = resumable ? FailureCode.ApprovalRequired.ToString() : FailureCode.BudgetExceeded.ToString(),
+                    message = resumable
+                        ? "The agent requested an exact Brave Search query. Review it before network access."
+                        : "The run exhausted its bounded tool-call attempts.",
+                    resumable,
+                    toolCall = resumable ? new
+                    {
+                        toolCall.ToolCallId,
+                        toolCall.ToolName,
+                        arguments = JsonSerializer.Deserialize<JsonElement>(toolCall.ArgumentsJson),
+                    } : null,
+                    run = conversationPaused.IsSuccess ? ConversationResponse(conversationPaused.Value.Snapshot) : null,
                 }, context.RequestAborted);
                 return;
             }
@@ -758,7 +1138,8 @@ internal static partial class ReadyAdminEndpoints
     private static OrchestrationTaskDefinition ConversationTaskDefinition(
         RunConversationSnapshot conversation,
         RunConversationTurn turn,
-        long maximumInputTokens) => new(
+        long maximumInputTokens,
+        int maximumToolCalls) => new(
         turn.TaskId,
         conversation.InstallationId,
         conversation.AgentId,
@@ -771,11 +1152,11 @@ internal static partial class ReadyAdminEndpoints
             [],
             [turn.PromptArtifact.ContentHash],
             new TaskExecutionBudget(
-                0,
+                maximumToolCalls,
                 maximumInputTokens,
                 turn.MaximumOutputTokens,
                 turn.MaximumWallClockSeconds),
-            new TaskRetryPolicy(2, 0))],
+            new TaskRetryPolicy(Math.Clamp(maximumToolCalls + 2, 2, 32), 0))],
         1,
         0,
         0,
@@ -828,6 +1209,19 @@ internal static partial class ReadyAdminEndpoints
         budgetSnapshotHash = details.Snapshot.BudgetSnapshotHash,
         skillSnapshotHash = details.Snapshot.SkillSnapshotHash,
         context = budget is null ? null : ConversationContextStatus(details, budget),
+        toolCalls = details.Snapshot.ToolCalls.Select(item => new
+        {
+            turnId = item.TurnId.Value,
+            item.ToolCallId,
+            item.ToolName,
+            arguments = JsonSerializer.Deserialize<JsonElement>(item.ArgumentsJson),
+            state = item.State.ToString(),
+            item.RequestHash,
+            item.ResultHash,
+            item.IsError,
+            item.RequestedAt,
+            item.UpdatedAt,
+        }),
         turns = details.Turns.Select(item => new
         {
             id = item.Turn.Id.Value,
@@ -880,5 +1274,48 @@ internal static partial class ReadyAdminEndpoints
             : request.ResponseDepth.Trim().ToLowerInvariant();
         return depth is "concise" or "balanced" or "detailed" or "extended" or "maximum" &&
             request.MaximumOutputTokens is null or >= 1 and <= MaximumInteractiveOutputTokens;
+    }
+
+    private static bool SearchToolEnabled(AgentIdentity agent, ProviderProfile provider) =>
+        agent.Budget.MaxToolInvocations > 0 && SupportsSearchToolTransport(provider) &&
+        agent.CapabilityPolicy.NetworkPosture is NetworkPosture.ApprovedEndpointsOnly &&
+        agent.CapabilityPolicy.ToolGrants.Contains("tool:search.web", StringComparer.Ordinal);
+
+    private static bool SupportsSearchToolTransport(ProviderProfile provider) =>
+        provider.Capabilities.ToolCalls || provider.ProviderType is "vllm" or "openai-compatible";
+
+    private static ProviderProfile SearchToolCallProfile(ProviderProfile provider, bool enabled) =>
+        enabled && !provider.Capabilities.ToolCalls
+            ? provider with
+            {
+                Capabilities = provider.Capabilities with
+                {
+                    ToolCalls = true,
+                    EvidenceSource = "operator-policy-override-compatible-tool-transport-v1",
+                },
+            }
+            : provider;
+
+    private static ModelToolDefinition BraveSearchModelTool() => new(
+        "search_web",
+        "Search the public web through AgentForge's configured Brave provider. Every exact query pauses for operator approval. Use returned citation URLs when answering.",
+        """
+        {"type":"object","additionalProperties":false,"properties":{"query":{"type":"string","minLength":1,"maxLength":512},"maximumResults":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]}
+        """);
+
+    private static List<ModelMessage> ConversationToolContinuation(
+        RunConversationSnapshot snapshot,
+        RunConversationTurnId turnId)
+    {
+        var messages = new List<ModelMessage>();
+        foreach (var call in snapshot.ToolCalls.Where(item => item.TurnId == turnId &&
+            item.State is RunConversationToolCallState.Executed or RunConversationToolCallState.Denied))
+        {
+            messages.Add(new ModelMessage(ModelMessageRole.Assistant,
+                [new ModelToolCallContent(call.ToolCallId, call.ToolName, call.ArgumentsJson)]));
+            messages.Add(new ModelMessage(ModelMessageRole.Tool,
+                [new ModelToolResultContent(call.ToolCallId, call.ToolName, call.ResultJson!, call.IsError)]));
+        }
+        return messages;
     }
 }

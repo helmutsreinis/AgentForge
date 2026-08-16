@@ -41,7 +41,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISandbox, SelectingSandbox>();
         services.AddSingleton<IToolCatalog>(_ => ToolCatalog.Create(BuiltInTools()).Value);
         services.AddScoped<IToolInvocationPlanner, ToolInvocationPlanner>();
-        services.AddScoped<IBuiltInToolExecutor, BuiltInWorkspaceToolExecutor>();
+        services.AddScoped<IBuiltInToolHandler, BuiltInWorkspaceToolHandler>();
+        services.AddScoped<IBuiltInToolExecutor, BuiltInToolExecutor>();
         services.AddScoped<IToolInvocationService, ToolInvocationService>();
         services.AddScoped<IToolAvailabilityProbeService, ToolAvailabilityProbeService>();
         return services;
@@ -134,6 +135,49 @@ public static class ServiceCollectionExtensions
                 provenance,
                 ExecutionKind: ToolExecutionKind.BuiltIn,
                 BuiltInHandlerId: "workspace.read-text"),
+            new ToolDescriptorDefinition(
+                "tool:search.brave",
+                "1.0.0",
+                "Search the web with Brave",
+                "Search Brave through AgentForge's configured, credential-isolated research provider.",
+                "Returns bounded citations from one exact operator-approved query. The model never receives the API credential and cannot select another endpoint.",
+                "tool:search.web",
+                CapabilityRiskClass.Credential,
+                AuthorizationTargetKind.Uri,
+                "endpoint",
+                ToolSideEffectKind.ReadsNetwork | ToolSideEffectKind.CredentialAccess,
+                ToolOutputSensitivity.Public,
+                [
+                    new ToolParameterDescriptor(
+                        "query", ToolParameterType.Text, true, 512, null, null, [],
+                        "Exact search query to submit after operator approval."),
+                    new ToolParameterDescriptor(
+                        "maximumResults", ToolParameterType.WholeNumber, true, 0, 1, 10, [],
+                        "Maximum normalized citations to return."),
+                    new ToolParameterDescriptor(
+                        "endpoint", ToolParameterType.Text, true, 2048, null, null,
+                        ["https://api.search.brave.com/res/v1/web/search"],
+                        "Fixed AgentForge-managed Brave Search endpoint."),
+                ],
+                new ToolProcessDefinition(
+                    executable, [],
+                    [
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "query", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "maximumResults", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "endpoint", null),
+                    ],
+                    [], ProcessSandboxKind.BuiltIn,
+                    ProcessNetworkPolicy.FixedEndpointOnly,
+                    ProcessIsolationFeature.BoundedOutput | ProcessIsolationFeature.NetworkIsolation,
+                    30, 65_536),
+                new ToolProvenance(
+                    ToolCatalogSourceKind.BuiltIn,
+                    ToolTrustLevel.BuiltIn,
+                    "agentforge.brave-search",
+                    "1.0.0",
+                    Hash("AgentForge managed Brave Search tool v1")),
+                ExecutionKind: ToolExecutionKind.BuiltIn,
+                BuiltInHandlerId: "search.brave"),
         ];
     }
 

@@ -854,9 +854,23 @@ internal static partial class ReadyAdminEndpoints
         agent.TimeZone,
         agent.ResponseStyle,
         agent.DefaultWorkspace,
-        agent.ModelPolicy,
-        agent.MemoryPolicy,
-        agent.CapabilityPolicy,
+        modelPolicy = new
+        {
+            primaryProviderProfileId = agent.ModelPolicy.PrimaryProviderProfileId.Value,
+            dataLocality = agent.ModelPolicy.DataLocality.ToString(),
+            agent.ModelPolicy.AllowFallback,
+        },
+        memoryPolicy = new
+        {
+            scope = agent.MemoryPolicy.Scope.ToString(),
+            agent.MemoryPolicy.RetentionDays,
+        },
+        capabilityPolicy = new
+        {
+            networkPosture = agent.CapabilityPolicy.NetworkPosture.ToString(),
+            agent.CapabilityPolicy.ToolGrants,
+            agent.CapabilityPolicy.SkillGrants,
+        },
         budget = new
         {
             agent.Budget.MaxTurns,
@@ -874,8 +888,18 @@ internal static partial class ReadyAdminEndpoints
             agent.Budget.ContextCompressionTargetPercent,
             agent.Budget.ContextProtectedRecentTurns,
         },
-        agent.ChildLimits,
-        agent.LearningPolicy,
+        childLimits = new
+        {
+            agent.ChildLimits.MaxDepth,
+            agent.ChildLimits.MaxChildren,
+            agent.ChildLimits.MaxConcurrency,
+            agent.ChildLimits.MaxTotalTokens,
+        },
+        learningPolicy = new
+        {
+            mode = agent.LearningPolicy.Mode.ToString(),
+            mutableSkillScope = agent.LearningPolicy.MutableSkillScope.ToString(),
+        },
         agent.Version,
         agent.UpdatedAt,
     };

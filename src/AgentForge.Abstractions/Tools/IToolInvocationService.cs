@@ -40,6 +40,15 @@ public interface IBuiltInToolExecutor
         CancellationToken cancellationToken);
 }
 
+public interface IBuiltInToolHandler
+{
+    bool CanHandle(string handlerId);
+
+    Task<DomainResult<ProcessExecutionResult>> ExecuteAsync(
+        BuiltInToolExecutionRequest request,
+        CancellationToken cancellationToken);
+}
+
 public interface IToolAvailabilityProbeService
 {
     Task<DomainResult<ToolAvailabilityProbeResult>> ProbeAsync(

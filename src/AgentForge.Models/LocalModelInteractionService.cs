@@ -98,7 +98,9 @@ internal sealed class LocalModelProviderFactory(
         string source,
         DateTimeOffset observedAt) => new(
         capability,
-        ModelCapabilityEvidenceSource.Probed,
+        source.StartsWith("operator-policy-override-", StringComparison.Ordinal)
+            ? ModelCapabilityEvidenceSource.Overridden
+            : ModelCapabilityEvidenceSource.Probed,
         ModelCapabilityAvailability.Available,
         string.IsNullOrWhiteSpace(source) ? "Validated local provider profile." : source,
         observedAt);
@@ -146,11 +148,12 @@ internal sealed class LocalModelInteractionService(
             !Content(request.SystemInstruction, 24_576) || !Content(request.Prompt, 16_384) ||
             request.Limits is null || request.Limits.MaximumOutputTokens is < 1 or
                 > LocalModelInteractionBounds.MaximumOutputTokens ||
-            request.Limits.MaximumToolCalls != 0 || request.Limits.MaximumEvents is < 2 or
+            request.Limits.MaximumToolCalls is < 0 or > 32 || request.Limits.MaximumEvents is < 2 or
                 > LocalModelInteractionBounds.MaximumEvents ||
             request.Limits.MaximumWallClockSeconds is < 1 or
                 > LocalModelInteractionBounds.MaximumWallClockSeconds ||
-            !Text(request.CorrelationId.Value, 128) || !ValidHistory(request.ConversationHistory))
+            !Text(request.CorrelationId.Value, 128) || !ValidHistory(request.ConversationHistory) ||
+            !ValidContinuation(request.ContinuationMessages) || !ValidTools(request.Tools, request.Limits.MaximumToolCalls))
         {
             return DomainResult.Fail<LocalModelInteractionResult>(new DomainFailure(
                 FailureCode.ValidationFailure,
@@ -164,17 +167,19 @@ internal sealed class LocalModelInteractionService(
         }
 
         using var disposable = created.Value as IDisposable;
-        var messages = new List<ModelMessage>((request.ConversationHistory?.Count ?? 0) + 2)
+        var messages = new List<ModelMessage>(
+            (request.ConversationHistory?.Count ?? 0) + (request.ContinuationMessages?.Count ?? 0) + 2)
         {
             new(ModelMessageRole.System, [new ModelTextContent(request.SystemInstruction)]),
         };
         messages.AddRange(request.ConversationHistory ?? []);
         messages.Add(new ModelMessage(ModelMessageRole.User, [new ModelTextContent(request.Prompt)]));
+        messages.AddRange(request.ContinuationMessages ?? []);
         var modelRequest = new ModelRequest(
             request.RequestId,
             request.Provider.Model,
             messages,
-            [],
+            request.Tools ?? [],
             new ModelResponseFormat(ModelResponseFormatKind.Text),
             request.Limits with { },
             0.2m,
@@ -185,6 +190,7 @@ internal sealed class LocalModelInteractionService(
         ModelUsage? usage = null;
         ModelCompletedEvent? completed = null;
         ModelStartedEvent? started = null;
+        var toolCalls = new List<LocalModelToolCall>();
         var eventCount = 0;
         var maximumOutputCharacters = (int)Math.Min(
             LocalModelInteractionBounds.MaximumOutputCharacters,
@@ -210,7 +216,7 @@ internal sealed class LocalModelInteractionService(
                         return Failure(FailureCode.BudgetExceeded, "The local model response exceeded the interactive output bound.");
                     }
                     output.Append(value.Delta);
-                    if (observer is not null)
+                    if (observer is not null && (request.Tools?.Count ?? 0) == 0)
                     {
                         await observer.OnProgressAsync(new LocalModelInteractionProgress(
                             request.RequestId,
@@ -233,21 +239,45 @@ internal sealed class LocalModelInteractionService(
                     break;
                 case ModelErrorEvent value:
                     return DomainResult.Fail<LocalModelInteractionResult>(Map(value.Error));
-                case ModelToolCallDeltaEvent or ModelToolCallCompletedEvent:
-                    return Failure(FailureCode.PolicyDenied, "Interactive MVP testing does not permit model tool calls.");
+                case ModelToolCallDeltaEvent:
+                    break;
+                case ModelToolCallCompletedEvent value:
+                    if (request.Limits.MaximumToolCalls == 0)
+                    {
+                        return Failure(FailureCode.PolicyDenied,
+                            "The model emitted a tool call without an exact request tool contract.");
+                    }
+                    if (toolCalls.Count >= request.Limits.MaximumToolCalls ||
+                        !Text(value.ToolCallId, 256) || !Text(value.ToolName, 128) ||
+                        !JsonObject(value.ArgumentsJson, 16_384))
+                    {
+                        return Failure(FailureCode.BudgetExceeded,
+                            "The model exceeded the exact tool-call count or argument bounds.");
+                    }
+                    toolCalls.Add(new LocalModelToolCall(
+                        value.ToolCallId, value.ToolName, value.ArgumentsJson));
+                    break;
                 case ModelStructuredOutputEvent:
                     return Failure(FailureCode.UnsupportedCapability, "Interactive MVP testing accepts text responses only.");
             }
         }
 
         if (started is null || completed is null || eventCount > request.Limits.MaximumEvents ||
-            string.IsNullOrWhiteSpace(output.ToString()))
+            (toolCalls.Count == 0 && string.IsNullOrWhiteSpace(output.ToString())) ||
+            (toolCalls.Count > 0 && completed.FinishReason is not ModelFinishReason.ToolCalls))
         {
             return Failure(FailureCode.RecoverableExternalFailure,
                 "The local provider stream ended without a complete non-empty text response.");
         }
 
         var text = output.ToString();
+        if (observer is not null && (request.Tools?.Count ?? 0) > 0 && toolCalls.Count == 0 && text.Length > 0)
+        {
+            await observer.OnProgressAsync(new LocalModelInteractionProgress(
+                request.RequestId,
+                LocalModelInteractionProgressKind.TextDelta,
+                TextDelta: text), cancellationToken);
+        }
         var evidenceHash = Hash(new
         {
             requestId = request.RequestId.Value,
@@ -256,6 +286,7 @@ internal sealed class LocalModelInteractionService(
             request.Provider.Model,
             conversationHash = Hash(request.ConversationHistory ?? []),
             outputHash = Hash(text),
+            toolCalls,
             usage,
             completed.FinishReason,
             started.ContextRedactionCount,
@@ -268,7 +299,10 @@ internal sealed class LocalModelInteractionService(
             completed.FinishReason,
             started.ContextRedactionCount,
             eventCount,
-            evidenceHash));
+            evidenceHash)
+        {
+            ToolCalls = toolCalls.ToArray(),
+        });
     }
 
     private static DomainFailure Map(ModelProviderError error) => new(error.Code switch
@@ -292,6 +326,56 @@ internal sealed class LocalModelInteractionService(
 
     private static bool Content(string? value, int maximum) => Text(value, maximum) &&
         !value!.Any(character => char.IsControl(character) && character is not ('\r' or '\n' or '\t'));
+
+    private static bool JsonObject(string? value, int maximum)
+    {
+        if (!Content(value, maximum)) return false;
+        try
+        {
+            using var document = JsonDocument.Parse(value!);
+            return document.RootElement.ValueKind is JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool ValidTools(IReadOnlyList<ModelToolDefinition>? tools, int maximumToolCalls)
+    {
+        if (tools is null or { Count: 0 }) return maximumToolCalls == 0;
+        return maximumToolCalls > 0 && tools.Count <= 8 &&
+            tools.Select(item => item.Name).Distinct(StringComparer.Ordinal).Count() == tools.Count &&
+            tools.All(item => item is not null && Text(item.Name, 128) && Content(item.Description, 1024) &&
+                JsonObject(item.InputSchemaJson, 16_384));
+    }
+
+    private static bool ValidContinuation(IReadOnlyList<ModelMessage>? messages)
+    {
+        if (messages is null or { Count: 0 }) return true;
+        if (messages.Count > 64) return false;
+        long characters = 0;
+        foreach (var message in messages)
+        {
+            if (message is null || message.Content is not { Count: 1 }) return false;
+            switch (message.Role, message.Content[0])
+            {
+                case (ModelMessageRole.Assistant, ModelToolCallContent call)
+                    when Text(call.ToolCallId, 256) && Text(call.ToolName, 128) &&
+                        JsonObject(call.ArgumentsJson, 16_384):
+                    characters += call.ArgumentsJson.Length;
+                    break;
+                case (ModelMessageRole.Tool, ModelToolResultContent result)
+                    when Text(result.ToolCallId, 256) && Text(result.ToolName, 128) &&
+                        JsonObject(result.ResultJson, 65_536):
+                    characters += result.ResultJson.Length;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return characters <= 262_144;
+    }
 
     private static bool ValidHistory(IReadOnlyList<ModelMessage>? history)
     {

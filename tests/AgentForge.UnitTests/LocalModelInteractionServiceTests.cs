@@ -112,6 +112,42 @@ public sealed class LocalModelInteractionServiceTests
     }
 
     [Fact]
+    public async Task Invocation_returns_bounded_tool_call_and_preserves_exact_tool_result_continuation()
+    {
+        var provider = new ScriptedProvider(static (request, cancellationToken) =>
+            PermittedToolCallStream(request, cancellationToken));
+        var service = new LocalModelInteractionService(new FakeFactory(provider));
+        var tool = new ModelToolDefinition(
+            "search_web",
+            "Search after exact approval.",
+            "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}");
+
+        var result = await service.InvokeAsync(Request() with
+        {
+            Limits = new ModelInvocationLimits(256, 1, 32, 30),
+            Tools = [tool],
+            ContinuationMessages =
+            [
+                new ModelMessage(ModelMessageRole.Assistant,
+                    [new ModelToolCallContent("prior", "search_web", "{\"query\":\"prior\"}")]),
+                new ModelMessage(ModelMessageRole.Tool,
+                    [new ModelToolResultContent("prior", "search_web", "{\"citations\":[]}", false)]),
+            ],
+        }, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        Assert.Equal(ModelFinishReason.ToolCalls, result.Value.FinishReason);
+        var call = Assert.Single(result.Value.ToolCalls);
+        Assert.Equal("search_web", call.ToolName);
+        Assert.Equal("{\"query\":\"AgentForge\",\"maximumResults\":5}", call.ArgumentsJson);
+        Assert.NotNull(provider.ObservedRequest);
+        Assert.Single(provider.ObservedRequest!.Tools);
+        Assert.Equal(
+            [ModelMessageRole.System, ModelMessageRole.User, ModelMessageRole.Assistant, ModelMessageRole.Tool],
+            provider.ObservedRequest.Messages.Select(item => item.Role));
+    }
+
+    [Fact]
     public async Task Invocation_rejects_an_oversized_provider_response()
     {
         var provider = new ScriptedProvider(static (request, cancellationToken) =>
@@ -134,6 +170,12 @@ public sealed class LocalModelInteractionServiceTests
             new Uri("http://192.168.1.89:8000/v1"),
             new SecretReference("test-store", "credential")));
         var privateRoute = factory.Create(Profile(new Uri("http://192.168.1.89:8000/v1")));
+        var overriddenToolRoute = factory.Create(Profile(new Uri("http://192.168.1.89:8000/v1")) with
+        {
+            Capabilities = new ProviderCapabilitySummary(
+                true, true, true, false,
+                "operator-policy-override-compatible-tool-transport-v1"),
+        });
 
         Assert.False(publicRoute.IsSuccess);
         Assert.Equal(FailureCode.PolicyDenied, publicRoute.Failure!.Code);
@@ -142,7 +184,13 @@ public sealed class LocalModelInteractionServiceTests
         Assert.True(privateRoute.IsSuccess);
         Assert.Equal(ModelProviderDataLocation.PrivateNetwork, privateRoute.Value.Descriptor.Routing!.DataLocation);
         Assert.Equal(262_144, privateRoute.Value.Descriptor.Routing.MaximumOutputTokens);
+        Assert.True(overriddenToolRoute.IsSuccess, overriddenToolRoute.Failure?.Message);
+        Assert.Equal(
+            ModelCapabilityEvidenceSource.Overridden,
+            Assert.Single(overriddenToolRoute.Value.Descriptor.Capabilities,
+                item => item.Capability is ModelCapability.ToolCalls).Source);
         (privateRoute.Value as IDisposable)?.Dispose();
+        (overriddenToolRoute.Value as IDisposable)?.Dispose();
     }
 
     private static LocalModelInteractionRequest Request() => new(
@@ -207,6 +255,32 @@ public sealed class LocalModelInteractionServiceTests
             "sha256:input",
             "sha256:capabilities");
         yield return new ModelToolCallCompletedEvent(request.Id, 1, Now, "call-1", "shell", "{}");
+    }
+
+    private static async IAsyncEnumerable<ModelStreamEvent> PermittedToolCallStream(
+        ModelRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.CompletedTask;
+        yield return new ModelStartedEvent(
+            request.Id,
+            0,
+            Now,
+            new ProviderProfileId(Guid.Parse("6f4e6bf7-f19d-46d9-b340-b758a6fb53a2")),
+            "openai-compatible",
+            "qwen3.6",
+            "sha256:input",
+            "sha256:capabilities");
+        yield return new ModelToolCallCompletedEvent(
+            request.Id,
+            1,
+            Now,
+            "call-search",
+            "search_web",
+            "{\"query\":\"AgentForge\",\"maximumResults\":5}");
+        yield return new ModelUsageEvent(request.Id, 2, Now, new ModelUsage(20, 4, 1, null, null));
+        yield return new ModelCompletedEvent(request.Id, 3, Now, ModelFinishReason.ToolCalls);
     }
 
     private static async IAsyncEnumerable<ModelStreamEvent> OversizedStream(
