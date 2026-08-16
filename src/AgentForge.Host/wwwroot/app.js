@@ -137,6 +137,59 @@ const elements = {
   runPagePrevious: document.querySelector("#run-page-previous"),
   runPageNext: document.querySelector("#run-page-next"),
   runPageSummary: document.querySelector("#run-page-summary"),
+  runMemoryQuery: document.querySelector("#run-memory-query"),
+  runResearchReceipt: document.querySelector("#run-research-receipt"),
+  schedulesMessage: document.querySelector("#schedules-message"),
+  scheduleList: document.querySelector("#schedule-list"),
+  scheduleForm: document.querySelector("#schedule-form"),
+  scheduleAgent: document.querySelector("#schedule-agent"),
+  scheduleName: document.querySelector("#schedule-name"),
+  schedulePrompt: document.querySelector("#schedule-prompt"),
+  scheduleInstructions: document.querySelector("#schedule-instructions"),
+  scheduleDepth: document.querySelector("#schedule-depth"),
+  scheduleTokenLimit: document.querySelector("#schedule-token-limit"),
+  scheduleTrigger: document.querySelector("#schedule-trigger"),
+  scheduleInterval: document.querySelector("#schedule-interval"),
+  scheduleOneShot: document.querySelector("#schedule-one-shot"),
+  scheduleCron: document.querySelector("#schedule-cron"),
+  scheduleHour: document.querySelector("#schedule-hour"),
+  scheduleMinute: document.querySelector("#schedule-minute"),
+  scheduleTimezone: document.querySelector("#schedule-timezone"),
+  scheduleOverlap: document.querySelector("#schedule-overlap"),
+  scheduleMisfire: document.querySelector("#schedule-misfire"),
+  scheduleGrace: document.querySelector("#schedule-grace"),
+  scheduleCatchup: document.querySelector("#schedule-catchup"),
+  scheduleParallel: document.querySelector("#schedule-parallel"),
+  scheduleJitter: document.querySelector("#schedule-jitter"),
+  scheduleAttempts: document.querySelector("#schedule-attempts"),
+  scheduleRetry: document.querySelector("#schedule-retry"),
+  scheduleFailureLimit: document.querySelector("#schedule-failure-limit"),
+  scheduleReview: document.querySelector("#schedule-review"),
+  scheduleReviewClose: document.querySelector("#schedule-review-close"),
+  schedulePreviewDetails: document.querySelector("#schedule-preview-details"),
+  schedulePreviewHash: document.querySelector("#schedule-preview-hash"),
+  scheduleApply: document.querySelector("#schedule-apply"),
+  memoryAgent: document.querySelector("#memory-agent"),
+  memorySearchForm: document.querySelector("#memory-search-form"),
+  memoryQuery: document.querySelector("#memory-query"),
+  memoryCreateForm: document.querySelector("#memory-create-form"),
+  memoryKind: document.querySelector("#memory-kind"),
+  memoryRetention: document.querySelector("#memory-retention"),
+  memoryCorrection: document.querySelector("#memory-correction"),
+  memoryContent: document.querySelector("#memory-content"),
+  memoryMessage: document.querySelector("#memory-message"),
+  memoryList: document.querySelector("#memory-list"),
+  researchAgent: document.querySelector("#research-agent"),
+  researchForm: document.querySelector("#research-form"),
+  researchQuery: document.querySelector("#research-query"),
+  researchLimit: document.querySelector("#research-limit"),
+  researchProviders: document.querySelector("#research-providers"),
+  researchReview: document.querySelector("#research-review"),
+  researchReviewClose: document.querySelector("#research-review-close"),
+  researchPreviewDetails: document.querySelector("#research-preview-details"),
+  researchPreviewHash: document.querySelector("#research-preview-hash"),
+  researchMessage: document.querySelector("#research-message"),
+  researchResults: document.querySelector("#research-results"),
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
@@ -249,6 +302,13 @@ const admin = {
   lastLearningGeneration: null,
   activeTaskId: null,
   selectedRunDetails: null,
+  schedules: [],
+  schedulePreview: null,
+  scheduleRequest: null,
+  memories: [],
+  researchProviders: [],
+  researchPreview: null,
+  researchReceipt: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
 if (!isLoopbackBrowser) {
@@ -422,7 +482,8 @@ function stateChip(state) {
 async function loadAgents(message = "Loading persisted agent identities…") {
   workspaceStatus(elements.agentsMessage, message);
   try {
-    const selectedAgentId = elements.runAgent.value;
+    const agentSelectors = [elements.runAgent, elements.scheduleAgent, elements.memoryAgent, elements.researchAgent];
+    const selectedAgentIds = new Map(agentSelectors.map(select => [select, select.value]));
     const [payload, providerPayload] = await Promise.all([
       adminRead("/api/v1/admin/agents"),
       adminRead("/api/v1/admin/providers"),
@@ -432,7 +493,7 @@ async function loadAgents(message = "Loading persisted agent identities…") {
     admin.providerInstallationVersion = providerPayload.installationVersion;
     elements.agentList.replaceChildren();
     elements.providerList.replaceChildren();
-    elements.runAgent.replaceChildren();
+    for (const select of agentSelectors) select.replaceChildren();
     for (const provider of admin.providers) {
       const card = makeElement("article", "resource-card compact-card");
       const title = makeElement("div", "resource-title");
@@ -449,10 +510,12 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       elements.providerList.append(card);
     }
     for (const agent of payload.agents) {
-      const option = document.createElement("option");
-      option.value = agent.id;
-      option.textContent = agent.name;
-      elements.runAgent.append(option);
+      for (const select of agentSelectors) {
+        const option = document.createElement("option");
+        option.value = agent.id;
+        option.textContent = `${agent.name} · policy v${agent.version}`;
+        select.append(option);
+      }
 
       const card = makeElement("article", "resource-card");
       const title = makeElement("div", "resource-title");
@@ -477,8 +540,9 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       card.append(title, description, meta, actions);
       elements.agentList.append(card);
     }
-    if (payload.agents.some(agent => agent.id === selectedAgentId)) {
-      elements.runAgent.value = selectedAgentId;
+    for (const select of agentSelectors) {
+      const previous = selectedAgentIds.get(select);
+      if (payload.agents.some(agent => agent.id === previous)) select.value = previous;
     }
     if (!payload.agents.length) elements.agentList.append(makeElement("div", "empty-state", "No agents are configured."));
     elements.newAgent.disabled = admin.providers.length === 0;
@@ -1285,6 +1349,8 @@ async function createRun(event) {
         responseDepth: elements.runDepth.value,
         maximumOutputTokens: Number(elements.runTokenLimit.value),
         skillIds,
+        memoryQuery: elements.runMemoryQuery.value.trim() || null,
+        researchReceiptHash: elements.runResearchReceipt.value || null,
       },
       async (eventName, payload) => {
         if (eventName === "run-started") {
@@ -1295,7 +1361,9 @@ async function createRun(event) {
           const skillLabel = payload.configuration.skillIds.length
             ? ` · ${payload.configuration.skillIds.length} skill ${payload.configuration.skillIds.length === 1 ? "snapshot" : "snapshots"}`
             : "";
-          elements.runOutputMeta.textContent = `${providerLabel} · ${payload.configuration.responseDepth} · up to ${payload.configuration.maximumOutputTokens.toLocaleString()} tokens${skillLabel}`;
+          const contextCount = (payload.configuration.memoryCount || 0) + (payload.configuration.citationCount || 0);
+          const contextLabel = contextCount ? ` · ${contextCount} attached context item${contextCount === 1 ? "" : "s"}` : "";
+          elements.runOutputMeta.textContent = `${providerLabel} · ${payload.configuration.responseDepth} · up to ${payload.configuration.maximumOutputTokens.toLocaleString()} tokens${skillLabel}${contextLabel}`;
           elements.cancelInteraction.hidden = false;
         } else if (eventName === "model-started") {
           elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
@@ -1355,6 +1423,342 @@ elements.cancelInteraction.addEventListener("click", async () => {
     elements.cancelInteraction.disabled = false;
   }
 });
+
+function scheduleWebRequest(edit) {
+  const trigger = elements.scheduleTrigger.value;
+  const oneShot = elements.scheduleOneShot.value
+    ? new Date(elements.scheduleOneShot.value).toISOString()
+    : null;
+  return {
+    expectedInstallationVersion: edit.installationVersion,
+    expectedAgentVersion: edit.agent.version,
+    expectedProviderVersion: edit.provider.version,
+    agentId: edit.agent.id,
+    name: elements.scheduleName.value.trim(),
+    prompt: elements.schedulePrompt.value.trim(),
+    runInstructions: elements.scheduleInstructions.value.trim() || null,
+    responseDepth: elements.scheduleDepth.value,
+    maximumOutputTokens: Number(elements.scheduleTokenLimit.value),
+    skillIds: [],
+    triggerKind: trigger,
+    oneShotAt: trigger === "OneShot" ? oneShot : null,
+    intervalSeconds: trigger === "Interval" ? Number(elements.scheduleInterval.value) : null,
+    cronExpression: trigger === "Cron" ? elements.scheduleCron.value.trim() : null,
+    calendarHour: trigger === "Calendar" ? Number(elements.scheduleHour.value) : null,
+    calendarMinute: trigger === "Calendar" ? Number(elements.scheduleMinute.value) : null,
+    calendarDays: [],
+    calendarDayOfMonth: null,
+    timeZoneId: elements.scheduleTimezone.value.trim(),
+    misfirePolicy: elements.scheduleMisfire.value,
+    overlapPolicy: elements.scheduleOverlap.value,
+    misfireGraceSeconds: Number(elements.scheduleGrace.value),
+    maximumCatchUp: Number(elements.scheduleCatchup.value),
+    maximumParallelRuns: Number(elements.scheduleParallel.value),
+    maximumJitterSeconds: Number(elements.scheduleJitter.value),
+    maximumAttempts: Number(elements.scheduleAttempts.value),
+    retryDelaySeconds: Number(elements.scheduleRetry.value),
+    maximumConsecutiveFailures: Number(elements.scheduleFailureLimit.value),
+    expiresAt: null,
+  };
+}
+
+function renderSchedules() {
+  elements.scheduleList.replaceChildren();
+  for (const schedule of admin.schedules) {
+    const card = makeElement("article", "resource-card");
+    const heading = makeElement("div", "resource-title");
+    const copy = document.createElement("div");
+    copy.append(makeElement("h3", "", schedule.name),
+      makeElement("p", "resource-subtitle", `${schedule.id} · version ${schedule.version}`));
+    heading.append(copy, stateChip(schedule.state));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Trigger", schedule.trigger.kind);
+    addMeta(meta, "Next due", schedule.nextDueAt ? new Date(schedule.nextDueAt).toLocaleString() : "Not queued");
+    addMeta(meta, "Completed", schedule.completedCount);
+    addMeta(meta, "Failed", schedule.failedCount);
+    addMeta(meta, "Queued / running", `${schedule.queued} / ${schedule.running}`);
+    addMeta(meta, "Time zone", schedule.timeZoneId);
+    const actions = makeElement("div", "resource-actions");
+    const mutate = async (action, label) => {
+      workspaceStatus(elements.schedulesMessage, `${label}…`);
+      try {
+        await adminMutation(`/api/v1/admin/schedules/${schedule.id}/${action}`, { expectedVersion: schedule.version });
+        await loadSchedules(`${label} completed. Refreshing durable state…`);
+      } catch (error) {
+        workspaceStatus(elements.schedulesMessage, error instanceof Error ? error.message : `${label} failed.`, "error");
+      }
+    };
+    const runNow = makeElement("button", "secondary-action", "Run now");
+    runNow.type = "button";
+    runNow.addEventListener("click", () => mutate("run-now", "Queueing an immediate occurrence"));
+    actions.append(runNow);
+    if (schedule.state === "Active") {
+      const pause = makeElement("button", "secondary-action", "Pause");
+      pause.type = "button";
+      pause.addEventListener("click", () => mutate("pause", "Pausing schedule"));
+      actions.append(pause);
+    } else if (schedule.state === "Paused") {
+      const resume = makeElement("button", "secondary-action", "Resume");
+      resume.type = "button";
+      resume.addEventListener("click", () => mutate("resume", "Resuming schedule"));
+      actions.append(resume);
+    }
+    card.append(heading, meta, actions);
+    elements.scheduleList.append(card);
+  }
+  if (!admin.schedules.length) elements.scheduleList.append(makeElement("div", "empty-state", "No durable schedules exist yet."));
+}
+
+async function loadSchedules(message = "Loading durable schedules…") {
+  workspaceStatus(elements.schedulesMessage, message);
+  try {
+    if (!admin.agents.length) await loadAgents();
+    const payload = await adminRead("/api/v1/admin/schedules");
+    admin.schedules = payload.schedules;
+    renderSchedules();
+    workspaceStatus(elements.schedulesMessage, `${payload.schedules.length} durable schedule${payload.schedules.length === 1 ? "" : "s"} loaded.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.schedulesMessage, error instanceof Error ? error.message : "Schedules could not be loaded.", "error");
+  }
+}
+
+async function previewSchedule(event) {
+  event.preventDefault();
+  setBusy(elements.scheduleForm, true);
+  try {
+    const edit = await adminRead(`/api/v1/admin/agents/${elements.scheduleAgent.value}/edit`);
+    const request = scheduleWebRequest(edit);
+    const preview = await adminMutation("/api/v1/admin/schedules/preview", request);
+    admin.scheduleRequest = request;
+    admin.schedulePreview = preview;
+    elements.schedulePreviewDetails.replaceChildren();
+    addMeta(elements.schedulePreviewDetails, "Agent", `${preview.agent.name} · v${preview.agent.version}`);
+    addMeta(elements.schedulePreviewDetails, "Model", `${preview.provider.model} · provider v${preview.provider.version}`);
+    addMeta(elements.schedulePreviewDetails, "Trigger", preview.trigger.kind);
+    addMeta(elements.schedulePreviewDetails, "Next occurrences", preview.nextOccurrences.map(value => new Date(value).toLocaleString()).join(" · "));
+    elements.schedulePreviewHash.textContent = preview.previewHash;
+    elements.scheduleReview.hidden = false;
+    workspaceStatus(elements.schedulesMessage, preview.warning, "ok");
+    elements.scheduleReview.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    workspaceStatus(elements.schedulesMessage, error instanceof Error ? error.message : "The schedule preview failed.", "error");
+  } finally {
+    setBusy(elements.scheduleForm, false);
+  }
+}
+
+function discardSchedulePreview() {
+  admin.schedulePreview = null;
+  admin.scheduleRequest = null;
+  elements.scheduleReview.hidden = true;
+  elements.schedulePreviewDetails.replaceChildren();
+  elements.schedulePreviewHash.textContent = "";
+}
+
+async function applySchedule(event) {
+  event.preventDefault();
+  if (!admin.schedulePreview || !admin.scheduleRequest) return;
+  setBusy(elements.scheduleReview, true);
+  try {
+    await adminMutation("/api/v1/admin/schedules/apply", {
+      previewHash: admin.schedulePreview.previewHash,
+      schedule: admin.scheduleRequest,
+    });
+    discardSchedulePreview();
+    elements.schedulePrompt.value = "";
+    await loadSchedules("Schedule created. Loading immutable execution state…");
+  } catch (error) {
+    workspaceStatus(elements.schedulesMessage, error instanceof Error ? error.message : "The schedule could not be created.", "error");
+  } finally {
+    setBusy(elements.scheduleReview, false);
+  }
+}
+
+function selectedContextAgent(select) {
+  return admin.agents.find(agent => agent.id === select.value) ?? null;
+}
+
+function renderMemories() {
+  elements.memoryList.replaceChildren();
+  for (const memory of admin.memories) {
+    const card = makeElement("article", "resource-card compact-card");
+    const heading = makeElement("div", "resource-title");
+    heading.append(makeElement("h3", "", memory.kind), stateChip("Active"));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Scope", memory.scopeId);
+    addMeta(meta, "Expires", new Date(memory.expiresAtUtc).toLocaleDateString());
+    addMeta(meta, "Source", memory.source.kind);
+    const actions = makeElement("div", "resource-actions");
+    const remove = makeElement("button", "secondary-action danger-action", "Delete");
+    remove.type = "button";
+    remove.addEventListener("click", async () => {
+      const agent = selectedContextAgent(elements.memoryAgent);
+      if (!agent) return;
+      try {
+        await adminMutation(`/api/v1/admin/memory/${memory.id}/delete`, {
+          expectedAgentVersion: agent.version,
+          agentId: agent.id,
+        });
+        admin.memories = admin.memories.filter(item => item.id !== memory.id);
+        renderMemories();
+        workspaceStatus(elements.memoryMessage, "Memory deleted from its exact scope.", "ok");
+      } catch (error) {
+        workspaceStatus(elements.memoryMessage, error instanceof Error ? error.message : "Memory deletion failed.", "error");
+      }
+    });
+    actions.append(remove);
+    card.append(heading, makeElement("p", "resource-description", memory.content), meta, actions);
+    elements.memoryList.append(card);
+  }
+  if (!admin.memories.length) elements.memoryList.append(makeElement("div", "empty-state", "No matching unexpired memory entries."));
+}
+
+async function searchMemory(event) {
+  event?.preventDefault();
+  const query = elements.memoryQuery.value.trim();
+  if (!query) return;
+  workspaceStatus(elements.memoryMessage, "Searching the exact configured memory scope…");
+  try {
+    const payload = await adminRead(`/api/v1/admin/memory?agentId=${encodeURIComponent(elements.memoryAgent.value)}&query=${encodeURIComponent(query)}&maximumResults=20`);
+    admin.memories = payload.memories;
+    renderMemories();
+    workspaceStatus(elements.memoryMessage, `${payload.memories.length} scoped memor${payload.memories.length === 1 ? "y" : "ies"} found.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.memoryMessage, error instanceof Error ? error.message : "Memory search failed.", "error");
+  }
+}
+
+async function createMemory(event) {
+  event.preventDefault();
+  const agent = selectedContextAgent(elements.memoryAgent);
+  if (!agent) return;
+  setBusy(elements.memoryCreateForm, true);
+  try {
+    await adminMutation("/api/v1/admin/memory", {
+      expectedAgentVersion: agent.version,
+      agentId: agent.id,
+      kind: elements.memoryKind.value,
+      content: elements.memoryContent.value.trim(),
+      isCorrection: elements.memoryCorrection.checked,
+      retentionDays: Number(elements.memoryRetention.value),
+    });
+    if (!elements.memoryQuery.value.trim()) {
+      elements.memoryQuery.value = elements.memoryContent.value.trim().split(/\s+/).slice(0, 4).join(" ").slice(0, 256);
+    }
+    elements.memoryContent.value = "";
+    await searchMemory();
+    workspaceStatus(elements.memoryMessage, "Redacted memory saved and available to explicit run retrieval.", "ok");
+  } catch (error) {
+    workspaceStatus(elements.memoryMessage, error instanceof Error ? error.message : "Memory creation failed.", "error");
+  } finally {
+    setBusy(elements.memoryCreateForm, false);
+  }
+}
+
+function renderResearchProviders() {
+  elements.researchProviders.replaceChildren();
+  for (const provider of admin.researchProviders) {
+    const option = makeElement("label", "skill-option");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = provider.id;
+    input.checked = true;
+    option.append(input, makeElement("span", "", `${provider.id} · ${provider.kind}`));
+    elements.researchProviders.append(option);
+  }
+  if (!admin.researchProviders.length) {
+    elements.researchProviders.append(makeElement("span", "option-empty", "No search provider is configured. Add a provider adapter before live research."));
+  }
+}
+
+async function loadContext(message = "Loading memory and research capabilities…") {
+  workspaceStatus(elements.researchMessage, message);
+  try {
+    if (!admin.agents.length) await loadAgents();
+    const payload = await adminRead("/api/v1/admin/research/providers");
+    admin.researchProviders = payload.providers;
+    renderResearchProviders();
+    const agent = selectedContextAgent(elements.memoryAgent);
+    if (agent) elements.memoryRetention.max = Math.max(1, agent.retentionDays);
+    workspaceStatus(elements.researchMessage,
+      payload.providers.length ? `${payload.providers.length} search provider${payload.providers.length === 1 ? "" : "s"} available for exact approval.` : "No search provider is configured; memory remains available.",
+      payload.providers.length ? "ok" : "");
+  } catch (error) {
+    workspaceStatus(elements.researchMessage, error instanceof Error ? error.message : "Context capabilities could not be loaded.", "error");
+  }
+}
+
+async function previewResearch(event) {
+  event.preventDefault();
+  const agent = selectedContextAgent(elements.researchAgent);
+  if (!agent) return;
+  setBusy(elements.researchForm, true);
+  try {
+    const providerIds = [...elements.researchProviders.querySelectorAll("input:checked")].map(input => input.value);
+    const preview = await adminMutation("/api/v1/admin/research/preview", {
+      expectedAgentVersion: agent.version,
+      agentId: agent.id,
+      query: elements.researchQuery.value.trim(),
+      maximumResults: Number(elements.researchLimit.value),
+      providerIds,
+    });
+    admin.researchPreview = preview;
+    elements.researchPreviewDetails.replaceChildren();
+    addMeta(elements.researchPreviewDetails, "Agent", `${preview.agent.name} · v${preview.agent.version}`);
+    addMeta(elements.researchPreviewDetails, "Query", preview.query);
+    addMeta(elements.researchPreviewDetails, "Providers", preview.providers.map(item => item.id).join(", "));
+    addMeta(elements.researchPreviewDetails, "Result limit", preview.maximumResults);
+    elements.researchPreviewHash.textContent = preview.previewHash;
+    elements.researchReview.hidden = false;
+    workspaceStatus(elements.researchMessage, preview.warning, "ok");
+  } catch (error) {
+    workspaceStatus(elements.researchMessage, error instanceof Error ? error.message : "Research preview failed.", "error");
+  } finally {
+    setBusy(elements.researchForm, false);
+  }
+}
+
+function discardResearchPreview() {
+  admin.researchPreview = null;
+  elements.researchReview.hidden = true;
+  elements.researchPreviewDetails.replaceChildren();
+  elements.researchPreviewHash.textContent = "";
+}
+
+async function applyResearch(event) {
+  event.preventDefault();
+  if (!admin.researchPreview) return;
+  setBusy(elements.researchReview, true);
+  try {
+    const result = await adminMutation("/api/v1/admin/research/apply", { previewHash: admin.researchPreview.previewHash });
+    const agentId = admin.researchPreview.agent.id;
+    admin.researchReceipt = { ...result, agentId };
+    elements.researchResults.replaceChildren();
+    for (const citation of result.citations) {
+      const card = makeElement("article", "resource-card compact-card");
+      const source = document.createElement("a");
+      source.href = citation.source;
+      source.target = "_blank";
+      source.rel = "noreferrer";
+      source.textContent = citation.title;
+      card.append(source, makeElement("p", "resource-description", citation.excerpt),
+        makeElement("p", "resource-subtitle", `${citation.citationId} · ${citation.providerIds.join(", ")}`));
+      elements.researchResults.append(card);
+    }
+    const option = document.createElement("option");
+    option.value = result.receiptHash;
+    option.dataset.agentId = agentId;
+    option.textContent = `${admin.researchPreview.query} · ${result.citations.length} citation${result.citations.length === 1 ? "" : "s"}`;
+    elements.runResearchReceipt.append(option);
+    if (elements.runAgent.value === agentId) elements.runResearchReceipt.value = result.receiptHash;
+    discardResearchPreview();
+    workspaceStatus(elements.researchMessage, "Research receipt created. It can now be attached explicitly from Runs.", "ok");
+  } catch (error) {
+    workspaceStatus(elements.researchMessage, error instanceof Error ? error.message : "Approved research failed.", "error");
+  } finally {
+    setBusy(elements.researchReview, false);
+  }
+}
 
 async function loadSkills(message = "Loading immutable skill packages…") {
   workspaceStatus(elements.skillsMessage, message);
@@ -2306,6 +2710,8 @@ const viewDetails = {
   setup: ["FIRST RUN", "Configure AgentForge"],
   agents: ["IDENTITIES", "Your local agents"],
   runs: ["ORCHESTRATION", "Durable runs"],
+  schedules: ["AUTOMATION", "Durable schedules"],
+  context: ["KNOWLEDGE", "Memory and research"],
   skills: ["REGISTRY", "Governed skills"],
   tools: ["CAPABILITIES", "Tools and approvals"],
   learning: ["LEARNING", "Evidence inbox"],
@@ -2324,6 +2730,8 @@ async function showCurrentView() {
   [elements.viewKicker.textContent, elements.viewTitle.textContent] = viewDetails[view];
   if (view === "agents") await loadAgents();
   if (view === "runs") await loadRuns();
+  if (view === "schedules") await loadSchedules();
+  if (view === "context") await loadContext();
   if (view === "skills") await loadSkills();
   if (view === "tools") await loadTools();
   if (view === "learning") await loadLearning();
@@ -2721,6 +3129,14 @@ elements.agentEditorClose.addEventListener("click", closeAgentEditor);
 elements.agentEditCancel.addEventListener("click", discardAgentEditPreview);
 elements.agentEditApply.addEventListener("click", applyAgentEditPreview);
 elements.runForm.addEventListener("submit", createRun);
+elements.scheduleForm.addEventListener("submit", previewSchedule);
+elements.scheduleReview.addEventListener("submit", applySchedule);
+elements.scheduleReviewClose.addEventListener("click", discardSchedulePreview);
+elements.memorySearchForm.addEventListener("submit", searchMemory);
+elements.memoryCreateForm.addEventListener("submit", createMemory);
+elements.researchForm.addEventListener("submit", previewResearch);
+elements.researchReview.addEventListener("submit", applyResearch);
+elements.researchReviewClose.addEventListener("click", discardResearchPreview);
 elements.runContinueForm.addEventListener("submit", continueRunConversation);
 elements.resumeRunTurn.addEventListener("click", resumeRunConversation);
 elements.closeRunDetails.addEventListener("click", () => {
@@ -2746,7 +3162,22 @@ elements.toolAgent.addEventListener("change", populateToolOptions);
 elements.toolSelector.addEventListener("change", renderToolParameters);
 elements.toolWorkspace.addEventListener("change", renderToolParameters);
 elements.model.addEventListener("change", renderModelDetails);
-elements.runAgent.addEventListener("change", loadRunOptions);
+elements.runAgent.addEventListener("change", () => {
+  const selected = elements.runResearchReceipt.selectedOptions[0];
+  if (selected?.dataset.agentId && selected.dataset.agentId !== elements.runAgent.value) {
+    elements.runResearchReceipt.value = "";
+  }
+  loadRunOptions();
+});
+elements.memoryAgent.addEventListener("change", () => {
+  admin.memories = [];
+  renderMemories();
+  const agent = selectedContextAgent(elements.memoryAgent);
+  if (agent) {
+    elements.memoryRetention.max = Math.max(1, agent.retentionDays);
+    elements.memoryRetention.value = Math.max(1, agent.retentionDays);
+  }
+});
 elements.agentEditMemoryScope.addEventListener("change", () => {
   if (elements.agentEditMemoryScope.value === "Task") elements.agentEditRetention.value = 0;
 });
@@ -2804,6 +3235,8 @@ for (const button of document.querySelectorAll("[data-reload]")) {
   button.addEventListener("click", () => {
     if (button.dataset.reload === "agents") loadAgents("Refreshing agent identities…");
     if (button.dataset.reload === "runs") loadRuns("Refreshing durable snapshots…");
+    if (button.dataset.reload === "schedules") loadSchedules("Refreshing durable schedules…");
+    if (button.dataset.reload === "context") loadContext("Refreshing memory and research capabilities…");
     if (button.dataset.reload === "skills") loadSkills("Refreshing the skill registry…");
     if (button.dataset.reload === "tools") loadTools("Refreshing the authoritative tool catalog…");
     if (button.dataset.reload === "learning") loadLearning("Refreshing classified evidence…");
@@ -2813,6 +3246,7 @@ window.addEventListener("hashchange", showCurrentView);
 
 document.querySelector("#provider-endpoint").value = setup.provider.endpoint;
 document.querySelector("#agent-timezone").value = setup.agent.timeZone;
+elements.scheduleOneShot.value = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16);
 refreshStatus();
 startSetup();
 showCurrentView();

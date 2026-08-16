@@ -689,6 +689,34 @@ Prompts and answers are intentionally retained as redacted content-addressed tex
 length and SHA-256 hashes, and verify that credential-shaped source values are absent from the database, artifacts,
 logs, audit, and exports.
 
+## Ready schedules, memory, and research
+
+Open **Schedules**, select the exact agent, configure a one-shot, interval, cron, or calendar trigger, and review the
+next calculated occurrences before applying. The preview displays the current agent/provider versions and binds all
+recurrence, misfire, overlap, retry, prompt, output, policy, budget, and skill values. Applying writes an immutable
+artifact-backed template. Use **Run now**, **Pause**, and **Resume** only from the latest displayed schedule version;
+refresh after any conflict. A successful occurrence appears in ordinary Runs history under the schedule name. Restart
+recovery reclaims only expired leases and uses the occurrence's deterministic task/conversation identity, so a
+completed model turn is not repeated.
+
+If a schedule remains queued, verify the host worker is running, the due/retry time has passed, and the pinned agent and
+provider versions still exist. An agent/provider edit intentionally makes the old template fail typed; create a
+replacement schedule rather than editing database JSON. Legacy schedules without an agent-run template remain inert.
+Back up the database and artifacts before investigating integrity failures, and never remove WAL files or fabricate an
+occurrence completion.
+
+Open **Context** to create User or Procedural memory under the selected agent's configured Agent/Operator scope. Search
+uses bounded literal full-text matching and returns unexpired entries only. Retention may not exceed current policy;
+Task-scoped agents cannot attach memory before a task exists. Delete uses the same exact agent/scope tuple. Content is
+redacted before persistence, but the operator must still avoid unrecognized secrets.
+
+Research lists only configured search adapters. Select providers, preview the exact query/result limit, then apply once
+to create a short-lived citation receipt. With no configured provider, the UI reports an unavailable capability;
+deterministic acceptance does not imply live search is configured. In **Runs**, enter an optional memory query and/or
+select the approved same-agent research receipt. The start event reports attached memory/citation counts. Attached text
+is immutable untrusted reference data: it cannot grant model browsing, tools, network, files, messages, devices, or
+policy changes. Follow-up turns reuse the content-addressed pinned system context and do not perform new retrieval.
+
 ## Ready agent and model editing
 
 Open **Agents**, choose **Edit agent**, and use the two independent editors. Profile editing accepts only the

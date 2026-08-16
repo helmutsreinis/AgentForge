@@ -7,14 +7,18 @@ using AgentForge.Abstractions.Artifacts;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Providers;
+using AgentForge.Abstractions.Scheduling;
+using AgentForge.Abstractions.Search;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Domain.Learning;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Search;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
+using AgentForge.Search;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -26,6 +30,7 @@ namespace AgentForge.EndToEndTests;
 public sealed class WebSetupWizardTests : IDisposable
 {
     private static readonly string[] PassingCritiqueFindings = ["bounded-authority-reviewed"];
+    private static readonly string[] LocalDocsProvider = ["local-docs"];
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-web-setup-{Guid.NewGuid():N}");
     private readonly WebApplicationFactory<Program> _factory;
 
@@ -38,6 +43,7 @@ public sealed class WebSetupWizardTests : IDisposable
                 {
                     ["AgentForge:Installation:DataDirectory"] = _directory,
                     ["AgentForge:Host:Urls"] = string.Empty,
+                    ["AgentForge:Host:RequestsPerMinute"] = "1000",
                     ["AgentForge:Persistence:EnableConnectionPooling"] = "false",
                 }));
             builder.ConfigureServices(services =>
@@ -48,6 +54,16 @@ public sealed class WebSetupWizardTests : IDisposable
                 services.AddSingleton<IModelCatalogDiscoveryService, WebFakeModelDiscovery>();
                 services.RemoveAll<ILocalModelInteractionService>();
                 services.AddSingleton<ILocalModelInteractionService, WebFakeLocalInteraction>();
+                services.AddSingleton<ISearchProvider>(new DeterministicSearchProvider(
+                    "local-docs",
+                    [new SearchProviderHit(
+                        "local-docs",
+                        1,
+                        new Uri("https://docs.example.test/agentforge"),
+                        "AgentForge local reference",
+                        "A cited deterministic reference for the Ready run context.",
+                        DateTimeOffset.UnixEpoch)],
+                    kind: SearchProviderKind.Local));
             });
         });
     }
@@ -159,6 +175,12 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"run-search\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-token-limit\" type=\"number\" min=\"1\" max=\"262144\" step=\"1\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"#schedules\" data-view=\"schedules\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"schedule-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"#context\" data-view=\"context\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"memory-create-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"research-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"run-memory-query\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-proposal-form\"", appShellHtml, StringComparison.Ordinal);
@@ -298,6 +320,161 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal("maximum", runOptionsDocument.RootElement.GetProperty("responseDepths")[4]
             .GetProperty("id").GetString());
         Assert.Equal(32_768, runOptionsDocument.RootElement.GetProperty("maximumOutputTokens").GetInt32());
+
+        using var scheduleEdit = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/edit");
+        using var scheduleEditDocument = JsonDocument.Parse(await scheduleEdit.Content.ReadAsByteArrayAsync());
+        var scheduleRequest = new
+        {
+            expectedInstallationVersion = scheduleEditDocument.RootElement.GetProperty("installationVersion").GetInt64(),
+            expectedAgentVersion = scheduleEditDocument.RootElement.GetProperty("agent").GetProperty("version").GetInt64(),
+            expectedProviderVersion = scheduleEditDocument.RootElement.GetProperty("provider").GetProperty("version").GetInt64(),
+            agentId,
+            name = "Scheduled local verification",
+            prompt = "Run the scheduled local verification.",
+            runInstructions = "Return one bounded sentence.",
+            responseDepth = "balanced",
+            maximumOutputTokens = 2_048,
+            skillIds = Array.Empty<string>(),
+            triggerKind = "OneShot",
+            oneShotAt = DateTimeOffset.UtcNow.AddHours(1),
+            intervalSeconds = (int?)null,
+            cronExpression = (string?)null,
+            calendarHour = (int?)null,
+            calendarMinute = (int?)null,
+            calendarDays = Array.Empty<string>(),
+            calendarDayOfMonth = (int?)null,
+            timeZoneId = "UTC",
+            misfirePolicy = "Skip",
+            overlapPolicy = "Skip",
+            misfireGraceSeconds = 60,
+            maximumCatchUp = 1,
+            maximumParallelRuns = 1,
+            maximumJitterSeconds = 0,
+            maximumAttempts = 2,
+            retryDelaySeconds = 0,
+            maximumConsecutiveFailures = 3,
+            expiresAt = (DateTimeOffset?)null,
+        };
+        using var schedulePreview = await MutationAsync(
+            client, "/api/v1/admin/schedules/preview", "schedule-preview-1", adminCsrf,
+            JsonContent.Create(scheduleRequest));
+        Assert.Equal(HttpStatusCode.OK, schedulePreview.StatusCode);
+        using var schedulePreviewDocument = JsonDocument.Parse(await schedulePreview.Content.ReadAsByteArrayAsync());
+        var schedulePreviewHash = schedulePreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        var scheduleId = schedulePreviewDocument.RootElement.GetProperty("scheduleId").GetGuid();
+        using var scheduleApply = await MutationAsync(
+            client, "/api/v1/admin/schedules/apply", "schedule-apply-1", adminCsrf,
+            JsonContent.Create(new { previewHash = schedulePreviewHash, schedule = scheduleRequest }));
+        var scheduleApplyBody = await scheduleApply.Content.ReadAsByteArrayAsync();
+        Assert.True(scheduleApply.StatusCode == HttpStatusCode.OK,
+            $"Schedule apply failed: {System.Text.Encoding.UTF8.GetString(scheduleApplyBody)}");
+        using var scheduleApplyDocument = JsonDocument.Parse(scheduleApplyBody);
+        var scheduleVersion = scheduleApplyDocument.RootElement.GetProperty("schedule").GetProperty("version").GetInt64();
+        using var scheduleApplyReplay = await MutationAsync(
+            client, "/api/v1/admin/schedules/apply", "schedule-apply-1", adminCsrf,
+            JsonContent.Create(new { previewHash = schedulePreviewHash, schedule = scheduleRequest }));
+        Assert.Equal(HttpStatusCode.OK, scheduleApplyReplay.StatusCode);
+        Assert.True(scheduleApplyReplay.Headers.Contains("Idempotent-Replay"));
+        using var scheduleRunNow = await MutationAsync(
+            client, $"/api/v1/admin/schedules/{scheduleId:D}/run-now", "schedule-run-now-1", adminCsrf,
+            JsonContent.Create(new { expectedVersion = scheduleVersion }));
+        Assert.Equal(HttpStatusCode.OK, scheduleRunNow.StatusCode);
+        using var scheduleRunNowReplay = await MutationAsync(
+            client, $"/api/v1/admin/schedules/{scheduleId:D}/run-now", "schedule-run-now-1", adminCsrf,
+            JsonContent.Create(new { expectedVersion = scheduleVersion }));
+        Assert.Equal(HttpStatusCode.OK, scheduleRunNowReplay.StatusCode);
+        Assert.True(scheduleRunNowReplay.Headers.Contains("Idempotent-Replay"));
+        var scheduledCompleted = false;
+        for (var attempt = 0; attempt < 50 && !scheduledCompleted; attempt++)
+        {
+            await Task.Delay(100);
+            await using var scheduledScope = _factory.Services.CreateAsyncScope();
+            var scheduled = await scheduledScope.ServiceProvider.GetRequiredService<IScheduleSnapshotStore>()
+                .FindLatestAsync(new AgentForge.Domain.Scheduling.ScheduleId(scheduleId), CancellationToken.None);
+            scheduledCompleted = scheduled?.CompletedCount == 1;
+        }
+        Assert.True(scheduledCompleted, "The hosted worker did not complete the durable scheduled local-model run.");
+        using var scheduledRuns = await client.GetAsync("/api/v1/admin/runs");
+        Assert.Contains("Scheduled local verification", await scheduledRuns.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var memoryCreate = await MutationAsync(
+            client, "/api/v1/admin/memory", "memory-create-1", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedAgentVersion = scheduleRequest.expectedAgentVersion,
+                agentId,
+                kind = "User",
+                content = "Operator preference: include a verification summary.",
+                isCorrection = false,
+                retentionDays = 30,
+            }));
+        Assert.Equal(HttpStatusCode.Created, memoryCreate.StatusCode);
+        using var memoryCreateDocument = JsonDocument.Parse(await memoryCreate.Content.ReadAsByteArrayAsync());
+        var memoryId = memoryCreateDocument.RootElement.GetProperty("memory").GetProperty("id").GetGuid();
+        using var memoryCreateReplay = await MutationAsync(
+            client, "/api/v1/admin/memory", "memory-create-1", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedAgentVersion = scheduleRequest.expectedAgentVersion,
+                agentId,
+                kind = "User",
+                content = "Operator preference: include a verification summary.",
+                isCorrection = false,
+                retentionDays = 30,
+            }));
+        Assert.Equal(HttpStatusCode.OK, memoryCreateReplay.StatusCode);
+        Assert.True(memoryCreateReplay.Headers.Contains("Idempotent-Replay"));
+        using var memorySearch = await client.GetAsync(
+            $"/api/v1/admin/memory?agentId={agentId:D}&query=verification%20summary&maximumResults=8");
+        Assert.Equal(HttpStatusCode.OK, memorySearch.StatusCode);
+        Assert.Contains("Operator preference", await memorySearch.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var researchProviders = await client.GetAsync("/api/v1/admin/research/providers");
+        Assert.Contains("local-docs", await researchProviders.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var researchPreview = await MutationAsync(
+            client, "/api/v1/admin/research/preview", "research-preview-1", adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedAgentVersion = scheduleRequest.expectedAgentVersion,
+                agentId,
+                query = "AgentForge local reference",
+                maximumResults = 5,
+                providerIds = LocalDocsProvider,
+            }));
+        Assert.Equal(HttpStatusCode.OK, researchPreview.StatusCode);
+        var researchPreviewHash = await ReadPropertyAsync(researchPreview, "previewHash");
+        using var researchApply = await MutationAsync(
+            client, "/api/v1/admin/research/apply", "research-apply-1", adminCsrf,
+            JsonContent.Create(new { previewHash = researchPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, researchApply.StatusCode);
+        var researchReceiptHash = await ReadPropertyAsync(researchApply, "receiptHash");
+        using var researchApplyReplay = await MutationAsync(
+            client, "/api/v1/admin/research/apply", "research-apply-1", adminCsrf,
+            JsonContent.Create(new { previewHash = researchPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, researchApplyReplay.StatusCode);
+        Assert.True(researchApplyReplay.Headers.Contains("Idempotent-Replay"));
+        using var contextRun = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-context-run",
+            adminCsrf,
+            "Use the explicitly attached context.",
+            memoryQuery: "verification summary",
+            researchReceiptHash: researchReceiptHash);
+        var contextRunText = await contextRun.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, contextRun.StatusCode);
+        Assert.Contains("\"memoryCount\":1", contextRunText, StringComparison.Ordinal);
+        Assert.Contains("\"citationCount\":1", contextRunText, StringComparison.Ordinal);
+        Assert.Contains("event: completed", contextRunText, StringComparison.Ordinal);
+        using var memoryDelete = await MutationAsync(
+            client, $"/api/v1/admin/memory/{memoryId:D}/delete", "memory-delete-1", adminCsrf,
+            JsonContent.Create(new { expectedAgentVersion = scheduleRequest.expectedAgentVersion, agentId }));
+        Assert.Equal(HttpStatusCode.OK, memoryDelete.StatusCode);
+        using var memoryDeleteReplay = await MutationAsync(
+            client, $"/api/v1/admin/memory/{memoryId:D}/delete", "memory-delete-1", adminCsrf,
+            JsonContent.Create(new { expectedAgentVersion = scheduleRequest.expectedAgentVersion, agentId }));
+        Assert.Equal(HttpStatusCode.OK, memoryDeleteReplay.StatusCode);
+        Assert.True(memoryDeleteReplay.Headers.Contains("Idempotent-Replay"));
 
         using var runWithoutCsrf = await client.PostAsJsonAsync("/api/v1/admin/runs", new
         {
@@ -1433,7 +1610,8 @@ public sealed class WebSetupWizardTests : IDisposable
             "full-policy-apply",
             adminCsrf,
             JsonContent.Create(new { previewHash = fullPolicyHash }));
-        Assert.Equal(HttpStatusCode.OK, fullPolicyApply.StatusCode);
+        Assert.True(fullPolicyApply.StatusCode == HttpStatusCode.OK,
+            $"Full policy apply failed: {await fullPolicyApply.Content.ReadAsStringAsync()}");
 
         await using var administrationVerification = _factory.Services.CreateAsyncScope();
         var createdAgents = await administrationVerification.ServiceProvider
@@ -1522,6 +1700,8 @@ public sealed class WebSetupWizardTests : IDisposable
         string? responseDepth = null,
         int? maximumOutputTokens = null,
         IReadOnlyList<string>? skillIds = null,
+        string? memoryQuery = null,
+        string? researchReceiptHash = null,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path)
@@ -1534,6 +1714,8 @@ public sealed class WebSetupWizardTests : IDisposable
                 responseDepth,
                 maximumOutputTokens,
                 skillIds,
+                memoryQuery,
+                researchReceiptHash,
             }),
         };
         request.Headers.Add("Idempotency-Key", idempotencyKey);

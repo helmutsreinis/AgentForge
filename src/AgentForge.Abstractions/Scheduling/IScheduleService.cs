@@ -27,9 +27,26 @@ public interface IScheduleSnapshotStore
         DateTimeOffset now,
         int maximumCount,
         CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<ScheduleSnapshot>> ListLatestAsync(
+        InstallationId installationId,
+        int maximumCount,
+        CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<RunnableScheduleOccurrence>> ListRunnableAsync(
+        DateTimeOffset now,
+        int maximumCount,
+        CancellationToken cancellationToken);
 }
 
 public sealed record DueSchedule(ScheduleId ScheduleId, long Version, DateTimeOffset DueAt);
+
+public sealed record RunnableScheduleOccurrence(
+    ScheduleId ScheduleId,
+    long Version,
+    string OccurrenceIdHash,
+    DateTimeOffset DueAt,
+    bool RequiresLeaseRecovery);
 
 public sealed record ScheduleTransitionResult(ScheduleSnapshot Snapshot, bool WasReplay = false);
 

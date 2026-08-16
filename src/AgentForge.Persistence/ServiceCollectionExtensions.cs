@@ -90,6 +90,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRunConversationRepository, SqliteRunConversationRepository>();
         services.AddScoped<IDelegationGrantStore, SqliteDelegationGrantStore>();
         services.AddScoped<IScheduleSnapshotStore, SqliteScheduleSnapshotStore>();
+        services.AddScoped<IScheduledAgentRunStore, SqliteScheduledAgentRunStore>();
         services.AddScoped<ISkillRegistryRepository, SqliteSkillRegistryRepository>();
         services.AddScoped<ISkillProposalRepository, SqliteSkillProposalRepository>();
         services.AddScoped<ISkillRunSnapshotStore, SqliteSkillRunSnapshotStore>();

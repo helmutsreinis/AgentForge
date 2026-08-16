@@ -1113,6 +1113,35 @@ holds at most 64 turns. Completed turns cannot resume or replay. A retryable pro
 authority, while an active unexpired lease conflicts. Explicit cancellation durably cancels both the task and current
 conversation turn before signaling the live provider call.
 
+## Scheduled execution and attached-context boundary
+
+Schedule forms, recurrence fields, prompts, run guidance, memory text, search queries, provider results, citations,
+receipt hashes, and browser-selected identities are untrusted. Every mutation requires the authenticated Ready
+session, exact origin/CSRF, bounded idempotency, installation scope, and optimistic versions. Schedule creation uses
+a write-free recurrence/authority preview and then revalidates the exact agent, provider, Active granted skills, and
+installation versions. The immutable template stores only redacted content-addressed prompt/system artifacts plus
+exact policy, capability, budget, skill, agent, provider, and model pins. Editing any pinned agent/provider authority
+requires a replacement schedule; it never silently changes existing automation.
+
+The dispatcher only creates due occurrences. A separate bounded worker claims an exact hash-only occurrence lease and
+derives one deterministic task, conversation, and turn identity from that occurrence hash. A crash after model
+completion reopens the durable Ready conversation and completes the occurrence without invoking the model again. An
+expired retryable task lease can resume the same incomplete turn; terminal failed/canceled conversations never rerun.
+Legacy schedules without an immutable run template remain inert to this worker. Unsupported or changed authority fails
+typed rather than degrading.
+
+Memory operations derive the effective Agent or Operator scope from the current agent policy; Task-scoped memory is
+not attachable before a new task identity exists. Entries retain exact source kind/evidence hash, redaction count,
+expiry, and deletion tuple. Research executes only after an exact operator preview binds agent version, query,
+provider set, and result limit. Provider credentials remain invocation-scoped inside adapters. The resulting bounded
+citation receipt is session-held and must be attached explicitly to the same agent.
+
+Memory and citation bodies are enclosed in an explicit untrusted-reference boundary before model use. Embedded
+instructions cannot change policy, grants, tools, or system text. Context evidence identities enter the policy and
+budget snapshot hashes; the complete redacted system context is additionally content-addressed for continuation and
+restart. The local model receives zero tools and no network/retrieval capability. Search adapter configuration or
+credentials may be absent; this returns typed unsupported capability and deterministic providers cover acceptance.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

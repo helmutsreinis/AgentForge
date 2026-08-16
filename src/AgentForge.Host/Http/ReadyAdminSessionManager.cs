@@ -4,6 +4,8 @@ using System.Text;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Scheduling;
+using AgentForge.Domain.Search;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
 using AgentForge.Domain.Tools;
@@ -26,6 +28,12 @@ internal sealed record ReadyAdminSession(
     public ConcurrentDictionary<string, ReadyProviderCreatePreview> ProviderCreatePreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentCreatePreview> AgentCreatePreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyScheduleCreatePreview> ScheduleCreatePreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyResearchPreview> ResearchPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyResearchReceipt> ResearchReceipts { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
 
@@ -69,6 +77,31 @@ internal sealed record ReadyAgentCreatePreview(
     AgentIdentityCandidate Candidate,
     CorrelationId CorrelationId,
     string RequestHash);
+
+internal sealed record ReadyScheduleCreatePreview(
+    ScheduleId ScheduleId,
+    long ExpectedInstallationVersion,
+    long ExpectedAgentVersion,
+    long ExpectedProviderVersion,
+    string RequestHash,
+    CorrelationId CorrelationId);
+
+internal sealed record ReadyResearchPreview(
+    AgentIdentityId AgentId,
+    long ExpectedAgentVersion,
+    string Query,
+    int MaximumResults,
+    IReadOnlyList<string> ProviderIds,
+    string RequestHash,
+    CorrelationId CorrelationId);
+
+internal sealed record ReadyResearchReceipt(
+    AgentIdentityId AgentId,
+    string ReceiptHash,
+    string QueryHash,
+    IReadOnlyList<SearchCitation> Citations,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc);
 
 internal sealed record ReadyAgentSkillGrantPreview(
     AgentIdentityId AgentId,

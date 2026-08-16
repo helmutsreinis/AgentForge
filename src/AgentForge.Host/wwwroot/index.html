@@ -38,6 +38,14 @@
           <span class="nav-icon" aria-hidden="true">↗</span>
           Runs
         </a>
+        <a class="nav-item" href="#schedules" data-view="schedules">
+          <span class="nav-icon" aria-hidden="true">◷</span>
+          Schedules
+        </a>
+        <a class="nav-item" href="#context" data-view="context">
+          <span class="nav-icon" aria-hidden="true">◎</span>
+          Context
+        </a>
         <a class="nav-item" href="#skills" data-view="skills">
           <span class="nav-icon" aria-hidden="true">□</span>
           Skills
@@ -486,6 +494,10 @@
                 <div id="run-restrictions" class="boundary-grid"></div>
               </div>
             </div>
+            <div class="run-context-grid attached-context-grid">
+              <label>Memory retrieval <span class="field-note">Optional query against this agent's configured durable scope.</span><input id="run-memory-query" maxlength="256" placeholder="e.g. deployment preferences"></label>
+              <label>Approved research receipt <span class="field-note">Created in Context; citations are attached as untrusted data.</span><select id="run-research-receipt"><option value="">No research attached</option></select></label>
+            </div>
           </details>
           <div class="composer-actions">
             <p>Prompts and responses are redacted, content-addressed, and stored as a durable conversation. Pinned system and skill context is hash-bound for restart safety.</p>
@@ -565,6 +577,104 @@
             <button id="run-page-next" class="secondary-action" type="button">Next</button>
           </div>
         </section>
+      </section>
+
+      <section id="schedules" class="workspace-panel app-view" aria-labelledby="schedules-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">DURABLE AUTOMATION</span>
+            <h2 id="schedules-title">Schedules</h2>
+            <p>Create an exact immutable run template, preview its recurrence, and execute it through the same pinned local-model lifecycle as an interactive run.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="schedules">Reload schedules</button>
+        </div>
+        <form id="schedule-form" class="run-composer" autocomplete="off">
+          <div class="run-primary-grid">
+            <label>Agent<select id="schedule-agent" required></select></label>
+            <label>Schedule name<input id="schedule-name" maxlength="120" required placeholder="Daily local review"></label>
+            <label>Response depth<select id="schedule-depth"><option value="concise">Concise</option><option value="balanced" selected>Balanced</option><option value="detailed">Detailed</option><option value="extended">Extended</option><option value="maximum">Maximum</option></select></label>
+            <label>Output token limit<input id="schedule-token-limit" type="number" min="1" max="262144" value="2048" required></label>
+          </div>
+          <label>Objective<textarea id="schedule-prompt" maxlength="16384" rows="4" required placeholder="Describe what the scheduled agent should produce."></textarea></label>
+          <label>Run-level guidance<textarea id="schedule-instructions" maxlength="2048" rows="3" placeholder="Optional output and verification constraints."></textarea></label>
+          <div class="run-primary-grid">
+            <label>Trigger<select id="schedule-trigger"><option value="Interval">Interval</option><option value="OneShot">One shot</option><option value="Cron">Cron</option><option value="Calendar">Calendar</option></select></label>
+            <label>Interval seconds<input id="schedule-interval" type="number" min="1" max="31536000" value="3600"></label>
+            <label>One-shot time<input id="schedule-one-shot" type="datetime-local"></label>
+            <label>Cron expression<input id="schedule-cron" maxlength="128" placeholder="0 9 * * 1-5"></label>
+            <label>Calendar hour<input id="schedule-hour" type="number" min="0" max="23" value="9"></label>
+            <label>Calendar minute<input id="schedule-minute" type="number" min="0" max="59" value="0"></label>
+            <label>Time zone<input id="schedule-timezone" maxlength="128" value="UTC" required></label>
+            <label>Overlap<select id="schedule-overlap"><option value="Skip">Skip</option><option value="Queue">Queue</option><option value="Parallel">Parallel</option></select></label>
+          </div>
+          <details class="run-context">
+            <summary>Failure, misfire &amp; expiration controls</summary>
+            <div class="run-primary-grid">
+              <label>Misfire<select id="schedule-misfire"><option value="Skip">Skip</option><option value="RunOnce">Run once</option><option value="CatchUp">Bounded catch-up</option></select></label>
+              <label>Grace seconds<input id="schedule-grace" type="number" min="0" max="31536000" value="60"></label>
+              <label>Maximum catch-up<input id="schedule-catchup" type="number" min="1" max="100" value="1"></label>
+              <label>Parallel runs<input id="schedule-parallel" type="number" min="1" max="32" value="1"></label>
+              <label>Jitter seconds<input id="schedule-jitter" type="number" min="0" max="86400" value="0"></label>
+              <label>Attempts<input id="schedule-attempts" type="number" min="1" max="100" value="2"></label>
+              <label>Retry delay seconds<input id="schedule-retry" type="number" min="0" max="86400" value="5"></label>
+              <label>Failure limit<input id="schedule-failure-limit" type="number" min="1" max="1000" value="5"></label>
+            </div>
+          </details>
+          <div class="composer-actions">
+            <p>Agent, provider, policy, budget, skills, prompt, and recurrence are pinned. Later edits never silently alter this schedule.</p>
+            <button class="setup-submit" type="submit">Preview exact schedule</button>
+          </div>
+        </form>
+        <form id="schedule-review" class="run-composer learning-gate-form" hidden>
+          <div class="workspace-subheading compact-heading"><div><span class="stage-kicker">EXACT SCHEDULE PREVIEW</span><h3>Review immutable automation</h3></div><button id="schedule-review-close" class="secondary-action" type="button">Discard</button></div>
+          <div id="schedule-preview-details" class="review-grid"></div>
+          <code id="schedule-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions"><p>The approved hash is single-session and changing any field requires another preview.</p><button id="schedule-apply" class="setup-submit" type="submit">Create schedule</button></div>
+        </form>
+        <div id="schedules-message" class="workspace-message" aria-live="polite">Open this page to load schedules.</div>
+        <div id="schedule-list" class="resource-list"></div>
+      </section>
+
+      <section id="context" class="workspace-panel app-view" aria-labelledby="context-title" hidden>
+        <div class="workspace-heading">
+          <div><span class="stage-kicker">SCOPED KNOWLEDGE</span><h2 id="context-title">Memory &amp; research</h2><p>Curate durable scoped memory and acquire cited research through an exact operator approval before attaching either to a run.</p></div>
+          <button class="secondary-action" type="button" data-reload="context">Reload context</button>
+        </div>
+        <div class="context-columns">
+          <section class="context-card" aria-labelledby="memory-title">
+            <span class="stage-kicker">DURABLE MEMORY</span><h3 id="memory-title">Agent memory</h3>
+            <form id="memory-search-form" class="run-composer compact-composer">
+              <label>Agent<select id="memory-agent" required></select></label>
+              <label>Search scoped memory<input id="memory-query" maxlength="256" required placeholder="Search facts or procedures"></label>
+              <button class="secondary-action" type="submit">Search memory</button>
+            </form>
+            <form id="memory-create-form" class="run-composer compact-composer">
+              <div class="run-primary-grid"><label>Kind<select id="memory-kind"><option value="User">User fact</option><option value="Procedural">Procedure</option></select></label><label>Retention days<input id="memory-retention" type="number" min="1" max="3650" value="30"></label></div>
+              <label><input id="memory-correction" type="checkbox"> This corrects prior behavior or knowledge</label>
+              <label>Content<textarea id="memory-content" maxlength="65536" rows="4" required placeholder="A durable fact or bounded procedure."></textarea></label>
+              <button class="setup-submit" type="submit">Save scoped memory</button>
+            </form>
+            <div id="memory-message" class="workspace-message" aria-live="polite">Choose an agent and search its configured scope.</div>
+            <div id="memory-list" class="resource-list"></div>
+          </section>
+          <section class="context-card" aria-labelledby="research-title">
+            <span class="stage-kicker">CITED RESEARCH</span><h3 id="research-title">Approved search</h3>
+            <form id="research-form" class="run-composer compact-composer">
+              <label>Agent<select id="research-agent" required></select></label>
+              <label>Query<input id="research-query" maxlength="512" required placeholder="What should the configured providers research?"></label>
+              <label>Maximum results<input id="research-limit" type="number" min="1" max="20" value="5"></label>
+              <fieldset class="skill-picker"><legend>Available providers</legend><div id="research-providers" class="skill-options"><span class="option-empty">Loading providers…</span></div></fieldset>
+              <button class="setup-submit" type="submit">Preview exact research</button>
+            </form>
+            <form id="research-review" class="run-composer compact-composer" hidden>
+              <div id="research-preview-details" class="review-grid"></div>
+              <code id="research-preview-hash" class="preview-hash"></code>
+              <div class="resource-actions"><button id="research-review-close" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Run approved search</button></div>
+            </form>
+            <div id="research-message" class="workspace-message" aria-live="polite">No research has run in this session.</div>
+            <div id="research-results" class="resource-list"></div>
+          </section>
+        </div>
       </section>
 
       <section id="skills" class="workspace-panel app-view" aria-labelledby="skills-title" hidden>

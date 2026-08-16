@@ -168,7 +168,8 @@ internal sealed class MemoryService(
             MemoryKind.Semantic => request.Source.Kind == MemorySourceKind.SearchCitation,
             MemoryKind.User => request.Source.Kind is MemorySourceKind.UserInput or MemorySourceKind.UserCorrection,
             MemoryKind.Environment => request.Source.Kind == MemorySourceKind.EnvironmentProfile,
-            MemoryKind.Procedural => request.Source.Kind is MemorySourceKind.SkillReceipt or MemorySourceKind.UserCorrection,
+            MemoryKind.Procedural => request.Source.Kind is MemorySourceKind.SkillReceipt or
+                MemorySourceKind.UserCorrection or MemorySourceKind.UserInput,
             _ => false,
         };
     }

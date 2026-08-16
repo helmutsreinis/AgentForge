@@ -68,6 +68,7 @@ button { color: inherit; }
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow-y: auto;
   padding: 32px 24px 24px;
   border-right: 1px solid var(--line);
   background: rgba(8, 9, 12, 0.88);
@@ -411,6 +412,11 @@ main {
 .run-context summary { padding: 14px 15px; color: #d7d4df; font-size: 11px; font-weight: 650; cursor: pointer; }
 .run-context[open] summary { border-bottom: 1px solid var(--line); }
 .run-context-grid { display: grid; grid-template-columns: minmax(240px, .85fr) minmax(320px, 1.15fr); gap: 12px; padding: 15px; }
+.attached-context-grid { padding-top: 0; }
+.context-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.context-card { display: grid; gap: 13px; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 8, 12, .45); }
+.context-card h3 { margin: -4px 0 0; font-size: 20px; font-weight: 550; }
+.compact-composer { padding: 14px; gap: 11px; }
 .system-preview, .runtime-boundaries { display: grid; align-content: start; gap: 8px; }
 .system-preview > span, .runtime-boundaries > span { color: var(--dim); font-size: 9px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
 .system-preview p { max-height: 132px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #090a0e; color: var(--muted); font: 10px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow: auto; }
@@ -633,6 +639,7 @@ noscript { position: fixed; bottom: 12px; right: 12px; padding: 10px; background
   .learning-proposal-grid { grid-template-columns: 1fr 180px; }
   .run-primary-grid label:first-child { grid-column: 1 / -1; }
   .run-context-grid, .run-options-row { grid-template-columns: 1fr; }
+  .context-columns { grid-template-columns: 1fr; }
   .inline-create-form { grid-template-columns: 1fr 1fr; }
   .inline-create-form .setup-submit { grid-column: 1 / -1; }
 }
