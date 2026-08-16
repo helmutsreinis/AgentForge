@@ -90,6 +90,22 @@ const elements = {
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
+  skillProposalList: document.querySelector("#skill-proposal-list"),
+  skillGateForm: document.querySelector("#skill-gate-form"),
+  skillGateTitle: document.querySelector("#skill-gate-title"),
+  skillGateSource: document.querySelector("#skill-gate-source"),
+  skillGateFields: document.querySelector("#skill-gate-fields"),
+  skillGateExplanation: document.querySelector("#skill-gate-explanation"),
+  skillGateClose: document.querySelector("#skill-gate-close"),
+  submitSkillGate: document.querySelector("#submit-skill-gate"),
+  skillGrantForm: document.querySelector("#skill-grant-form"),
+  skillGrantTitle: document.querySelector("#skill-grant-title"),
+  skillGrantSource: document.querySelector("#skill-grant-source"),
+  skillGrantChanges: document.querySelector("#skill-grant-changes"),
+  skillGrantWarning: document.querySelector("#skill-grant-warning"),
+  skillGrantPreviewHash: document.querySelector("#skill-grant-preview-hash"),
+  skillGrantClose: document.querySelector("#skill-grant-close"),
+  applySkillGrant: document.querySelector("#apply-skill-grant"),
   learningForm: document.querySelector("#learning-form"),
   learningSourceRun: document.querySelector("#learning-source-run"),
   learningKind: document.querySelector("#learning-kind"),
@@ -129,6 +145,10 @@ const admin = {
   agentEditPreview: null,
   runs: [],
   runOptions: null,
+  skillRegistry: null,
+  selectedSkillProposal: null,
+  skillGateAction: null,
+  skillGrantPreview: null,
   runPage: 1,
   runPageSize: 8,
   pendingLearningTaskId: null,
@@ -813,6 +833,7 @@ async function loadSkills(message = "Loading immutable skill packages…") {
   workspaceStatus(elements.skillsMessage, message);
   try {
     const payload = await adminRead("/api/v1/admin/skills");
+    admin.skillRegistry = payload;
     elements.skillList.replaceChildren();
     for (const skill of payload.skills) {
       const card = makeElement("article", "resource-card");
@@ -828,14 +849,247 @@ async function loadSkills(message = "Loading immutable skill packages…") {
       addMeta(meta, "Package hash", `${skill.packageHash.slice(0, 24)}…`);
       addMeta(meta, "Promotion", skill.status === "Active" ? "Active" : "Evaluation required");
       card.append(title, makeElement("p", "resource-description", skill.description), meta);
+      const actions = makeElement("div", "resource-actions");
+      if (skill.status === "Installed") {
+        const hasOpenProposal = payload.proposals.some(proposal =>
+          proposal.skillId === skill.id && proposal.candidateVersion === skill.version &&
+          ["Proposed", "AwaitingApproval", "Approved", "Canary"].includes(proposal.state));
+        const activate = makeElement("button", "secondary-action", hasOpenProposal ? "Activation in progress" : "Begin activation review");
+        activate.type = "button";
+        activate.disabled = hasOpenProposal;
+        activate.addEventListener("click", () => createSkillProposal(skill));
+        actions.append(activate);
+      }
+      if (skill.status === "Active") {
+        for (const agent of payload.agents) {
+          const granted = agent.skillGrants.includes(skill.id);
+          const grant = makeElement("button", granted ? "danger-action" : "secondary-action",
+            `${granted ? "Revoke from" : "Grant to"} ${agent.name}`);
+          grant.type = "button";
+          grant.addEventListener("click", () => previewSkillGrant(agent, skill, !granted));
+          actions.append(grant);
+        }
+      }
+      if (actions.childElementCount) card.append(actions);
       elements.skillList.append(card);
     }
     if (!payload.skills.length) elements.skillList.append(makeElement("div", "empty-state", "No skills installed. The bundled starter can be validated and installed above."));
     elements.installSeedSkill.disabled = payload.seedAvailable !== true || payload.skills.some(skill => skill.id === "skill:csharp.review");
     elements.installSeedSkill.textContent = payload.skills.some(skill => skill.id === "skill:csharp.review") ? "Starter installed" : "Install starter skill";
+    renderSkillProposals(payload.proposals);
     workspaceStatus(elements.skillsMessage, `${payload.skills.length} registered skill ${payload.skills.length === 1 ? "version" : "versions"} loaded.`, "ok");
   } catch (error) {
     workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "Skills could not be loaded.", "error");
+  }
+}
+
+async function createSkillProposal(skill) {
+  workspaceStatus(elements.skillsMessage, `Creating a version-bound activation proposal for ${skill.id} ${skill.version}…`);
+  try {
+    const result = await adminMutation("/api/v1/admin/skills/proposals", { skillId: skill.id, version: skill.version });
+    await loadSkills(`${result.skillId} entered ${result.state}. Complete each visible gate before it can become active.`);
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "The activation proposal could not be created.", "error");
+  }
+}
+
+function skillGateAction(state) {
+  return {
+    Proposed: "evaluate",
+    AwaitingApproval: "approve",
+    Approved: "start-canary",
+    Canary: "finish-canary",
+    Promoted: "rollback",
+  }[state] || null;
+}
+
+function skillGateLabel(action) {
+  return {
+    evaluate: "Record evaluation",
+    approve: "Approve exact package",
+    "start-canary": "Start scoped canary",
+    "finish-canary": "Finish canary",
+    rollback: "Roll back promotion",
+  }[action];
+}
+
+function renderSkillProposals(proposals) {
+  elements.skillProposalList.replaceChildren();
+  for (const proposal of proposals) {
+    const card = makeElement("article", "resource-card learning-card");
+    const title = makeElement("div", "resource-title");
+    const copy = document.createElement("div");
+    copy.append(makeElement("h3", "", proposal.skillId),
+      makeElement("p", "resource-subtitle", `${proposal.candidateVersion} · proposal v${proposal.version}`));
+    title.append(copy, stateChip(proposal.state));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Next gate", proposal.nextGate.replaceAll("-", " "));
+    addMeta(meta, "Candidate hash", `${proposal.candidatePackageHash.slice(0, 24)}…`);
+    addMeta(meta, "Added permissions", proposal.addedPermissions.length ? proposal.addedPermissions.join(", ") : "None");
+    addMeta(meta, "Authority", proposal.activeAuthority ? "Active exact version" : "None");
+    card.append(title, meta);
+    const action = skillGateAction(proposal.state);
+    if (action) {
+      const actions = makeElement("div", "resource-actions");
+      const button = makeElement("button", action === "rollback" ? "danger-action" : "secondary-action", skillGateLabel(action));
+      button.type = "button";
+      button.addEventListener("click", () => openSkillGate(proposal, action));
+      actions.append(button);
+      card.append(actions);
+    }
+    elements.skillProposalList.append(card);
+  }
+  if (!proposals.length) elements.skillProposalList.append(makeElement("div", "empty-state",
+    "No activation proposals. Begin a review from an installed skill above."));
+}
+
+function skillEvidenceField() {
+  const label = document.createElement("label");
+  label.append(document.createTextNode("Evidence note "));
+  label.append(makeElement("span", "field-note", "Hashed in this browser; note text is not sent or stored."));
+  const textarea = document.createElement("textarea");
+  textarea.id = "skill-gate-evidence";
+  textarea.rows = 4;
+  textarea.maxLength = 4096;
+  textarea.required = true;
+  textarea.placeholder = "Reference deterministic tests, adversarial checks, canary observations, or rollback evidence.";
+  label.append(textarea);
+  return label;
+}
+
+function openSkillGate(proposal, action) {
+  admin.selectedSkillProposal = proposal;
+  admin.skillGateAction = action;
+  elements.skillGateFields.replaceChildren();
+  elements.skillGateTitle.textContent = skillGateLabel(action);
+  elements.skillGateSource.textContent = `${proposal.skillId} ${proposal.candidateVersion} · proposal version ${proposal.version}`;
+  elements.submitSkillGate.textContent = skillGateLabel(action);
+  if (action === "evaluate") {
+    const checks = makeElement("fieldset", "learning-gate-checks");
+    checks.append(gateCheck("Target tests passed", "skill-gate-target"),
+      gateCheck("Holdout tests passed", "skill-gate-holdout"),
+      gateCheck("Adversarial tests passed", "skill-gate-adversarial"));
+    const metrics = makeElement("div", "learning-proposal-grid");
+    metrics.append(gateField("Baseline score", "skill-gate-baseline", "number", "0"),
+      gateField("Candidate score", "skill-gate-candidate", "number", "1"));
+    elements.skillGateFields.append(checks, metrics, skillEvidenceField());
+    elements.skillGateExplanation.textContent = "Any failed deterministic check or candidate regression rejects this exact package.";
+  } else if (action === "finish-canary") {
+    const metrics = makeElement("div", "learning-proposal-grid");
+    metrics.append(gateField("Baseline metric", "skill-gate-baseline", "number", "0"),
+      gateField("Candidate metric", "skill-gate-candidate", "number", "1"));
+    elements.skillGateFields.append(gateCheck("Scoped canary passed", "skill-gate-passed"), metrics, skillEvidenceField());
+    elements.skillGateExplanation.textContent = "Promotion occurs only when this exact candidate passes and meets the baseline.";
+  } else if (action === "rollback") {
+    elements.skillGateFields.append(skillEvidenceField());
+    elements.skillGateExplanation.textContent = "Rollback removes active authority atomically and restores the exact recorded baseline when one exists.";
+  } else if (action === "approve") {
+    elements.skillGateExplanation.textContent = "A separate governor actor approves the exact package and baseline hashes. No active authority is granted yet.";
+  } else {
+    elements.skillGateExplanation.textContent = "The canary is scoped to the already-approved package. A passing receipt is still required for promotion.";
+  }
+  elements.skillGateForm.hidden = false;
+  elements.skillGateForm.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function closeSkillGate() {
+  admin.selectedSkillProposal = null;
+  admin.skillGateAction = null;
+  elements.skillGateForm.hidden = true;
+  elements.skillGateFields.replaceChildren();
+}
+
+async function skillEvidenceHash(proposal, action) {
+  const note = document.querySelector("#skill-gate-evidence")?.value.trim();
+  if (!note) return null;
+  const bytes = new TextEncoder().encode(`${proposal.id}\n${proposal.version}\n${action}\n${note}`);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function transitionSkillProposal(event) {
+  event.preventDefault();
+  const proposal = admin.selectedSkillProposal;
+  const action = admin.skillGateAction;
+  if (!proposal || !action) return;
+  setBusy(elements.skillGateForm, true);
+  try {
+    const payload = { action, expectedVersion: proposal.version, evidenceHash: await skillEvidenceHash(proposal, action) };
+    if (action === "evaluate") Object.assign(payload, {
+      targetPassed: document.querySelector("#skill-gate-target").checked,
+      holdoutPassed: document.querySelector("#skill-gate-holdout").checked,
+      adversarialPassed: document.querySelector("#skill-gate-adversarial").checked,
+      baselineMetric: Number(document.querySelector("#skill-gate-baseline").value),
+      candidateMetric: Number(document.querySelector("#skill-gate-candidate").value),
+    });
+    if (action === "finish-canary") Object.assign(payload, {
+      passed: document.querySelector("#skill-gate-passed").checked,
+      baselineMetric: Number(document.querySelector("#skill-gate-baseline").value),
+      candidateMetric: Number(document.querySelector("#skill-gate-candidate").value),
+    });
+    const result = await adminMutation(`/api/v1/admin/skills/proposals/${proposal.id}/transition`, payload);
+    closeSkillGate();
+    await loadSkills(`${result.skillId} advanced to ${result.state}.`);
+    await loadRunOptions();
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "The activation gate could not be recorded.", "error");
+  } finally {
+    setBusy(elements.skillGateForm, false);
+  }
+}
+
+function closeSkillGrant() {
+  admin.skillGrantPreview = null;
+  elements.skillGrantForm.hidden = true;
+  elements.skillGrantChanges.replaceChildren();
+  elements.skillGrantPreviewHash.textContent = "";
+}
+
+async function previewSkillGrant(agent, skill, grant) {
+  closeSkillGrant();
+  workspaceStatus(elements.skillsMessage, `Preparing an exact ${grant ? "grant" : "revocation"} preview…`);
+  try {
+    const preview = await adminMutation(`/api/v1/admin/agents/${agent.id}/skill-grants/preview`, {
+      expectedInstallationVersion: admin.skillRegistry.installationVersion,
+      expectedAgentVersion: agent.version,
+      skillId: skill.id,
+      grant,
+    });
+    admin.skillGrantPreview = { agentId: agent.id, previewHash: preview.previewHash, grant };
+    elements.skillGrantTitle.textContent = `${grant ? "Grant" : "Revoke"} ${skill.id}`;
+    elements.skillGrantSource.textContent = `${agent.name} · ${skill.version} · ${skill.packageHash}`;
+    elements.skillGrantWarning.textContent = preview.warning;
+    elements.skillGrantChanges.replaceChildren();
+    for (const change of preview.changes) {
+      const item = document.createElement("div");
+      item.append(makeElement("span", "", change.path), makeElement("strong", "", "One exact skill authority change"));
+      elements.skillGrantChanges.append(item);
+    }
+    elements.skillGrantPreviewHash.textContent = `Bound preview ${preview.previewHash}`;
+    elements.applySkillGrant.textContent = grant ? "Apply exact grant" : "Apply exact revocation";
+    elements.skillGrantForm.hidden = false;
+    elements.skillGrantForm.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "The skill grant could not be previewed.", "error");
+  }
+}
+
+async function applySkillGrant(event) {
+  event.preventDefault();
+  if (!admin.skillGrantPreview) return;
+  setBusy(elements.skillGrantForm, true);
+  try {
+    const preview = admin.skillGrantPreview;
+    const result = await adminMutation(`/api/v1/admin/agents/${preview.agentId}/skill-grants/apply`, {
+      previewHash: preview.previewHash,
+    });
+    closeSkillGrant();
+    await Promise.all([loadSkills(), loadAgents(), loadRunOptions()]);
+    workspaceStatus(elements.skillsMessage, `${result.skillId} ${result.granted ? "granted to" : "revoked from"} ${result.agent.name}.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.skillsMessage, error instanceof Error ? error.message : "The skill grant could not be applied.", "error");
+  } finally {
+    setBusy(elements.skillGrantForm, false);
   }
 }
 
@@ -1638,6 +1892,10 @@ elements.learningProposalForm.addEventListener("submit", createLearningProposal)
 elements.learningProposalClose.addEventListener("click", closeLearningProposal);
 elements.learningGateForm.addEventListener("submit", transitionLearningCandidate);
 elements.learningGateClose.addEventListener("click", closeLearningGate);
+elements.skillGateForm.addEventListener("submit", transitionSkillProposal);
+elements.skillGateClose.addEventListener("click", closeSkillGate);
+elements.skillGrantForm.addEventListener("submit", applySkillGrant);
+elements.skillGrantClose.addEventListener("click", closeSkillGrant);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);

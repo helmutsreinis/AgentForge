@@ -44,6 +44,37 @@ internal sealed class SqliteSkillProposalRepository(AgentForgeDbContext dbContex
             return null;
         }
 
+        return Map(entity);
+    }
+
+    public async ValueTask<IReadOnlyList<SkillProposal>> ListLatestAsync(
+        Domain.Primitives.InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken)
+    {
+        if (maximumResults is < 1 or > 1_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumResults));
+        }
+
+        var latest = dbContext.SkillProposalSnapshots.AsNoTracking()
+            .Where(item => item.InstallationId == installationId.Value)
+            .GroupBy(item => item.ProposalId)
+            .Select(group => new { ProposalId = group.Key, Version = group.Max(item => item.Version) });
+        var entities = await dbContext.SkillProposalSnapshots.AsNoTracking()
+            .Join(
+                latest,
+                item => new { item.ProposalId, item.Version },
+                item => new { item.ProposalId, item.Version },
+                (snapshot, _) => snapshot)
+            .OrderByDescending(item => item.UpdatedAtUtcTicks)
+            .Take(maximumResults)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(Map).ToArray();
+    }
+
+    private static SkillProposal Map(SkillProposalSnapshotEntity entity)
+    {
         var proposal = JsonSerializer.Deserialize<SkillProposal>(entity.ProposalJson, SerializerOptions)
             ?? throw new InvalidOperationException("The persisted skill proposal was empty.");
         if (proposal.Id.Value != entity.ProposalId || proposal.Version != entity.Version ||

@@ -7,6 +7,7 @@ using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
+using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
@@ -15,6 +16,7 @@ using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
+using AgentForge.Domain.Skills;
 
 namespace AgentForge.Setup;
 
@@ -22,6 +24,7 @@ internal sealed class SetupProfileEditor(
     IInstallationRepository installations,
     IProviderProfileRepository providers,
     IAgentIdentityRepository agents,
+    ISkillRegistryRepository skills,
     IProviderProfileDefinitionEvaluator providerDefinitions,
     IProviderProfileValidator providerValidator,
     IAgentDefinitionEvaluator agentDefinitions,
@@ -444,14 +447,29 @@ internal sealed class SetupProfileEditor(
             {
                 "agent.name", "agent.expertise", "agent.mission", "agent.preferredLanguage",
                 "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace", "agent.budget",
+                "agent.capabilityPolicy",
             };
             var budgetChanged = changes.Any(change => change.Path == "agent.budget");
+            var capabilityChanged = changes.Any(change => change.Path == "agent.capabilityPolicy");
             if (changes.Any(change => !readyFields.Contains(change.Path)) ||
-                budgetChanged && !IsReadyOutputBudgetChange(current.Budget, effectiveAgent.Budget))
+                budgetChanged && !IsReadyOutputBudgetChange(current.Budget, effectiveAgent.Budget) ||
+                capabilityChanged && (changes.Count != 1 ||
+                    !IsReadySkillGrantChange(current.CapabilityPolicy, effectiveAgent.CapabilityPolicy)))
             {
                 return DomainResult.Fail<AgentPreparation>(new DomainFailure(
                     FailureCode.PolicyDenied,
-                    "A Ready agent edit may change identity, instructions, and only the bounded output-token ceiling."));
+                    "A Ready agent edit may change identity, instructions, the bounded output-token ceiling, or one exact skill grant."));
+            }
+
+            var addedSkill = effectiveAgent.CapabilityPolicy.SkillGrants
+                .Except(current.CapabilityPolicy.SkillGrants, StringComparer.Ordinal)
+                .SingleOrDefault();
+            if (addedSkill is not null && await skills.FindActiveAsync(
+                    installation.Id, new SkillId(addedSkill), cancellationToken) is null)
+            {
+                return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    "A skill can be granted only while an exact promoted version is active."));
             }
         }
         var requestHash = ComputeHash(new
@@ -596,6 +614,17 @@ internal sealed class SetupProfileEditor(
         effective.MaxToolInvocations == current.MaxToolInvocations &&
         effective.MaxInputTokens == current.MaxInputTokens &&
         effective.MaxWallClockSeconds == current.MaxWallClockSeconds;
+
+    private static bool IsReadySkillGrantChange(
+        AgentCapabilityPolicy current,
+        AgentCapabilityPolicy effective)
+    {
+        var difference = current.SkillGrants.ToHashSet(StringComparer.Ordinal);
+        difference.SymmetricExceptWith(effective.SkillGrants);
+        return effective.NetworkPosture == current.NetworkPosture &&
+            effective.ToolGrants.SequenceEqual(current.ToolGrants, StringComparer.Ordinal) &&
+            difference.Count == 1;
+    }
 
     private static void AddChange(
         List<SetupProfileChange> changes,

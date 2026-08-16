@@ -425,7 +425,7 @@
           <div>
             <span class="stage-kicker">GOVERNED CAPABILITIES</span>
             <h2 id="skills-title">Skills</h2>
-            <p>Inspect immutable skill packages and install the bundled C# review seed through the same validated registry as future proposals.</p>
+            <p>Install immutable packages, run the governed activation lifecycle, and grant exact active skills to individual agents.</p>
           </div>
           <button class="secondary-action" type="button" data-reload="skills">Reload skills</button>
         </div>
@@ -436,6 +436,34 @@
         <div class="scope-notice"><strong>Governed by default</strong><span>Installation validates and records the package. Activation still requires the evaluation, approval, and canary promotion lifecycle.</span></div>
         <div id="skills-message" class="workspace-message" aria-live="polite">Open this page to load skills.</div>
         <div id="skill-list" class="resource-list"></div>
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">ACTIVATION GOVERNANCE</span><h3>Promotion queue</h3><p>Evaluation, separate approval, canary, promotion, and rollback remain version-bound and audited.</p></div>
+        </div>
+        <div id="skill-proposal-list" class="resource-list learning-list"></div>
+        <form id="skill-gate-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">ACTIVATION GATE</span><h3 id="skill-gate-title">Review skill</h3><p id="skill-gate-source"></p></div>
+            <button id="skill-gate-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div id="skill-gate-fields"></div>
+          <div class="composer-actions">
+            <p id="skill-gate-explanation">Each transition is bound to the exact candidate, baseline, version, and evidence hash.</p>
+            <button id="submit-skill-gate" class="setup-submit" type="submit">Record gate</button>
+          </div>
+        </form>
+        <form id="skill-grant-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">EXACT AGENT AUTHORITY</span><h3 id="skill-grant-title">Review grant</h3><p id="skill-grant-source"></p></div>
+            <button id="skill-grant-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="skill-grant-changes" class="review-grid"></div>
+          <p id="skill-grant-warning" class="review-warning"></p>
+          <code id="skill-grant-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>Granting a skill authorizes immutable instructions only. It does not grant tools, files, external network, messaging, devices, or credentials.</p>
+            <button id="apply-skill-grant" class="setup-submit" type="submit">Apply exact grant</button>
+          </div>
+        </form>
       </section>
 
       <section id="learning" class="workspace-panel app-view" aria-labelledby="learning-title" hidden>

@@ -162,6 +162,9 @@ administrator credentials or letting classified evidence bypass candidate, polic
 - A `NewSkill` learning signal can now create exactly one deterministic candidate package in an isolated link-free proposal workspace. The portable `SKILL.md` and sidecar install through the ordinary registry as immutable `AgentProposal` provenance, while a separate deterministic PAX artifact binds the proposal workspace to the candidate snapshot.
 - The Learning proposal queue exposes all five separated actors, declared permissions, package/workspace hashes, current version, active-authority truth, and the exact next gate. Version-bound operator controls exercise verifier, critic, governor, scoped-canary, promotion, and rollback transitions through the existing domain and skill-governance services; stale, malformed, competing, failed, and rolled-back candidates fail closed or quarantine.
 - Evidence notes used by the gate UI are SHA-256 hashed in the browser and are not transmitted or persisted. The backend accepts only a bounded hash receipt for evidence-bearing transitions; it never accepts candidate source, model instructions, credentials, or new permissions during a transition.
+- The Ready Skills workspace now exposes the ordinary skill-governance lifecycle for every installed provenance: deterministic target/holdout/adversarial evaluation, a distinct governor, scoped canary, promotion, and rollback. Latest append-only proposal state, permission diff, package/baseline hashes, version, exact next gate, and active-authority truth are visible without exposing skill bodies.
+- Active catalog authority and per-agent authority remain independent. An authenticated hash-bound preview/apply can add or remove exactly one skill ID while preserving network posture and every tool grant; new grants require the exact skill to remain Active at both preview and apply. Runs require both conditions and pin the exact immutable version, package hash, artifact, permissions, and body.
+- Live browser verification promoted `skill:csharp.review@1.0.0`, granted it to `local-agent`, and completed a real `qwen3.8` C# review with the selected skill. Tool, browsing, file, memory, messaging, device, fallback, and credential authority remained denied.
 
 ## Latest gate
 
@@ -182,6 +185,8 @@ administrator credentials or letting classified evidence bypass candidate, polic
 `artifacts/gates/POST-R1-LEARNING-PROPOSAL-20260816.md`: Pass. Classified NewSkill evidence now produces one isolated inactive candidate and can traverse or roll back the complete versioned five-role governance lifecycle with visible durable evidence.
 
 `artifacts/gates/POST-R1-RESPONSE-BUDGET-20260816.md`: Pass. Ready agents expose a versioned generated-output ceiling and Runs exposes scalable presets plus an exact server-enforced per-run token limit without widening authority.
+
+`artifacts/gates/POST-R1-SKILL-ACTIVATION-20260816.md`: Pass. Ready operators can govern exact skill activation and exact per-agent grants, and Runs admits the immutable skill only when both authorities are current.
 
 ## Known constraints and risks
 

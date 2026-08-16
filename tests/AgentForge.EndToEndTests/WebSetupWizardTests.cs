@@ -718,6 +718,238 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, deniedSkillStream.StatusCode);
         Assert.Contains("must already be granted", await deniedSkillStream.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        using var proposedActivation = await MutationAsync(
+            client,
+            "/api/v1/admin/skills/proposals",
+            "seed-skill-proposal",
+            adminCsrf,
+            JsonContent.Create(new { skillId = "skill:csharp.review", version = "1.0.0" }));
+        Assert.Equal(HttpStatusCode.Created, proposedActivation.StatusCode);
+        using var proposedActivationDocument = JsonDocument.Parse(await proposedActivation.Content.ReadAsByteArrayAsync());
+        var activationId = proposedActivationDocument.RootElement.GetProperty("id").GetGuid();
+        Assert.Equal("Proposed", proposedActivationDocument.RootElement.GetProperty("state").GetString());
+        using var duplicateActivation = await MutationAsync(
+            client,
+            "/api/v1/admin/skills/proposals",
+            "seed-skill-duplicate-proposal",
+            adminCsrf,
+            JsonContent.Create(new { skillId = "skill:csharp.review", version = "1.0.0" }));
+        Assert.Equal(HttpStatusCode.Conflict, duplicateActivation.StatusCode);
+        using var missingEvaluationEvidence = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-evaluation-missing-evidence",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "evaluate",
+                expectedVersion = 0,
+                targetPassed = true,
+                holdoutPassed = true,
+                adversarialPassed = true,
+                baselineMetric = 0,
+                candidateMetric = 1,
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, missingEvaluationEvidence.StatusCode);
+        using var evaluatedActivation = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-evaluation",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "evaluate",
+                expectedVersion = 0,
+                targetPassed = true,
+                holdoutPassed = true,
+                adversarialPassed = true,
+                baselineMetric = 0,
+                candidateMetric = 1,
+                evidenceHash = evaluationHash,
+            }));
+        Assert.Equal(HttpStatusCode.OK, evaluatedActivation.StatusCode);
+        Assert.Contains("AwaitingApproval", await evaluatedActivation.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var staleActivationApproval = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-stale-approval",
+            adminCsrf,
+            JsonContent.Create(new { action = "approve", expectedVersion = 0 }));
+        Assert.Equal(HttpStatusCode.Conflict, staleActivationApproval.StatusCode);
+        using var approvedActivation = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-approval",
+            adminCsrf,
+            JsonContent.Create(new { action = "approve", expectedVersion = 1 }));
+        Assert.Equal(HttpStatusCode.OK, approvedActivation.StatusCode);
+        Assert.Contains("Approved", await approvedActivation.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var activationCanary = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-start-canary",
+            adminCsrf,
+            JsonContent.Create(new { action = "start-canary", expectedVersion = 2 }));
+        Assert.Equal(HttpStatusCode.OK, activationCanary.StatusCode);
+        using var promotedActivation = await MutationAsync(
+            client,
+            $"/api/v1/admin/skills/proposals/{activationId:D}/transition",
+            "seed-skill-finish-canary",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                action = "finish-canary",
+                expectedVersion = 3,
+                passed = true,
+                baselineMetric = 0,
+                candidateMetric = 1,
+                evidenceHash = evaluationHash,
+            }));
+        Assert.Equal(HttpStatusCode.OK, promotedActivation.StatusCode);
+        Assert.Contains("\"state\":\"Promoted\"", await promotedActivation.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var promotedButUngrantedOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
+        using var promotedButUngrantedDocument = JsonDocument.Parse(await promotedButUngrantedOptions.Content.ReadAsByteArrayAsync());
+        var promotedButUngrantedSkill = promotedButUngrantedDocument.RootElement.GetProperty("skills").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "skill:csharp.review");
+        Assert.Equal("Active", promotedButUngrantedSkill.GetProperty("status").GetString());
+        Assert.False(promotedButUngrantedSkill.GetProperty("granted").GetBoolean());
+        Assert.False(promotedButUngrantedSkill.GetProperty("selectable").GetBoolean());
+
+        using var promotedSkills = await client.GetAsync("/api/v1/admin/skills");
+        using var promotedSkillsDocument = JsonDocument.Parse(await promotedSkills.Content.ReadAsByteArrayAsync());
+        var grantInstallationVersion = promotedSkillsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var grantAgentVersion = promotedSkillsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+        using var missingGrantCsrfRequest = new HttpRequestMessage(
+            HttpMethod.Post, $"/api/v1/admin/agents/{agentId:D}/skill-grants/preview")
+        {
+            Content = JsonContent.Create(new
+            {
+                expectedInstallationVersion = grantInstallationVersion,
+                expectedAgentVersion = grantAgentVersion,
+                skillId = "skill:csharp.review",
+                grant = true,
+            }),
+        };
+        missingGrantCsrfRequest.Headers.Add("Idempotency-Key", "seed-skill-grant-no-csrf");
+        missingGrantCsrfRequest.Headers.Add("Origin", "http://localhost");
+        using var missingGrantCsrf = await client.SendAsync(missingGrantCsrfRequest);
+        Assert.Equal(HttpStatusCode.Unauthorized, missingGrantCsrf.StatusCode);
+        using var grantPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/preview",
+            "seed-skill-grant-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = grantInstallationVersion,
+                expectedAgentVersion = grantAgentVersion,
+                skillId = "skill:csharp.review",
+                grant = true,
+            }));
+        Assert.Equal(HttpStatusCode.OK, grantPreview.StatusCode);
+        using var grantPreviewDocument = JsonDocument.Parse(await grantPreview.Content.ReadAsByteArrayAsync());
+        var grantPreviewHash = grantPreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        Assert.NotNull(grantPreviewHash);
+        Assert.Equal("agent.capabilityPolicy",
+            grantPreviewDocument.RootElement.GetProperty("changes")[0].GetProperty("path").GetString());
+        using var rejectedGrant = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/apply",
+            "seed-skill-grant-wrong-preview",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = new string('0', 64) }));
+        Assert.Equal(HttpStatusCode.Forbidden, rejectedGrant.StatusCode);
+        using var appliedGrant = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/apply",
+            "seed-skill-grant-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = grantPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, appliedGrant.StatusCode);
+        Assert.Contains("\"granted\":true", await appliedGrant.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
+        using var grantedOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
+        using var grantedOptionsDocument = JsonDocument.Parse(await grantedOptions.Content.ReadAsByteArrayAsync());
+        var grantedSkill = grantedOptionsDocument.RootElement.GetProperty("skills").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "skill:csharp.review");
+        Assert.Equal("Active", grantedSkill.GetProperty("status").GetString());
+        Assert.True(grantedSkill.GetProperty("granted").GetBoolean());
+        Assert.True(grantedSkill.GetProperty("selectable").GetBoolean());
+        using var skilledStream = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-granted-skill",
+            adminCsrf,
+            "Review a short C# method.",
+            skillIds: ["skill:csharp.review"]);
+        Assert.Equal(HttpStatusCode.OK, skilledStream.StatusCode);
+        var skilledStreamText = await skilledStream.Content.ReadAsStringAsync();
+        Assert.Contains("event: completed", skilledStreamText, StringComparison.Ordinal);
+        Assert.Contains("skill:csharp.review", skilledStreamText, StringComparison.Ordinal);
+
+        using var grantedSkills = await client.GetAsync("/api/v1/admin/skills");
+        using var grantedSkillsDocument = JsonDocument.Parse(await grantedSkills.Content.ReadAsByteArrayAsync());
+        var revokeInstallationVersion = grantedSkillsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var revokeAgentVersion = grantedSkillsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+        using var revokePreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/preview",
+            "seed-skill-revoke-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = revokeInstallationVersion,
+                expectedAgentVersion = revokeAgentVersion,
+                skillId = "skill:csharp.review",
+                grant = false,
+            }));
+        Assert.Equal(HttpStatusCode.OK, revokePreview.StatusCode);
+        using var revokePreviewDocument = JsonDocument.Parse(await revokePreview.Content.ReadAsByteArrayAsync());
+        var revokePreviewHash = revokePreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        using var appliedRevoke = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/apply",
+            "seed-skill-revoke-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = revokePreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, appliedRevoke.StatusCode);
+        Assert.Contains("\"granted\":false", await appliedRevoke.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var revokedOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
+        using var revokedOptionsDocument = JsonDocument.Parse(await revokedOptions.Content.ReadAsByteArrayAsync());
+        var revokedSkill = revokedOptionsDocument.RootElement.GetProperty("skills").EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "skill:csharp.review");
+        Assert.False(revokedSkill.GetProperty("granted").GetBoolean());
+        Assert.False(revokedSkill.GetProperty("selectable").GetBoolean());
+
+        using var revokedSkills = await client.GetAsync("/api/v1/admin/skills");
+        using var revokedSkillsDocument = JsonDocument.Parse(await revokedSkills.Content.ReadAsByteArrayAsync());
+        var regrantInstallationVersion = revokedSkillsDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var regrantAgentVersion = revokedSkillsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
+        using var regrantPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/preview",
+            "seed-skill-regrant-preview",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                expectedInstallationVersion = regrantInstallationVersion,
+                expectedAgentVersion = regrantAgentVersion,
+                skillId = "skill:csharp.review",
+                grant = true,
+            }));
+        Assert.Equal(HttpStatusCode.OK, regrantPreview.StatusCode);
+        using var regrantPreviewDocument = JsonDocument.Parse(await regrantPreview.Content.ReadAsByteArrayAsync());
+        var regrantPreviewHash = regrantPreviewDocument.RootElement.GetProperty("previewHash").GetString();
+        using var appliedRegrant = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/skill-grants/apply",
+            "seed-skill-regrant-apply",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = regrantPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, appliedRegrant.StatusCode);
+        Assert.Contains("\"granted\":true", await appliedRegrant.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+
         await using var verificationScope = _factory.Services.CreateAsyncScope();
         var configuredAgent = Assert.Single(await verificationScope.ServiceProvider
             .GetRequiredService<IAgentIdentityRepository>().ListAsync(installationId, CancellationToken.None));
@@ -728,6 +960,7 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(0, configuredAgent.Budget.MaxToolInvocations);
         Assert.Equal(0, configuredAgent.ChildLimits.MaxChildren);
         Assert.Equal(AgentForge.Domain.Agents.NetworkPosture.Denied, configuredAgent.CapabilityPolicy.NetworkPosture);
+        Assert.Equal(["skill:csharp.review"], configuredAgent.CapabilityPolicy.SkillGrants);
         Assert.Equal(AgentForge.Domain.Agents.LearningMode.Propose, configuredAgent.LearningPolicy.Mode);
         Assert.Equal("test governed ready edit", configuredAgent.Mission);
         Assert.Equal("evidence-backed", configuredAgent.ResponseStyle);

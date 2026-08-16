@@ -4,6 +4,7 @@ using System.Text;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
+using AgentForge.Domain.Skills;
 
 namespace AgentForge.Host.Http;
 
@@ -19,6 +20,8 @@ internal sealed record ReadyAdminSession(
     public ConcurrentDictionary<string, ReadyProviderEditPreview> ProviderPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentEditPreview> AgentPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
 
     public SemaphoreSlim MutationGate { get; } = new(1, 1);
 }
@@ -38,6 +41,18 @@ internal sealed record ReadyAgentEditPreview(
     AgentIdentityId AgentId,
     long ExpectedInstallationVersion,
     long ExpectedAgentVersion,
+    AgentIdentityCandidate Candidate,
+    CorrelationId CorrelationId,
+    string RequestHash);
+
+internal sealed record ReadyAgentSkillGrantPreview(
+    AgentIdentityId AgentId,
+    long ExpectedInstallationVersion,
+    long ExpectedAgentVersion,
+    SkillId SkillId,
+    SkillVersion? ActiveVersion,
+    string? PackageHash,
+    bool Grant,
     AgentIdentityCandidate Candidate,
     CorrelationId CorrelationId,
     string RequestHash);

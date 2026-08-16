@@ -69,6 +69,10 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/agents/{agentId:guid}/test-chat-stream", StreamAgentChatAsync);
         group.MapGet("/skills", ListSkillsAsync);
         group.MapPost("/skills/seed/csharp-review/install", InstallSeedSkillAsync);
+        group.MapPost("/skills/proposals", CreateSkillProposalAsync);
+        group.MapPost("/skills/proposals/{proposalId:guid}/transition", TransitionSkillProposalAsync);
+        group.MapPost("/agents/{agentId:guid}/skill-grants/preview", PreviewAgentSkillGrantAsync);
+        group.MapPost("/agents/{agentId:guid}/skill-grants/apply", ApplyAgentSkillGrantAsync);
         group.MapGet("/learning/signals", ListLearningSignalsAsync);
         group.MapPost("/learning/signals", CaptureLearningSignalAsync);
         group.MapGet("/learning/candidates", ListLearningCandidatesAsync);
@@ -1102,7 +1106,10 @@ internal static partial class ReadyAdminEndpoints
         HttpContext context,
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
+        IInstallationRepository installations,
+        IAgentIdentityRepository agents,
         ISkillRegistryRepository skills,
+        ISkillProposalRepository proposals,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -1113,10 +1120,23 @@ internal static partial class ReadyAdminEndpoints
             return acquired.Failure;
         }
 
-        var items = await skills.ListAsync(acquired.Session!.InstallationId, cancellationToken);
+        var session = acquired.Session!;
+        var installation = await installations.ReadAsync(cancellationToken);
+        var items = await skills.ListAsync(session.InstallationId, cancellationToken);
+        var proposalItems = await proposals.ListLatestAsync(session.InstallationId, 100, cancellationToken);
+        var agentItems = await agents.ListAsync(session.InstallationId, cancellationToken);
         return Results.Ok(new
         {
             skills = items.Select(SkillResponse),
+            proposals = proposalItems.Select(SkillProposalResponse),
+            agents = agentItems.Select(agent => new
+            {
+                id = agent.Id.Value,
+                agent.Name,
+                agent.Version,
+                skillGrants = agent.CapabilityPolicy.SkillGrants,
+            }),
+            installationVersion = installation.Version,
             seedAvailable = Directory.Exists(SeedSkillDirectory()),
             correlationId = context.TraceIdentifier,
         });
