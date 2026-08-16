@@ -951,6 +951,29 @@ server-owned, output/event/token/time limits remain enforced, and browser render
 reused key is rejected instead of regenerating raw output. Client disconnect cancels the invocation but is not
 treated as an operator cancellation; failure evidence is persisted when the lease still permits it.
 
+## Ready profile-edit boundary
+
+Ready configuration input, model catalogs, model probe output, browser state, and previously issued previews are
+untrusted. The editor requires the protected operator session, exact same-origin/HTTPS-remote checks, session CSRF,
+and a bounded idempotency key. It scopes every entity to the session installation and authenticates the same local
+administrator again through an invocation-scoped OS-secret lease before the existing setup edit service evaluates
+or commits a candidate.
+
+The browser cannot submit provider topology or capability authority. A Ready model edit is reconstructed from the
+current provider and may change only `provider.model`; type, endpoint, and secret reference must compare unchanged.
+The current endpoint is discovered without executing tools, and the selected model must produce visible bounded text
+through a thinking-disabled chat probe both before preview and immediately before apply. Provider credentials are
+materialized only around those calls and never enter the session preview or response.
+
+An agent profile edit is reconstructed from current durable policy and may change only bounded identity/instruction
+paths. Model policy, data locality/fallback, memory, tool/skill grants, network posture, budgets, child limits, and
+learning permissions are copied server-side and rejected if the effective diff contains another path. Preview hashes
+bind installation/provider/agent versions, normalized candidate, actor, correlation, and effective evidence. Previews
+are short-lived in-memory session objects; apply requires the exact hash and re-runs validation under optimistic
+concurrency. A committed edit increments the installation while preserving Ready state and transactionally appends
+redacted `setup.provider-edited` or `setup.agent-edited` audit evidence. A crash or stale preview cannot silently apply
+part of a profile or widen authority.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

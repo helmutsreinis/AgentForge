@@ -57,6 +57,23 @@ public sealed class OpenAiCompatibleModelDiscoveryServiceTests
         Assert.Equal("Bearer test-key", observed.Authorization);
         Assert.Contains("\"model\":\"qwen3.6\"", observed.RequestBody, StringComparison.Ordinal);
         Assert.Contains("\"stream\":false", observed.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("\"enable_thinking\":false", observed.RequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Probe_rejects_a_choice_without_visible_response_text()
+    {
+        var service = new OpenAiCompatibleModelDiscoveryService((_, _) =>
+            new RecordingHandler("""{"choices":[{"message":{"role":"assistant","content":""}}]}"""));
+
+        var result = await service.ProbeAsync(new ModelConnectionProbeRequest(
+            new Uri("http://127.0.0.1:8000/v1"),
+            "openai-compatible",
+            "qwen3.8",
+            ReadOnlyMemory<char>.Empty), CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
     }
 
     [Fact]

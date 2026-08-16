@@ -154,15 +154,129 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"agent-editor\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"agent-discover-models\"", appShellHtml, StringComparison.Ordinal);
         using var agentList = await client.GetAsync("/api/v1/admin/agents");
         Assert.Equal(HttpStatusCode.OK, agentList.StatusCode);
         using var agentListDocument = JsonDocument.Parse(await agentList.Content.ReadAsByteArrayAsync());
         var agentId = agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("id").GetGuid();
         Assert.Equal("web-agent", agentListDocument.RootElement.GetProperty("agents")[0].GetProperty("name").GetString());
+        using var editDetails = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/edit");
+        Assert.Equal(HttpStatusCode.OK, editDetails.StatusCode);
+        using var editDocument = JsonDocument.Parse(await editDetails.Content.ReadAsByteArrayAsync());
+        var installationVersion = editDocument.RootElement.GetProperty("installationVersion").GetInt64();
+        var providerVersion = editDocument.RootElement.GetProperty("provider").GetProperty("version").GetInt64();
+        var agentVersion = editDocument.RootElement.GetProperty("agent").GetProperty("version").GetInt64();
+
+        var profileCandidate = new
+        {
+            expectedInstallationVersion = installationVersion,
+            expectedAgentVersion = agentVersion,
+            name = "web-agent",
+            expertise = "safe automation",
+            mission = "test governed ready edit",
+            preferredLanguage = "en",
+            timeZone = "UTC",
+            responseStyle = "evidence-backed",
+            defaultWorkspace = (string?)null,
+        };
+        using var staleProfilePreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/profile/preview",
+            "profile-preview-stale",
+            adminCsrf,
+            JsonContent.Create(profileCandidate));
+        Assert.Equal(HttpStatusCode.OK, staleProfilePreview.StatusCode);
+        var staleProfileHash = await ReadPropertyAsync(staleProfilePreview, "previewHash");
+
+        using var discoveredModels = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/models/discover",
+            "agent-models-1",
+            adminCsrf,
+            JsonContent.Create(new { }));
+        Assert.Equal(HttpStatusCode.OK, discoveredModels.StatusCode);
+        Assert.Contains("qwen3.8", await discoveredModels.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var modelPreviewWithoutCsrf = await client.PostAsJsonAsync(
+            $"/api/v1/admin/agents/{agentId:D}/model/preview",
+            new { expectedInstallationVersion = installationVersion, expectedProviderVersion = providerVersion, model = "qwen3.8" });
+        Assert.Equal(HttpStatusCode.Unauthorized, modelPreviewWithoutCsrf.StatusCode);
+        using var modelPreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/model/preview",
+            "model-preview-1",
+            adminCsrf,
+            JsonContent.Create(new { expectedInstallationVersion = installationVersion, expectedProviderVersion = providerVersion, model = "qwen3.8" }));
+        Assert.Equal(HttpStatusCode.OK, modelPreview.StatusCode);
+        Assert.Contains("provider.model", await modelPreview.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var modelPreviewHash = await ReadPropertyAsync(modelPreview, "previewHash");
+        using var rejectedModelApply = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/model/apply",
+            "model-apply-rejected",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = "sha256:not-approved" }));
+        Assert.Equal(HttpStatusCode.Forbidden, rejectedModelApply.StatusCode);
+        using var modelApply = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/model/apply",
+            "model-apply-1",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = modelPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, modelApply.StatusCode);
+        Assert.Contains("qwen3.8", await modelApply.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var modelApplyReplay = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/model/apply",
+            "model-apply-1",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = modelPreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, modelApplyReplay.StatusCode);
+        Assert.True(modelApplyReplay.Headers.Contains("Idempotent-Replay"));
+
+        using var staleProfileApply = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/profile/apply",
+            "profile-apply-stale",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = staleProfileHash }));
+        Assert.Equal(HttpStatusCode.Conflict, staleProfileApply.StatusCode);
+
+        using var refreshedEdit = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/edit");
+        using var refreshedEditDocument = JsonDocument.Parse(await refreshedEdit.Content.ReadAsByteArrayAsync());
+        var refreshedProfileCandidate = new
+        {
+            expectedInstallationVersion = refreshedEditDocument.RootElement.GetProperty("installationVersion").GetInt64(),
+            expectedAgentVersion = refreshedEditDocument.RootElement.GetProperty("agent").GetProperty("version").GetInt64(),
+            profileCandidate.name,
+            profileCandidate.expertise,
+            profileCandidate.mission,
+            profileCandidate.preferredLanguage,
+            profileCandidate.timeZone,
+            profileCandidate.responseStyle,
+            profileCandidate.defaultWorkspace,
+        };
+        using var profilePreview = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/profile/preview",
+            "profile-preview-2",
+            adminCsrf,
+            JsonContent.Create(refreshedProfileCandidate));
+        Assert.Equal(HttpStatusCode.OK, profilePreview.StatusCode);
+        Assert.Contains("agent.mission", await profilePreview.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        var profilePreviewHash = await ReadPropertyAsync(profilePreview, "previewHash");
+        using var profileApply = await MutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/profile/apply",
+            "profile-apply-2",
+            adminCsrf,
+            JsonContent.Create(new { previewHash = profilePreviewHash }));
+        Assert.Equal(HttpStatusCode.OK, profileApply.StatusCode);
+
         using var runOptions = await client.GetAsync($"/api/v1/admin/agents/{agentId:D}/run-options");
         Assert.Equal(HttpStatusCode.OK, runOptions.StatusCode);
         using var runOptionsDocument = JsonDocument.Parse(await runOptions.Content.ReadAsByteArrayAsync());
-        Assert.Equal("qwen3.6", runOptionsDocument.RootElement.GetProperty("provider").GetProperty("model").GetString());
+        Assert.Equal("qwen3.8", runOptionsDocument.RootElement.GetProperty("provider").GetProperty("model").GetString());
         Assert.Equal("Denied", runOptionsDocument.RootElement.GetProperty("restrictions").GetProperty("tools").GetString());
         Assert.Equal("detailed", runOptionsDocument.RootElement.GetProperty("responseDepths")[2].GetProperty("id").GetString());
 
@@ -382,9 +496,11 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(0, configuredAgent.ChildLimits.MaxChildren);
         Assert.Equal(AgentForge.Domain.Agents.NetworkPosture.Denied, configuredAgent.CapabilityPolicy.NetworkPosture);
         Assert.Equal(AgentForge.Domain.Agents.LearningMode.Propose, configuredAgent.LearningPolicy.Mode);
+        Assert.Equal("test governed ready edit", configuredAgent.Mission);
+        Assert.Equal("evidence-backed", configuredAgent.ResponseStyle);
         var provider = Assert.Single(await verificationScope.ServiceProvider
             .GetRequiredService<IProviderProfileRepository>().ListAsync(installationId, CancellationToken.None));
-        Assert.Equal("qwen3.6", provider.Model);
+        Assert.Equal("qwen3.8", provider.Model);
         Assert.True(provider.SecretReference.IsNoCredential);
     }
 
@@ -524,7 +640,10 @@ public sealed class WebSetupWizardTests : IDisposable
         public Task<DomainResult<ModelCatalogDiscoveryResult>> DiscoverAsync(
             ModelCatalogDiscoveryRequest request,
             CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(new ModelCatalogDiscoveryResult(
-                [new ModelCatalogEntry("qwen3.6", "vllm", 131_072)],
+                [
+                    new ModelCatalogEntry("qwen3.6", "vllm", 131_072),
+                    new ModelCatalogEntry("qwen3.8", "vllm", 131_072),
+                ],
                 new Uri(request.BaseEndpoint, request.BaseEndpoint.AbsolutePath.TrimEnd('/') + "/models"),
                 DateTimeOffset.UnixEpoch)));
 

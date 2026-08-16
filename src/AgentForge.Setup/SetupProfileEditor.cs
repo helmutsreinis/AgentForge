@@ -324,6 +324,13 @@ internal sealed class SetupProfileEditor(
             CorrelationId = correlationId,
         };
         var changes = BuildProviderChanges(current, effective);
+        if (installation.State is InstallationState.Ready &&
+            changes.Any(change => change.Path is not "provider.model"))
+        {
+            return DomainResult.Fail<ProviderPreparation>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "A Ready provider edit may change only the model on the existing connection."));
+        }
         var requestHash = ComputeHash(new
         {
             Kind = "provider-edit-v1",
@@ -430,6 +437,20 @@ internal sealed class SetupProfileEditor(
             CorrelationId = correlationId,
         };
         var changes = BuildAgentChanges(current, effectiveAgent);
+        if (installation.State is InstallationState.Ready)
+        {
+            var readyFields = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "agent.name", "agent.expertise", "agent.mission", "agent.preferredLanguage",
+                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace",
+            };
+            if (changes.Any(change => !readyFields.Contains(change.Path)))
+            {
+                return DomainResult.Fail<AgentPreparation>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    "A Ready agent edit may change identity and instruction fields only."));
+            }
+        }
         var requestHash = ComputeHash(new
         {
             Kind = "agent-edit-v1",
@@ -489,11 +510,11 @@ internal sealed class SetupProfileEditor(
             return Conflict<InstallationSnapshot>("Installation version changed; refresh the edit preview.");
         }
 
-        if (installation.State is not InstallationState.Configuring)
+        if (installation.State is not (InstallationState.Configuring or InstallationState.Ready))
         {
             return DomainResult.Fail<InstallationSnapshot>(new DomainFailure(
                 FailureCode.InvalidStateTransition,
-                "Setup profiles can be edited only while installation state is Configuring."));
+                "Profiles can be edited only while installation state is Configuring or Ready."));
         }
 
         return DomainResult.Success(installation);

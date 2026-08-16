@@ -127,8 +127,9 @@ internal sealed class OpenAiCompatibleModelDiscoveryService : IModelCatalogDisco
             model = request.Model,
             messages = new[] { new { role = "user", content = "Reply with OK." } },
             temperature = 0,
-            max_tokens = 8,
+            max_tokens = 16,
             stream = false,
+            chat_template_kwargs = new { enable_thinking = false },
         });
         var stopwatch = Stopwatch.StartNew();
         var response = await SendAsync(endpoint, HttpMethod.Post, payload, request.Credential, cancellationToken);
@@ -145,6 +146,15 @@ internal sealed class OpenAiCompatibleModelDiscoveryService : IModelCatalogDisco
                 choices.ValueKind is not JsonValueKind.Array || choices.GetArrayLength() == 0)
             {
                 return Invalid<ModelConnectionProbeResult>("The selected model returned no compatible response choice.");
+            }
+
+            var choice = choices[0];
+            if (!choice.TryGetProperty("message", out var message) ||
+                !message.TryGetProperty("content", out var content) ||
+                content.ValueKind is not JsonValueKind.String ||
+                !BoundedText(content.GetString(), 16_384))
+            {
+                return Invalid<ModelConnectionProbeResult>("The selected model returned no visible bounded response text.");
             }
         }
         catch (JsonException)

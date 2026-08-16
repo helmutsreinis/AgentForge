@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
 
 namespace AgentForge.Host.Http;
 
@@ -14,10 +16,31 @@ internal sealed record ReadyAdminSession(
 {
     public ConcurrentDictionary<string, ReadyAdminIdempotencyResult> Results { get; } = new(StringComparer.Ordinal);
 
+    public ConcurrentDictionary<string, ReadyProviderEditPreview> ProviderPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, ReadyAgentEditPreview> AgentPreviews { get; } = new(StringComparer.Ordinal);
+
     public SemaphoreSlim MutationGate { get; } = new(1, 1);
 }
 
 internal sealed record ReadyAdminIdempotencyResult(string RequestHash, object Response);
+
+internal sealed record ReadyProviderEditPreview(
+    AgentIdentityId AgentId,
+    ProviderProfileId ProviderId,
+    long ExpectedInstallationVersion,
+    long ExpectedProviderVersion,
+    ProviderProfileCandidate Candidate,
+    CorrelationId CorrelationId,
+    string RequestHash);
+
+internal sealed record ReadyAgentEditPreview(
+    AgentIdentityId AgentId,
+    long ExpectedInstallationVersion,
+    long ExpectedAgentVersion,
+    AgentIdentityCandidate Candidate,
+    CorrelationId CorrelationId,
+    string RequestHash);
 
 internal sealed record CreatedReadyAdminSession(string Token, ReadyAdminSession Session);
 

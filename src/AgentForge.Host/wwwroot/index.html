@@ -261,6 +261,68 @@
         </div>
         <div id="agents-message" class="workspace-message" aria-live="polite">Open this page to load agents.</div>
         <div id="agent-list" class="resource-grid"></div>
+        <section id="agent-editor" class="agent-editor" aria-labelledby="agent-editor-title" hidden>
+          <div class="workspace-heading">
+            <div>
+              <span class="stage-kicker">VERSIONED CONFIGURATION</span>
+              <h3 id="agent-editor-title">Edit agent</h3>
+              <p id="agent-editor-context">Preview and verify every change before it reaches durable state.</p>
+            </div>
+            <button id="agent-editor-close" class="secondary-action" type="button">Close editor</button>
+          </div>
+          <div id="agent-editor-message" class="workspace-message" aria-live="polite"></div>
+          <div class="agent-editor-grid">
+            <form id="agent-model-form" class="setup-form" autocomplete="off">
+              <div class="stage-heading">
+                <span class="stage-kicker">MODEL CONNECTION</span>
+                <h3>Pinned local model</h3>
+                <p>The endpoint and credential stay unchanged. Discovery and a live bounded probe are required.</p>
+              </div>
+              <div id="agent-provider-summary" class="policy-preview"></div>
+              <label>Available model
+                <select id="agent-edit-model" required></select>
+              </label>
+              <div class="stage-actions">
+                <button id="agent-discover-models" class="secondary-action" type="button">Discover models</button>
+                <button class="setup-submit" type="submit">Preview model update</button>
+              </div>
+            </form>
+            <form id="agent-profile-form" class="setup-form" autocomplete="off">
+              <div class="stage-heading">
+                <span class="stage-kicker">IDENTITY &amp; INSTRUCTIONS</span>
+                <h3>Agent profile</h3>
+                <p>Authority, budgets, capabilities, memory, child-agent limits, and learning policy remain immutable here.</p>
+              </div>
+              <div class="form-row">
+                <label>Name<input id="agent-edit-name" maxlength="80" required></label>
+                <label>Expertise <span class="optional">optional</span><input id="agent-edit-expertise" maxlength="240"></label>
+              </div>
+              <label>Mission <span class="optional">optional</span><textarea id="agent-edit-mission" maxlength="1000" rows="3"></textarea></label>
+              <div class="form-row">
+                <label>Preferred language<input id="agent-edit-language" maxlength="32" required></label>
+                <label>Time zone<input id="agent-edit-timezone" maxlength="128" required></label>
+              </div>
+              <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
+              <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
+              <div class="stage-actions">
+                <button class="setup-submit" type="submit">Preview profile update</button>
+              </div>
+            </form>
+          </div>
+          <div id="agent-edit-review" class="agent-edit-review" hidden>
+            <div>
+              <span class="stage-kicker">EXACT CHANGE PREVIEW</span>
+              <h3 id="agent-edit-review-title">Review changes</h3>
+              <p id="agent-edit-review-warning"></p>
+            </div>
+            <div id="agent-edit-changes" class="review-grid"></div>
+            <p id="agent-edit-preview-hash" class="resource-subtitle"></p>
+            <div class="stage-actions">
+              <button id="agent-edit-cancel" class="secondary-action" type="button">Discard preview</button>
+              <button id="agent-edit-apply" class="setup-submit" type="button">Apply exact preview</button>
+            </div>
+          </div>
+        </section>
       </section>
 
       <section id="runs" class="workspace-panel app-view" aria-labelledby="runs-title" hidden>

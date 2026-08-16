@@ -658,6 +658,25 @@ the task row, fabricate completion evidence, or delete WAL files. Restarting cle
 registry; durable Planned/Running recovery remains governed by the orchestration lease rules. Verify that raw
 prompt and response markers are absent from the database, WAL/SHM, artifacts, logs, and exported evidence.
 
+## Ready agent and model editing
+
+Open **Agents**, choose **Edit agent**, and use the two independent editors. Identity editing accepts only the
+displayed name, expertise, mission, language, time zone, response style, and default workspace fields. The server
+reconstructs the candidate from current durable state and preserves model policy, memory, capability/tool/skill
+grants, budgets, child limits, and learning policy. Review every before/after value and apply only the exact preview.
+
+For a model update, choose **Discover models**. Discovery reads only the current pinned endpoint; the Ready UI cannot
+change provider type, endpoint, or secret reference. Select a returned model, preview the update, confirm the live
+bounded probe and affected-agent list, then apply. Apply probes the selected model again and commits provider,
+installation version, and `setup.provider-edited` audit evidence in one transaction. A shared provider changes the
+model for every listed agent.
+
+A provider or agent change increments the Ready installation version. Any older preview must then fail with a
+concurrency conflict; reload the editor and preview again. An exact retry with the same idempotency key replays the
+stored receipt. A different body under that key conflicts. To roll back a model selection, rediscover the endpoint,
+select the prior model, and use the same preview/apply path—do not edit SQLite rows or secret files. If a model probe
+fails, keep the current profile and inspect endpoint availability before retrying.
+
 ## Ready recursive-learning intake
 
 Open **Runs** and select **Capture learning** on a terminal Completed, Failed, Canceled, or DeadLettered receipt.

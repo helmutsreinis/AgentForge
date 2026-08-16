@@ -39,7 +39,7 @@ internal sealed record CaptureLearningSignalWebRequest(
     string Summary,
     int OccurrenceCount);
 
-internal static class ReadyAdminEndpoints
+internal static partial class ReadyAdminEndpoints
 {
     private static readonly JsonSerializerOptions HashJson = new(JsonSerializerDefaults.Web);
 
@@ -51,6 +51,12 @@ internal static class ReadyAdminEndpoints
         group.MapGet("/session", GetSessionAsync);
         group.MapDelete("/session", DeleteSessionAsync);
         group.MapGet("/agents", ListAgentsAsync);
+        group.MapGet("/agents/{agentId:guid}/edit", GetAgentEditAsync);
+        group.MapPost("/agents/{agentId:guid}/models/discover", DiscoverAgentModelsAsync);
+        group.MapPost("/agents/{agentId:guid}/model/preview", PreviewAgentModelAsync);
+        group.MapPost("/agents/{agentId:guid}/model/apply", ApplyAgentModelAsync);
+        group.MapPost("/agents/{agentId:guid}/profile/preview", PreviewAgentProfileAsync);
+        group.MapPost("/agents/{agentId:guid}/profile/apply", ApplyAgentProfileAsync);
         group.MapGet("/agents/{agentId:guid}/run-options", GetRunOptionsAsync);
         group.MapGet("/runs", ListRunsAsync);
         group.MapPost("/runs", CreateRunAsync);

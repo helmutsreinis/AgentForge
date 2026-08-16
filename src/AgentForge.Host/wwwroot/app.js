@@ -38,6 +38,30 @@ const elements = {
   reviewSummary: document.querySelector("#review-summary"),
   agentsMessage: document.querySelector("#agents-message"),
   agentList: document.querySelector("#agent-list"),
+  agentEditor: document.querySelector("#agent-editor"),
+  agentEditorTitle: document.querySelector("#agent-editor-title"),
+  agentEditorContext: document.querySelector("#agent-editor-context"),
+  agentEditorClose: document.querySelector("#agent-editor-close"),
+  agentEditorMessage: document.querySelector("#agent-editor-message"),
+  agentModelForm: document.querySelector("#agent-model-form"),
+  agentProviderSummary: document.querySelector("#agent-provider-summary"),
+  agentEditModel: document.querySelector("#agent-edit-model"),
+  agentDiscoverModels: document.querySelector("#agent-discover-models"),
+  agentProfileForm: document.querySelector("#agent-profile-form"),
+  agentEditName: document.querySelector("#agent-edit-name"),
+  agentEditExpertise: document.querySelector("#agent-edit-expertise"),
+  agentEditMission: document.querySelector("#agent-edit-mission"),
+  agentEditLanguage: document.querySelector("#agent-edit-language"),
+  agentEditTimezone: document.querySelector("#agent-edit-timezone"),
+  agentEditStyle: document.querySelector("#agent-edit-style"),
+  agentEditWorkspace: document.querySelector("#agent-edit-workspace"),
+  agentEditReview: document.querySelector("#agent-edit-review"),
+  agentEditReviewTitle: document.querySelector("#agent-edit-review-title"),
+  agentEditReviewWarning: document.querySelector("#agent-edit-review-warning"),
+  agentEditChanges: document.querySelector("#agent-edit-changes"),
+  agentEditPreviewHash: document.querySelector("#agent-edit-preview-hash"),
+  agentEditCancel: document.querySelector("#agent-edit-cancel"),
+  agentEditApply: document.querySelector("#agent-edit-apply"),
   runsMessage: document.querySelector("#runs-message"),
   runList: document.querySelector("#run-list"),
   runForm: document.querySelector("#run-form"),
@@ -82,6 +106,8 @@ const admin = {
   actorId: null,
   remoteAccessCode: "",
   agents: [],
+  agentEdit: null,
+  agentEditPreview: null,
   runs: [],
   runOptions: null,
   runPage: 1,
@@ -287,7 +313,12 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       addMeta(meta, "Input / output", `${agent.budget.maxInputTokens.toLocaleString()} / ${agent.budget.maxOutputTokens.toLocaleString()}`);
       addMeta(meta, "Memory", `${agent.memoryScope} · ${agent.retentionDays} days`);
       addMeta(meta, "Learning", `${agent.learningMode} · ${agent.mutableSkillScope}`);
-      card.append(title, description, meta);
+      const actions = makeElement("div", "resource-actions");
+      const edit = makeElement("button", "secondary-action", "Edit agent");
+      edit.type = "button";
+      edit.addEventListener("click", () => openAgentEditor(agent.id));
+      actions.append(edit);
+      card.append(title, description, meta, actions);
       elements.agentList.append(card);
     }
     if (payload.agents.some(agent => agent.id === selectedAgentId)) {
@@ -299,6 +330,175 @@ async function loadAgents(message = "Loading persisted agent identities…") {
   } catch (error) {
     workspaceStatus(elements.agentsMessage, error instanceof Error ? error.message : "Agents could not be loaded.", "error");
     return [];
+  }
+}
+
+function setAgentEditorStatus(message, state = "") {
+  workspaceStatus(elements.agentEditorMessage, message, state);
+}
+
+function populateAgentModelOptions(models, selected) {
+  elements.agentEditModel.replaceChildren();
+  const ids = new Set(models.map(model => model.id));
+  if (selected && !ids.has(selected)) models = [{ id: selected, ownedBy: "configured" }, ...models];
+  for (const model of models) {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id;
+    elements.agentEditModel.append(option);
+  }
+  elements.agentEditModel.value = selected;
+}
+
+function discardAgentEditPreview() {
+  admin.agentEditPreview = null;
+  elements.agentEditReview.hidden = true;
+  elements.agentEditChanges.replaceChildren();
+  elements.agentEditPreviewHash.textContent = "";
+}
+
+function closeAgentEditor() {
+  admin.agentEdit = null;
+  discardAgentEditPreview();
+  elements.agentEditor.hidden = true;
+}
+
+async function openAgentEditor(agentId) {
+  elements.agentEditor.hidden = false;
+  discardAgentEditPreview();
+  setAgentEditorStatus("Loading the versioned agent profile…");
+  try {
+    const payload = await adminRead(`/api/v1/admin/agents/${agentId}/edit`);
+    admin.agentEdit = payload;
+    elements.agentEditorTitle.textContent = `Edit ${payload.agent.name}`;
+    elements.agentEditorContext.textContent = `Agent v${payload.agent.version} · installation v${payload.installationVersion}`;
+    elements.agentProviderSummary.replaceChildren(
+      makeElement("strong", "", `${payload.provider.name} · ${payload.provider.model}`),
+      makeElement("span", "", payload.provider.endpoint),
+      makeElement("span", "", payload.provider.sharedBy.length > 1
+        ? `Shared by ${payload.provider.sharedBy.map(agent => agent.name).join(", ")}`
+        : "Pinned only to this agent"));
+    populateAgentModelOptions([], payload.provider.model);
+    elements.agentEditName.value = payload.agent.name;
+    elements.agentEditExpertise.value = payload.agent.expertise ?? "";
+    elements.agentEditMission.value = payload.agent.mission ?? "";
+    elements.agentEditLanguage.value = payload.agent.preferredLanguage;
+    elements.agentEditTimezone.value = payload.agent.timeZone;
+    elements.agentEditStyle.value = payload.agent.responseStyle;
+    elements.agentEditWorkspace.value = payload.agent.defaultWorkspace ?? "";
+    setAgentEditorStatus("Edit identity fields or discover the endpoint's current model catalog.", "ok");
+    elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) {
+    setAgentEditorStatus(error instanceof Error ? error.message : "The agent editor could not be opened.", "error");
+  }
+}
+
+async function discoverAgentModels() {
+  if (!admin.agentEdit) return;
+  setBusy(elements.agentModelForm, true);
+  setAgentEditorStatus("Discovering models from the pinned endpoint…");
+  try {
+    const payload = await adminMutation(
+      `/api/v1/admin/agents/${admin.agentEdit.agent.id}/models/discover`, {});
+    populateAgentModelOptions(payload.models, admin.agentEdit.provider.model);
+    setAgentEditorStatus(`${payload.models.length} model ${payload.models.length === 1 ? "identifier" : "identifiers"} discovered safely.`, "ok");
+  } catch (error) {
+    setAgentEditorStatus(error instanceof Error ? error.message : "Model discovery failed.", "error");
+  } finally {
+    setBusy(elements.agentModelForm, false);
+  }
+}
+
+function renderAgentEditPreview(kind, payload) {
+  admin.agentEditPreview = { kind, hash: payload.previewHash };
+  elements.agentEditReviewTitle.textContent = kind === "model" ? "Review model update" : "Review profile update";
+  elements.agentEditReviewWarning.textContent = payload.warning ||
+    "Only the displayed identity fields will change; effective authority is preserved.";
+  elements.agentEditChanges.replaceChildren();
+  for (const change of payload.changes) {
+    const item = document.createElement("div");
+    item.append(
+      makeElement("span", "", change.path),
+      makeElement("strong", "", `${change.before ?? "Not set"} → ${change.after ?? "Not set"}`));
+    elements.agentEditChanges.append(item);
+  }
+  if (!payload.changes.length) {
+    elements.agentEditChanges.append(makeElement("div", "", "No effective changes."));
+  }
+  elements.agentEditPreviewHash.textContent = `Bound preview ${payload.previewHash}`;
+  elements.agentEditReview.hidden = false;
+  elements.agentEditReview.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function previewAgentModel(event) {
+  event.preventDefault();
+  if (!admin.agentEdit) return;
+  setBusy(elements.agentModelForm, true);
+  discardAgentEditPreview();
+  setAgentEditorStatus("Live-probing the selected model and preparing an exact change preview…");
+  try {
+    const payload = await adminMutation(
+      `/api/v1/admin/agents/${admin.agentEdit.agent.id}/model/preview`, {
+        expectedInstallationVersion: admin.agentEdit.installationVersion,
+        expectedProviderVersion: admin.agentEdit.provider.version,
+        model: elements.agentEditModel.value,
+      });
+    renderAgentEditPreview("model", payload);
+    setAgentEditorStatus(`Model verified in ${Math.round(payload.verification.durationMilliseconds)} ms. Review before applying.`, "ok");
+  } catch (error) {
+    setAgentEditorStatus(error instanceof Error ? error.message : "The model update could not be previewed.", "error");
+  } finally {
+    setBusy(elements.agentModelForm, false);
+  }
+}
+
+async function previewAgentProfile(event) {
+  event.preventDefault();
+  if (!admin.agentEdit) return;
+  setBusy(elements.agentProfileForm, true);
+  discardAgentEditPreview();
+  setAgentEditorStatus("Validating the identity change and preserving effective authority…");
+  try {
+    const payload = await adminMutation(
+      `/api/v1/admin/agents/${admin.agentEdit.agent.id}/profile/preview`, {
+        expectedInstallationVersion: admin.agentEdit.installationVersion,
+        expectedAgentVersion: admin.agentEdit.agent.version,
+        name: elements.agentEditName.value.trim(),
+        expertise: elements.agentEditExpertise.value.trim() || null,
+        mission: elements.agentEditMission.value.trim() || null,
+        preferredLanguage: elements.agentEditLanguage.value.trim(),
+        timeZone: elements.agentEditTimezone.value.trim(),
+        responseStyle: elements.agentEditStyle.value.trim(),
+        defaultWorkspace: elements.agentEditWorkspace.value.trim() || null,
+      });
+    renderAgentEditPreview("profile", payload);
+    setAgentEditorStatus("The exact profile diff is ready for review.", "ok");
+  } catch (error) {
+    setAgentEditorStatus(error instanceof Error ? error.message : "The profile update could not be previewed.", "error");
+  } finally {
+    setBusy(elements.agentProfileForm, false);
+  }
+}
+
+async function applyAgentEditPreview() {
+  if (!admin.agentEdit || !admin.agentEditPreview) return;
+  elements.agentEditApply.disabled = true;
+  const { kind, hash } = admin.agentEditPreview;
+  const agentId = admin.agentEdit.agent.id;
+  setAgentEditorStatus("Revalidating and atomically applying the approved preview…");
+  try {
+    await adminMutation(
+      `/api/v1/admin/agents/${agentId}/${kind === "model" ? "model" : "profile"}/apply`,
+      { previewHash: hash });
+    discardAgentEditPreview();
+    await loadAgents("Refreshing the updated durable agent…");
+    await openAgentEditor(agentId);
+    await loadRunOptions();
+    setAgentEditorStatus(`${kind === "model" ? "Model" : "Profile"} update committed and audited.`, "ok");
+  } catch (error) {
+    setAgentEditorStatus(error instanceof Error ? error.message : "The approved edit could not be applied.", "error");
+  } finally {
+    elements.agentEditApply.disabled = false;
   }
 }
 
@@ -1117,6 +1317,12 @@ elements.modelForm.addEventListener("submit", selectModel);
 elements.verifyForm.addEventListener("submit", verifyModel);
 elements.agentForm.addEventListener("submit", prepareReview);
 elements.reviewForm.addEventListener("submit", completeSetup);
+elements.agentModelForm.addEventListener("submit", previewAgentModel);
+elements.agentProfileForm.addEventListener("submit", previewAgentProfile);
+elements.agentDiscoverModels.addEventListener("click", discoverAgentModels);
+elements.agentEditorClose.addEventListener("click", closeAgentEditor);
+elements.agentEditCancel.addEventListener("click", discardAgentEditPreview);
+elements.agentEditApply.addEventListener("click", applyAgentEditPreview);
 elements.runForm.addEventListener("submit", createRun);
 elements.learningForm.addEventListener("submit", captureLearning);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
