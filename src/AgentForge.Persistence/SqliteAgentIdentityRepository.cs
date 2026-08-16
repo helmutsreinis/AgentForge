@@ -14,9 +14,13 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
     {
         ArgumentNullException.ThrowIfNull(agent);
         await dbContext.AgentIdentities.AddAsync(Map(agent), cancellationToken);
+        if (ShouldPersistContextPolicy(agent.Budget))
+        {
+            await dbContext.AgentContextPolicies.AddAsync(MapContext(agent), cancellationToken);
+        }
     }
 
-    public ValueTask UpdateAsync(
+    public async ValueTask UpdateAsync(
         AgentIdentity agent,
         long expectedVersion,
         CancellationToken cancellationToken)
@@ -40,7 +44,29 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         var entry = dbContext.Entry(entity);
         entry.State = EntityState.Modified;
         entry.Property(item => item.Version).OriginalValue = expectedVersion;
-        return ValueTask.CompletedTask;
+        var trackedPolicy = dbContext.ChangeTracker
+            .Entries<AgentContextPolicyEntity>()
+            .FirstOrDefault(item => item.Entity.AgentId == agent.Id.Value)
+            ?.Entity;
+        if (ShouldPersistContextPolicy(agent.Budget))
+        {
+            trackedPolicy ??= await dbContext.AgentContextPolicies
+                .SingleOrDefaultAsync(item => item.AgentId == agent.Id.Value, cancellationToken);
+            if (trackedPolicy is null)
+            {
+                await dbContext.AgentContextPolicies.AddAsync(MapContext(agent), cancellationToken);
+            }
+            else
+            {
+                dbContext.Entry(trackedPolicy).CurrentValues.SetValues(MapContext(agent));
+            }
+        }
+        else
+        {
+            trackedPolicy ??= await dbContext.AgentContextPolicies
+                .SingleOrDefaultAsync(item => item.AgentId == agent.Id.Value, cancellationToken);
+            if (trackedPolicy is not null) dbContext.AgentContextPolicies.Remove(trackedPolicy);
+        }
     }
 
     public async ValueTask<AgentIdentity?> FindByNameAsync(
@@ -54,7 +80,10 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
             .SingleOrDefaultAsync(
                 item => item.InstallationId == installationId.Value && item.Name == name,
                 cancellationToken);
-        return entity is null ? null : Map(entity);
+        if (entity is null) return null;
+        var context = await dbContext.AgentContextPolicies.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.AgentId == entity.Id, cancellationToken);
+        return Map(entity, context);
     }
 
     public async ValueTask<AgentIdentity?> FindByIdAsync(
@@ -64,7 +93,10 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         var entity = await dbContext.AgentIdentities
             .AsNoTracking()
             .SingleOrDefaultAsync(item => item.Id == agentId.Value, cancellationToken);
-        return entity is null ? null : Map(entity);
+        if (entity is null) return null;
+        var context = await dbContext.AgentContextPolicies.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.AgentId == entity.Id, cancellationToken);
+        return Map(entity, context);
     }
 
     public async Task<IReadOnlyList<AgentIdentity>> ListAsync(
@@ -76,7 +108,13 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
             .Where(item => item.InstallationId == installationId.Value)
             .OrderBy(item => item.Name)
             .ToListAsync(cancellationToken);
-        return entities.Select(Map).ToArray();
+        var ids = entities.Select(item => item.Id).ToArray();
+        var policies = await dbContext.AgentContextPolicies.AsNoTracking()
+            .Where(item => ids.Contains(item.AgentId))
+            .ToDictionaryAsync(item => item.AgentId, cancellationToken);
+        return entities.Select(item => Map(
+            item,
+            policies.GetValueOrDefault(item.Id))).ToArray();
     }
 
     private static AgentIdentityEntity Map(AgentIdentity agent) => new()
@@ -116,7 +154,9 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         CorrelationId = agent.CorrelationId.Value,
     };
 
-    private static AgentIdentity Map(AgentIdentityEntity entity) => new(
+    private static AgentIdentity Map(
+        AgentIdentityEntity entity,
+        AgentContextPolicyEntity? context) => new(
         new AgentIdentityId(entity.Id),
         new InstallationId(entity.InstallationId),
         entity.Name,
@@ -142,7 +182,16 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
             entity.MaxToolInvocations,
             entity.MaxInputTokens,
             entity.MaxOutputTokens,
-            entity.MaxWallClockSeconds),
+            entity.MaxWallClockSeconds)
+        {
+            DiscoveredContextWindowTokens = context?.DiscoveredContextWindowTokens,
+            DiscoveredContextModel = context?.DiscoveredContextModel,
+            ContextWindowOverrideTokens = context?.ContextWindowOverrideTokens,
+            ContextCompressionEnabled = context?.ContextCompressionEnabled ?? true,
+            ContextCompressionThresholdPercent = context?.ContextCompressionThresholdPercent ?? 80,
+            ContextCompressionTargetPercent = context?.ContextCompressionTargetPercent ?? 50,
+            ContextProtectedRecentTurns = context?.ContextProtectedRecentTurns ?? 4,
+        },
         new ChildAgentLimits(
             entity.MaxChildDepth,
             entity.MaxChildren,
@@ -156,6 +205,26 @@ internal sealed class SqliteAgentIdentityRepository(AgentForgeDbContext dbContex
         entity.UpdatedAt,
         new ActorId(entity.ActorId),
         new CorrelationId(entity.CorrelationId));
+
+    private static AgentContextPolicyEntity MapContext(AgentIdentity agent) => new()
+    {
+        AgentId = agent.Id.Value,
+        DiscoveredContextWindowTokens = agent.Budget.DiscoveredContextWindowTokens,
+        DiscoveredContextModel = agent.Budget.DiscoveredContextModel,
+        ContextWindowOverrideTokens = agent.Budget.ContextWindowOverrideTokens,
+        ContextCompressionEnabled = agent.Budget.ContextCompressionEnabled,
+        ContextCompressionThresholdPercent = agent.Budget.ContextCompressionThresholdPercent,
+        ContextCompressionTargetPercent = agent.Budget.ContextCompressionTargetPercent,
+        ContextProtectedRecentTurns = agent.Budget.ContextProtectedRecentTurns,
+    };
+
+    private static bool ShouldPersistContextPolicy(AgentBudget budget) =>
+        budget.DiscoveredContextWindowTokens.HasValue ||
+        budget.ContextWindowOverrideTokens.HasValue ||
+        !budget.ContextCompressionEnabled ||
+        budget.ContextCompressionThresholdPercent != 80 ||
+        budget.ContextCompressionTargetPercent != 50 ||
+        budget.ContextProtectedRecentTurns != 4;
 
     private static string[] DeserializeGrants(string json) =>
         JsonSerializer.Deserialize<string[]>(json) ?? [];

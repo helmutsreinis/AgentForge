@@ -86,6 +86,13 @@ const elements = {
   agentEditMaxTurns: document.querySelector("#agent-edit-max-turns"),
   agentEditMaxTools: document.querySelector("#agent-edit-max-tools"),
   agentEditMaxInput: document.querySelector("#agent-edit-max-input"),
+  agentEditContextDiscovered: document.querySelector("#agent-edit-context-discovered"),
+  agentEditContextEffective: document.querySelector("#agent-edit-context-effective"),
+  agentEditContextOverride: document.querySelector("#agent-edit-context-override"),
+  agentEditContextCompression: document.querySelector("#agent-edit-context-compression"),
+  agentEditContextThreshold: document.querySelector("#agent-edit-context-threshold"),
+  agentEditContextTarget: document.querySelector("#agent-edit-context-target"),
+  agentEditContextRecentTurns: document.querySelector("#agent-edit-context-recent-turns"),
   agentEditMaxWall: document.querySelector("#agent-edit-max-wall"),
   agentEditChildDepth: document.querySelector("#agent-edit-child-depth"),
   agentEditChildren: document.querySelector("#agent-edit-children"),
@@ -117,6 +124,11 @@ const elements = {
   runOutputState: document.querySelector("#run-output-state"),
   runOutputText: document.querySelector("#run-output-text"),
   runOutputMeta: document.querySelector("#run-output-meta"),
+  runContextMeter: document.querySelector("#run-context-meter"),
+  runContextLabel: document.querySelector("#run-context-label"),
+  runContextValue: document.querySelector("#run-context-value"),
+  runContextProgress: document.querySelector("#run-context-progress"),
+  runContextNote: document.querySelector("#run-context-note"),
   cancelInteraction: document.querySelector("#cancel-interaction"),
   runDetails: document.querySelector("#run-details"),
   runDetailsTitle: document.querySelector("#run-details-title"),
@@ -530,6 +542,7 @@ async function loadAgents(message = "Loading persisted agent identities…") {
       addMeta(meta, "Tool network", `${agent.networkPosture} · model route separate`);
       addMeta(meta, "Tool budget", agent.budget.maxToolInvocations);
       addMeta(meta, "Input / output", `${agent.budget.maxInputTokens.toLocaleString()} / ${agent.budget.maxOutputTokens.toLocaleString()}`);
+      addMeta(meta, "Context window", `${agent.budget.effectiveContextWindowTokens.toLocaleString()} · ${agent.budget.contextWindowSource}`);
       addMeta(meta, "Memory", `${agent.memoryScope} · ${agent.retentionDays} days`);
       addMeta(meta, "Learning", `${agent.learningMode} · ${agent.mutableSkillScope}`);
       const actions = makeElement("div", "resource-actions");
@@ -707,10 +720,43 @@ function populateAgentModelOptions(models, selected) {
   for (const model of models) {
     const option = document.createElement("option");
     option.value = model.id;
-    option.textContent = model.ownedBy ? `${model.id} · ${model.ownedBy}` : model.id;
+    option.dataset.maximumContextTokens = model.maximumContextTokens || "";
+    const owner = model.ownedBy ? ` · ${model.ownedBy}` : "";
+    const context = model.maximumContextTokens
+      ? ` · ${model.maximumContextTokens.toLocaleString()} context`
+      : "";
+    option.textContent = `${model.id}${owner}${context}`;
     elements.agentEditModel.append(option);
   }
   elements.agentEditModel.value = selected;
+}
+
+function setDiscoveredContext(tokens, model) {
+  const value = Number(tokens) > 0 ? Number(tokens) : null;
+  elements.agentEditContextDiscovered.dataset.tokens = value ? String(value) : "";
+  elements.agentEditContextDiscovered.dataset.model = model || "";
+  elements.agentEditContextDiscovered.textContent = value
+    ? `${value.toLocaleString()} tokens · ${model || "selected model"}`
+    : "Not exposed by this endpoint";
+  refreshEffectiveContext();
+}
+
+function refreshEffectiveContext() {
+  const discovered = Number(elements.agentEditContextDiscovered.dataset.tokens) || null;
+  const override = elements.agentEditContextOverride.value
+    ? Number(elements.agentEditContextOverride.value)
+    : null;
+  const fallback = (Number(elements.agentEditMaxInput.value) || 0) +
+    (Number(elements.agentEditMaxOutput.value) || 0);
+  const effective = override || discovered || fallback;
+  const invalid = discovered && override && override > discovered;
+  elements.agentEditContextOverride.setCustomValidity(invalid
+    ? `The override cannot exceed the discovered ${discovered.toLocaleString()}-token ceiling.`
+    : "");
+  const source = override ? "operator override" : discovered ? "endpoint discovery" : "combined input/output fallback";
+  elements.agentEditContextEffective.textContent = effective
+    ? `Effective context: ${effective.toLocaleString()} tokens · ${source}`
+    : "Effective context is unavailable";
 }
 
 function discardAgentEditPreview() {
@@ -761,6 +807,13 @@ function populateCompletePolicy(agent, providers) {
   elements.agentEditMaxInput.value = agent.budget.maxInputTokens;
   elements.agentEditMaxOutput.value = agent.budget.maxOutputTokens;
   elements.agentEditMaxWall.value = agent.budget.maxWallClockSeconds;
+  setDiscoveredContext(agent.budget.discoveredContextWindowTokens, agent.budget.discoveredContextModel);
+  elements.agentEditContextOverride.value = agent.budget.contextWindowOverrideTokens ?? "";
+  elements.agentEditContextCompression.checked = agent.budget.contextCompressionEnabled ?? true;
+  elements.agentEditContextThreshold.value = agent.budget.contextCompressionThresholdPercent ?? 80;
+  elements.agentEditContextTarget.value = agent.budget.contextCompressionTargetPercent ?? 50;
+  elements.agentEditContextRecentTurns.value = agent.budget.contextProtectedRecentTurns ?? 4;
+  refreshEffectiveContext();
   elements.agentEditChildDepth.value = agent.childLimits.maxDepth;
   elements.agentEditChildren.value = agent.childLimits.maxChildren;
   elements.agentEditChildConcurrency.value = agent.childLimits.maxConcurrency;
@@ -790,7 +843,20 @@ function openAgentCreate() {
     modelPolicy: { primaryProviderProfileId: admin.providers[0].id, dataLocality: "LocalOnly", allowFallback: false },
     memoryPolicy: { scope: "Agent", retentionDays: 30 },
     capabilityPolicy: { networkPosture: "Denied", toolGrants: [], skillGrants: [] },
-    budget: { maxTurns: 64, maxToolInvocations: 0, maxInputTokens: 16000, maxOutputTokens: 32768, maxWallClockSeconds: 270 },
+    budget: {
+      maxTurns: 64,
+      maxToolInvocations: 0,
+      maxInputTokens: 16000,
+      maxOutputTokens: 32768,
+      maxWallClockSeconds: 270,
+      discoveredContextWindowTokens: null,
+      discoveredContextModel: null,
+      contextWindowOverrideTokens: null,
+      contextCompressionEnabled: true,
+      contextCompressionThresholdPercent: 80,
+      contextCompressionTargetPercent: 50,
+      contextProtectedRecentTurns: 4,
+    },
     childLimits: { maxDepth: 0, maxChildren: 0, maxConcurrency: 0, maxTotalTokens: 0 },
     learningPolicy: { mode: "Propose", mutableSkillScope: "ProposalWorkspaceOnly" },
   }, admin.providers);
@@ -827,14 +893,15 @@ async function openAgentEditor(agentId) {
     elements.agentEditWorkspace.value = payload.agent.defaultWorkspace ?? "";
     populateCompletePolicy(payload.agent, payload.providers);
     elements.agentProfileSubmit.textContent = "Preview complete policy";
-    setAgentEditorStatus("Edit identity, routing, authority, budgets, or discover the endpoint's current model catalog.", "ok");
+    setAgentEditorStatus("Agent loaded. Fetching the endpoint's current model and context catalog…", "ok");
     elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
+    await discoverAgentModels(true);
   } catch (error) {
     setAgentEditorStatus(error instanceof Error ? error.message : "The agent editor could not be opened.", "error");
   }
 }
 
-async function discoverAgentModels() {
+async function discoverAgentModels(automatic = false) {
   if (!admin.agentEdit) return;
   setBusy(elements.agentModelForm, true);
   setAgentEditorStatus("Discovering models from the pinned endpoint…");
@@ -842,9 +909,11 @@ async function discoverAgentModels() {
     const payload = await adminMutation(
       `/api/v1/admin/agents/${admin.agentEdit.agent.id}/models/discover`, {});
     populateAgentModelOptions(payload.models, admin.agentEdit.provider.model);
-    setAgentEditorStatus(`${payload.models.length} model ${payload.models.length === 1 ? "identifier" : "identifiers"} discovered safely.`, "ok");
+    const selected = payload.models.find(model => model.id === payload.selectedModel);
+    setDiscoveredContext(selected?.maximumContextTokens, selected?.id || payload.selectedModel);
+    setAgentEditorStatus(`${payload.models.length} model ${payload.models.length === 1 ? "identifier" : "identifiers"} discovered safely${selected?.maximumContextTokens ? `; ${selected.maximumContextTokens.toLocaleString()} context tokens reported.` : "."}`, "ok");
   } catch (error) {
-    setAgentEditorStatus(error instanceof Error ? error.message : "Model discovery failed.", "error");
+    setAgentEditorStatus(error instanceof Error ? error.message : "Model discovery failed.", automatic ? "" : "error");
   } finally {
     setBusy(elements.agentModelForm, false);
   }
@@ -915,6 +984,14 @@ async function previewAgentProfile(event) {
       maxInputTokens: Number(elements.agentEditMaxInput.value),
       maxOutputTokens: Number(elements.agentEditMaxOutput.value),
       maxWallClockSeconds: Number(elements.agentEditMaxWall.value),
+      contextWindowOverrideTokens: elements.agentEditContextOverride.value
+        ? Number(elements.agentEditContextOverride.value)
+        : null,
+      clearContextWindowOverride: !elements.agentEditContextOverride.value,
+      contextCompressionEnabled: elements.agentEditContextCompression.checked,
+      contextCompressionThresholdPercent: Number(elements.agentEditContextThreshold.value),
+      contextCompressionTargetPercent: Number(elements.agentEditContextTarget.value),
+      contextProtectedRecentTurns: Number(elements.agentEditContextRecentTurns.value),
       maxChildDepth: Number(elements.agentEditChildDepth.value),
       maxChildren: Number(elements.agentEditChildren.value),
       maxChildConcurrency: Number(elements.agentEditChildConcurrency.value),
@@ -1166,6 +1243,10 @@ async function openRunDetails(conversationId) {
     addMeta(elements.runDetailsMeta, "State", payload.run.state);
     addMeta(elements.runDetailsMeta, "Model", `${payload.provider.model} · provider v${payload.provider.version}`);
     addMeta(elements.runDetailsMeta, "Turns", payload.turns.length.toString());
+    if (payload.context) {
+      addMeta(elements.runDetailsMeta, "Context usage", `${payload.context.estimatedInputTokens.toLocaleString()} / ${payload.context.capacityTokens.toLocaleString()} tokens · ${payload.context.occupancyPercent}%`);
+      addMeta(elements.runDetailsMeta, "Context policy", `${payload.context.source} · compress at ${payload.context.thresholdPercent}% to ${payload.context.targetPercent}%`);
+    }
     addMeta(elements.runDetailsMeta, "Policy", `${payload.policySnapshotHash.slice(0, 20)}…`);
     addMeta(elements.runDetailsMeta, "Skills", payload.skillIds.length ? payload.skillIds.join(", ") : "None");
     elements.runTranscript.replaceChildren();
@@ -1207,12 +1288,26 @@ async function openRunDetails(conversationId) {
   }
 }
 
+function renderActiveContext(payload) {
+  if (!payload) return;
+  elements.runContextMeter.hidden = false;
+  elements.runContextProgress.value = Math.max(0, Math.min(100, Number(payload.occupancyPercent || 0)));
+  const reserved = Number(payload.reservedOutputTokens || 0);
+  elements.runContextValue.textContent = `${Number(payload.estimatedInputTokens || 0).toLocaleString()} input${reserved ? ` + ${reserved.toLocaleString()} reserved output` : ""} / ${Number(payload.capacityTokens || 0).toLocaleString()} · ${payload.occupancyPercent}%`;
+  elements.runContextNote.textContent = payload.compressed
+    ? `${payload.compressedTurnCount} older turn${payload.compressedTurnCount === 1 ? "" : "s"} compressed; ${payload.protectedTurnCount} recent turn${payload.protectedTurnCount === 1 ? "" : "s"} protected.`
+    : payload.compressionEnabled
+      ? `Compression starts at ${payload.thresholdPercent}% and targets ${payload.targetPercent}% · ${payload.source}.`
+      : `Compression disabled · ${payload.source}.`;
+}
+
 async function streamConversationTurn(path, body, startingMessage) {
   elements.runOutput.hidden = false;
   elements.runOutputState.textContent = "Starting";
   elements.runOutputState.className = "state-chip running";
   elements.runOutputText.textContent = "";
   elements.runOutputMeta.textContent = startingMessage;
+  elements.runContextMeter.hidden = true;
   elements.cancelInteraction.hidden = true;
   admin.activeTaskId = null;
   let terminalEvent = null;
@@ -1225,6 +1320,8 @@ async function streamConversationTurn(path, body, startingMessage) {
       elements.runOutputState.textContent = payload.resumed ? "Resumed" : "Running";
       elements.runOutputMeta.textContent = `${providerLabel} · turn ${payload.configuration.turn} · ${payload.configuration.responseDepth}`;
       elements.cancelInteraction.hidden = false;
+    } else if (eventName === "context-status") {
+      renderActiveContext(payload);
     } else if (eventName === "model-started") {
       elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
     } else if (eventName === "output-delta") {
@@ -1327,6 +1424,7 @@ async function createRun(event) {
   elements.runOutputState.className = "state-chip running";
   elements.runOutputText.textContent = "";
   elements.runOutputMeta.textContent = "Preparing a durable run and opening the model stream…";
+  elements.runContextMeter.hidden = true;
   elements.cancelInteraction.hidden = true;
   elements.cancelInteraction.disabled = false;
   admin.activeTaskId = null;
@@ -1365,6 +1463,8 @@ async function createRun(event) {
           const contextLabel = contextCount ? ` · ${contextCount} attached context item${contextCount === 1 ? "" : "s"}` : "";
           elements.runOutputMeta.textContent = `${providerLabel} · ${payload.configuration.responseDepth} · up to ${payload.configuration.maximumOutputTokens.toLocaleString()} tokens${skillLabel}${contextLabel}`;
           elements.cancelInteraction.hidden = false;
+        } else if (eventName === "context-status") {
+          renderActiveContext(payload);
         } else if (eventName === "model-started") {
           elements.runOutputMeta.textContent = `${providerLabel} · context redactions ${payload.contextRedactionCount}`;
         } else if (eventName === "output-delta") {
@@ -3188,6 +3288,19 @@ elements.agentEditLearning.addEventListener("change", () => {
 elements.agentEditToolGrants.addEventListener("input", () => {
   if (readGrantList(elements.agentEditToolGrants).length === 0) elements.agentEditMaxTools.value = 0;
   else if (Number(elements.agentEditMaxTools.value) === 0) elements.agentEditMaxTools.value = 10;
+});
+elements.agentEditContextOverride.addEventListener("input", refreshEffectiveContext);
+elements.agentEditMaxInput.addEventListener("input", refreshEffectiveContext);
+elements.agentEditMaxOutput.addEventListener("input", refreshEffectiveContext);
+elements.agentEditModel.addEventListener("change", () => {
+  const selected = elements.agentEditModel.selectedOptions[0];
+  setDiscoveredContext(selected?.dataset.maximumContextTokens, selected?.value);
+});
+elements.agentEditProvider.addEventListener("change", () => {
+  if (admin.agentEditMode === "create" ||
+      elements.agentEditProvider.value !== admin.agentEdit?.provider?.id) {
+    setDiscoveredContext(null, null);
+  }
 });
 elements.runDepth.addEventListener("change", () => {
   const preset = Number(elements.runDepth.selectedOptions[0]?.dataset.tokens);

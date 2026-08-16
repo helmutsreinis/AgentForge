@@ -934,6 +934,16 @@ internal static partial class ReadyAdminEndpoints
                     "budget-exceeded").ExecuteAsync(context);
                 return;
             }
+            var initialContextAdmission = EstimateInputTokens(systemInstruction, request.Prompt, []);
+            if (initialContextAdmission + maximumOutputTokens > agent.Budget.EffectiveContextWindowTokens)
+            {
+                await Problem(context, 422, "Context window exceeded",
+                    $"The prompt and {maximumOutputTokens:N0}-token output reserve need approximately " +
+                    $"{initialContextAdmission + maximumOutputTokens:N0} tokens, above this agent's " +
+                    $"effective {agent.Budget.EffectiveContextWindowTokens:N0}-token context window.",
+                    "budget-exceeded").ExecuteAsync(context);
+                return;
+            }
 
             var definition = new OrchestrationTaskDefinition(
                 taskId,
@@ -1098,6 +1108,8 @@ internal static partial class ReadyAdminEndpoints
                         item.Kind.StartsWith("memory:", StringComparison.Ordinal)),
                     citationCount = attachedContext.Count(item => item.Kind == "research-citation"),
                     hasRunInstructions = runInstructions is not null,
+                    contextCapacityTokens = agent!.Budget.EffectiveContextWindowTokens,
+                    contextWindowSource = agent.Budget.ContextWindowSource,
                 },
                 provider = new
                 {
@@ -1108,6 +1120,23 @@ internal static partial class ReadyAdminEndpoints
                     provider.Model,
                 },
                 correlationId = correlation.Value,
+            }, context.RequestAborted);
+            var initialContextEstimate = EstimateInputTokens(systemInstruction, request.Prompt, []);
+            await WriteSseAsync(context, "context-status", new
+            {
+                capacityTokens = agent!.Budget.EffectiveContextWindowTokens,
+                estimatedInputTokens = initialContextEstimate,
+                reservedOutputTokens = maximumOutputTokens,
+                occupancyPercent = Occupancy(
+                    initialContextEstimate + maximumOutputTokens,
+                    agent.Budget.EffectiveContextWindowTokens),
+                thresholdPercent = agent.Budget.ContextCompressionThresholdPercent,
+                targetPercent = agent.Budget.ContextCompressionTargetPercent,
+                compressionEnabled = agent.Budget.ContextCompressionEnabled,
+                compressed = false,
+                compressedTurnCount = 0,
+                protectedTurnCount = 0,
+                source = agent.Budget.ContextWindowSource,
             }, context.RequestAborted);
 
             var observer = new SseInteractionObserver(context);

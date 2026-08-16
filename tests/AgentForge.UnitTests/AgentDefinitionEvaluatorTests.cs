@@ -125,6 +125,51 @@ public sealed class AgentDefinitionEvaluatorTests
         Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
     }
 
+    [Fact]
+    public void Accepts_operator_context_override_below_endpoint_ceiling()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            Budget = CreateCandidate().Budget with
+            {
+                DiscoveredContextWindowTokens = 262_144,
+                DiscoveredContextModel = "qwen3.8",
+                ContextWindowOverrideTokens = 131_072,
+                ContextCompressionThresholdPercent = 80,
+                ContextCompressionTargetPercent = 50,
+            },
+        };
+
+        var result = evaluator.NormalizeAndValidate(candidate);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        Assert.Equal(131_072, result.Value.Budget.EffectiveContextWindowTokens);
+        Assert.Equal("OperatorOverride", result.Value.Budget.ContextWindowSource);
+    }
+
+    [Fact]
+    public void Rejects_operator_context_override_above_endpoint_ceiling()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            Budget = CreateCandidate().Budget with
+            {
+                DiscoveredContextWindowTokens = 131_072,
+                DiscoveredContextModel = "qwen3.8",
+                ContextWindowOverrideTokens = 262_144,
+            },
+        };
+
+        var result = evaluator.NormalizeAndValidate(candidate);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+    }
+
     internal static AgentIdentityCandidate CreateCandidate() => new(
         "Architect",
         "C# systems architecture",

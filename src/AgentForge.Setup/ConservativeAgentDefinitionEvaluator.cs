@@ -210,6 +210,22 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
             return new DomainFailure(FailureCode.ValidationFailure, "Agent budget is outside bootstrap safety bounds.");
         }
 
+        if (budget.DiscoveredContextWindowTokens is < 1 or > 100_000_000 ||
+            !IsBoundedText(budget.DiscoveredContextModel, 256, required: false) ||
+            budget.DiscoveredContextWindowTokens.HasValue != !string.IsNullOrWhiteSpace(budget.DiscoveredContextModel) ||
+            budget.ContextWindowOverrideTokens is < 1 or > 100_000_000 ||
+            budget.DiscoveredContextWindowTokens is { } discovered &&
+                budget.ContextWindowOverrideTokens is { } overridden && overridden > discovered ||
+            budget.ContextCompressionThresholdPercent is < 50 or > 95 ||
+            budget.ContextCompressionTargetPercent is < 10 or > 75 ||
+            budget.ContextCompressionTargetPercent >= budget.ContextCompressionThresholdPercent ||
+            budget.ContextProtectedRecentTurns is < 1 or > 32)
+        {
+            return new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Context capacity or compression policy is outside safe bounds; an override may only lower a discovered ceiling.");
+        }
+
         if (candidate.MemoryPolicy.RetentionDays is < 0 or > 3650 ||
             candidate.MemoryPolicy.Scope is AgentMemoryScope.Task && candidate.MemoryPolicy.RetentionDays != 0)
         {

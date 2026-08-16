@@ -61,7 +61,32 @@ public sealed record AgentBudget(
     int MaxToolInvocations,
     long MaxInputTokens,
     long MaxOutputTokens,
-    int MaxWallClockSeconds);
+    int MaxWallClockSeconds)
+{
+    public long? DiscoveredContextWindowTokens { get; init; }
+
+    public string? DiscoveredContextModel { get; init; }
+
+    public long? ContextWindowOverrideTokens { get; init; }
+
+    public bool ContextCompressionEnabled { get; init; } = true;
+
+    public int ContextCompressionThresholdPercent { get; init; } = 80;
+
+    public int ContextCompressionTargetPercent { get; init; } = 50;
+
+    public int ContextProtectedRecentTurns { get; init; } = 4;
+
+    public long EffectiveContextWindowTokens =>
+        ContextWindowOverrideTokens ?? DiscoveredContextWindowTokens ??
+        Math.Min(100_000_000, MaxInputTokens + MaxOutputTokens);
+
+    public string ContextWindowSource => ContextWindowOverrideTokens.HasValue
+        ? "OperatorOverride"
+        : DiscoveredContextWindowTokens.HasValue
+            ? "EndpointDiscovered"
+            : "CombinedBudgetFallback";
+}
 
 public sealed record ChildAgentLimits(
     int MaxDepth,

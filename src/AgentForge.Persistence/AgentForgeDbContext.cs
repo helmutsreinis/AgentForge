@@ -17,6 +17,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
 
+    internal DbSet<AgentContextPolicyEntity> AgentContextPolicies => Set<AgentContextPolicyEntity>();
+
     internal DbSet<LocalAdministratorEntity> LocalAdministrators => Set<LocalAdministratorEntity>();
 
     internal DbSet<SetupProfileSnapshotEntity> SetupProfileSnapshots => Set<SetupProfileSnapshotEntity>();
@@ -312,6 +314,17 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<AgentContextPolicyEntity>(entity =>
+        {
+            entity.ToTable("agent_context_policies");
+            entity.HasKey(item => item.AgentId);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithOne()
+                .HasForeignKey<AgentContextPolicyEntity>(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(item => item.DiscoveredContextModel).HasMaxLength(256);
         });
 
         modelBuilder.Entity<LocalAdministratorEntity>(entity =>

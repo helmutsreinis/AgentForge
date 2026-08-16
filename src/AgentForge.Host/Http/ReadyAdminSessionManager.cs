@@ -41,10 +41,19 @@ internal sealed record ReadyAdminSession(
 
     public ConcurrentDictionary<string, ReadyToolInvocationPreview> ToolInvocationPreviews { get; } = new(StringComparer.Ordinal);
 
+    public ConcurrentDictionary<string, ReadyModelCatalogObservation> ModelCatalogObservations { get; } = new(StringComparer.Ordinal);
+
     public SemaphoreSlim MutationGate { get; } = new(1, 1);
 }
 
 internal sealed record ReadyAdminIdempotencyResult(string RequestHash, object Response);
+
+internal sealed record ReadyModelCatalogObservation(
+    ProviderProfileId ProviderId,
+    long ProviderVersion,
+    string Model,
+    long? MaximumContextTokens,
+    DateTimeOffset ObservedAtUtc);
 
 internal sealed record ReadyProviderEditPreview(
     AgentIdentityId AgentId,

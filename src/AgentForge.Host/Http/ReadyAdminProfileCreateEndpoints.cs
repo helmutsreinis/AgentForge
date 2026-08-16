@@ -49,6 +49,11 @@ internal sealed record ReadyAgentCreateWebRequest(
     long MaxInputTokens,
     long MaxOutputTokens,
     int MaxWallClockSeconds,
+    long? ContextWindowOverrideTokens,
+    bool? ContextCompressionEnabled,
+    int? ContextCompressionThresholdPercent,
+    int? ContextCompressionTargetPercent,
+    int? ContextProtectedRecentTurns,
     int MaxChildDepth,
     int MaxChildren,
     int MaxChildConcurrency,
@@ -522,7 +527,14 @@ internal static partial class ReadyAdminEndpoints
                 request.MaxToolInvocations,
                 request.MaxInputTokens,
                 request.MaxOutputTokens,
-                request.MaxWallClockSeconds),
+                request.MaxWallClockSeconds)
+            {
+                ContextWindowOverrideTokens = request.ContextWindowOverrideTokens,
+                ContextCompressionEnabled = request.ContextCompressionEnabled ?? true,
+                ContextCompressionThresholdPercent = request.ContextCompressionThresholdPercent ?? 80,
+                ContextCompressionTargetPercent = request.ContextCompressionTargetPercent ?? 50,
+                ContextProtectedRecentTurns = request.ContextProtectedRecentTurns ?? 4,
+            },
             new ChildAgentLimits(
                 request.MaxChildDepth,
                 request.MaxChildren,

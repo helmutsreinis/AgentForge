@@ -19,6 +19,18 @@ internal sealed record ContinueRunConversationRequest(
     string? ResponseDepth,
     int? MaximumOutputTokens);
 
+internal sealed record PreparedConversationContext(
+    IReadOnlyList<ModelMessage> History,
+    long CapacityTokens,
+    long EstimatedInputTokens,
+    int ReservedOutputTokens,
+    long CompressionThresholdTokens,
+    long CompressionTargetTokens,
+    int OccupancyPercent,
+    bool WasCompressed,
+    int CompressedTurnCount,
+    int ProtectedTurnCount);
+
 internal static partial class ReadyAdminEndpoints
 {
     private const string ConversationStreamOwner = "ready-ui:durable-conversation";
@@ -29,6 +41,7 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         IRunConversationService conversations,
+        IAgentIdentityRepository agents,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -44,7 +57,8 @@ internal static partial class ReadyAdminEndpoints
                 "No durable conversation exists under this installation.", "not-found");
         }
 
-        return Results.Ok(ConversationDetailsResponse(details.Value));
+        var agent = await agents.FindByIdAsync(details.Value.Snapshot.AgentId, cancellationToken);
+        return Results.Ok(ConversationDetailsResponse(details.Value, agent?.Budget));
     }
 
     private static async Task ContinueRunConversationAsync(
@@ -211,6 +225,7 @@ internal static partial class ReadyAdminEndpoints
             session,
             executionDetails.Value,
             started.Value,
+            authority.Value.Agent,
             authority.Value.Provider,
             claim.Value,
             interactions,
@@ -351,6 +366,7 @@ internal static partial class ReadyAdminEndpoints
             session,
             details.Value,
             started.Value,
+            authority.Value.Agent,
             authority.Value.Provider,
             claim.Value,
             interactions,
@@ -365,6 +381,7 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSession session,
         RunConversationDetails detailsBeforeTurn,
         RunConversationMutationResult started,
+        AgentIdentity agent,
         ProviderProfile provider,
         TaskLeaseGrant claimed,
         ILocalModelInteractionService interactions,
@@ -387,6 +404,43 @@ internal static partial class ReadyAdminEndpoints
 
         try
         {
+            var preparedContext = PrepareConversationContext(
+                detailsBeforeTurn,
+                turn.Id,
+                agent.Budget,
+                turn.MaximumOutputTokens);
+            if (!preparedContext.IsSuccess)
+            {
+                var evidence = SnapshotHash(new
+                {
+                    TaskId = turn.TaskId.Value,
+                    FailureCode.BudgetExceeded,
+                    agent.Budget.EffectiveContextWindowTokens,
+                    turn.MaximumOutputTokens,
+                });
+                await orchestrator.FailAsync(
+                    turn.TaskId,
+                    claimed.Snapshot.Version,
+                    new TaskNodeId("local-model"),
+                    ConversationStreamOwner,
+                    claimed.LeaseToken,
+                    evidence,
+                    FailureCode.BudgetExceeded,
+                    retryable: false,
+                    CancellationToken.None);
+                await conversations.FailTurnAsync(
+                    conversationId,
+                    started.Snapshot.Version,
+                    turn.Id,
+                    FailureCode.BudgetExceeded,
+                    retryable: false,
+                    evidence,
+                    CancellationToken.None);
+                await DomainProblem(context, preparedContext.Failure!, "Conversation context exceeds its configured capacity")
+                    .ExecuteAsync(context);
+                return;
+            }
+
             context.Response.StatusCode = StatusCodes.Status200OK;
             context.Response.ContentType = "text/event-stream; charset=utf-8";
             context.Response.Headers.CacheControl = "no-store";
@@ -407,6 +461,8 @@ internal static partial class ReadyAdminEndpoints
                     responseDepth = turn.ResponseDepth,
                     maximumOutputTokens = turn.MaximumOutputTokens,
                     skillIds = started.Snapshot.SkillIds,
+                    contextCapacityTokens = preparedContext.Value.CapacityTokens,
+                    contextWindowSource = agent.Budget.ContextWindowSource,
                 },
                 provider = new
                 {
@@ -417,6 +473,20 @@ internal static partial class ReadyAdminEndpoints
                     provider.Model,
                 },
                 correlationId = started.Snapshot.CorrelationId.Value,
+            }, context.RequestAborted);
+            await WriteSseAsync(context, "context-status", new
+            {
+                capacityTokens = preparedContext.Value.CapacityTokens,
+                estimatedInputTokens = preparedContext.Value.EstimatedInputTokens,
+                reservedOutputTokens = preparedContext.Value.ReservedOutputTokens,
+                occupancyPercent = preparedContext.Value.OccupancyPercent,
+                thresholdPercent = agent.Budget.ContextCompressionThresholdPercent,
+                targetPercent = agent.Budget.ContextCompressionTargetPercent,
+                compressionEnabled = agent.Budget.ContextCompressionEnabled,
+                compressed = preparedContext.Value.WasCompressed,
+                compressedTurnCount = preparedContext.Value.CompressedTurnCount,
+                protectedTurnCount = preparedContext.Value.ProtectedTurnCount,
+                source = agent.Budget.ContextWindowSource,
             }, context.RequestAborted);
 
             var observer = new SseInteractionObserver(context);
@@ -431,7 +501,7 @@ internal static partial class ReadyAdminEndpoints
                     Math.Max(4_096, Math.Min(MaximumInteractiveEvents, turn.MaximumOutputTokens + 512)),
                     turn.MaximumWallClockSeconds),
                 started.Snapshot.CorrelationId,
-                ConversationHistory(detailsBeforeTurn, turn.Id)), observer, linkedCancellation.Token);
+                preparedContext.Value.History), observer, linkedCancellation.Token);
             if (!interaction.IsSuccess)
             {
                 var evidence = SnapshotHash(new
@@ -553,29 +623,137 @@ internal static partial class ReadyAdminEndpoints
         }
     }
 
-    private static ModelMessage[] ConversationHistory(
+    private static DomainResult<PreparedConversationContext> PrepareConversationContext(
         RunConversationDetails details,
-        RunConversationTurnId currentTurnId)
+        RunConversationTurnId currentTurnId,
+        AgentBudget budget,
+        int reservedOutputTokens)
     {
-        const int maximumCharacters = 100_000;
-        var selected = new List<RunConversationTurnContent>();
-        var characters = 0;
-        foreach (var item in details.Turns
+        var completed = details.Turns
             .Where(item => item.Turn.Id != currentTurnId && item.Turn.State is RunConversationTurnState.Completed)
-            .Reverse())
+            .ToArray();
+        var currentPrompt = details.Turns.Single(item => item.Turn.Id == currentTurnId).Prompt;
+        var capacity = budget.EffectiveContextWindowTokens;
+        var threshold = capacity * budget.ContextCompressionThresholdPercent / 100;
+        var target = capacity * budget.ContextCompressionTargetPercent / 100;
+        var fullHistory = TurnMessages(completed);
+        var fullEstimate = EstimateInputTokens(details.SystemInstruction, currentPrompt, fullHistory);
+        if (fullEstimate + reservedOutputTokens < threshold ||
+            completed.Length <= budget.ContextProtectedRecentTurns)
         {
-            var next = item.Prompt.Length + (item.Response?.Length ?? 0);
-            if (selected.Count >= 20 || characters + next > maximumCharacters) break;
-            selected.Add(item);
-            characters += next;
+            if (fullEstimate + reservedOutputTokens > capacity)
+            {
+                return DomainResult.Fail<PreparedConversationContext>(new DomainFailure(
+                    FailureCode.BudgetExceeded,
+                    $"The protected context needs approximately {fullEstimate + reservedOutputTokens:N0} tokens, above the effective {capacity:N0}-token window."));
+            }
+            return DomainResult.Success(new PreparedConversationContext(
+                fullHistory, capacity, fullEstimate, reservedOutputTokens, threshold, target,
+                Occupancy(fullEstimate + reservedOutputTokens, capacity), false, 0, completed.Length));
         }
-        selected.Reverse();
-        return selected.SelectMany(item => new[]
+
+        if (!budget.ContextCompressionEnabled)
+        {
+            return fullEstimate + reservedOutputTokens <= capacity
+                ? DomainResult.Success(new PreparedConversationContext(
+                    fullHistory, capacity, fullEstimate, reservedOutputTokens, threshold, target,
+                    Occupancy(fullEstimate + reservedOutputTokens, capacity), false, 0, completed.Length))
+                : DomainResult.Fail<PreparedConversationContext>(new DomainFailure(
+                    FailureCode.BudgetExceeded,
+                    "Conversation context reached the configured window while compression is disabled."));
+        }
+
+        var protectedCount = Math.Min(budget.ContextProtectedRecentTurns, completed.Length);
+        var protectedTurns = completed[^protectedCount..];
+        var compactedTurns = completed[..^protectedCount];
+        var protectedHistory = TurnMessages(protectedTurns);
+        var protectedEstimate = EstimateInputTokens(details.SystemInstruction, currentPrompt, protectedHistory);
+        if (protectedEstimate + reservedOutputTokens > capacity)
+        {
+            return DomainResult.Fail<PreparedConversationContext>(new DomainFailure(
+                FailureCode.BudgetExceeded,
+                "The system prompt, current objective, output reserve, and protected recent turns exceed the configured context window."));
+        }
+
+        var summaryBudgetTokens = Math.Max(0, target - protectedEstimate - reservedOutputTokens);
+        var summary = ExtractiveConversationSummary(compactedTurns, summaryBudgetTokens);
+        var history = new List<ModelMessage>(protectedHistory.Count + 1);
+        if (summary.Length > 0)
+        {
+            history.Add(new ModelMessage(ModelMessageRole.Assistant,
+                [new ModelTextContent(summary)], "agentforge-context-summary"));
+        }
+        history.AddRange(protectedHistory);
+        var estimate = EstimateInputTokens(details.SystemInstruction, currentPrompt, history);
+        if (estimate + reservedOutputTokens > capacity)
+        {
+            return DomainResult.Fail<PreparedConversationContext>(new DomainFailure(
+                FailureCode.BudgetExceeded,
+                "Compressed conversation context still exceeds the configured window; lower the output reserve or context override."));
+        }
+        return DomainResult.Success(new PreparedConversationContext(
+            history, capacity, estimate, reservedOutputTokens, threshold, target,
+            Occupancy(estimate + reservedOutputTokens, capacity), true, compactedTurns.Length, protectedCount));
+    }
+
+    private static List<ModelMessage> TurnMessages(IEnumerable<RunConversationTurnContent> turns) =>
+        turns.SelectMany(item => new[]
         {
             new ModelMessage(ModelMessageRole.User, [new ModelTextContent(item.Prompt)]),
             new ModelMessage(ModelMessageRole.Assistant, [new ModelTextContent(item.Response!)]),
-        }).ToArray();
+        }).ToList();
+
+    private static long EstimateInputTokens(
+        string systemInstruction,
+        string currentPrompt,
+        List<ModelMessage> history)
+    {
+        long characters = systemInstruction.Length + currentPrompt.Length;
+        foreach (var message in history)
+        {
+            characters += message.Content.OfType<ModelTextContent>().Sum(item => item.Text.Length);
+        }
+        return Math.Max(1, (characters + 3) / 4 + (history.Count + 2) * 8L);
     }
+
+    private static string ExtractiveConversationSummary(
+        RunConversationTurnContent[] turns,
+        long tokenBudget)
+    {
+        var characterBudget = (int)Math.Min(400_000, Math.Max(0, tokenBudget * 4));
+        const string header = "Earlier conversation summary (reference only; follow the latest user objective):\n";
+        if (turns.Length == 0 || characterBudget <= header.Length + 64) return string.Empty;
+        var builder = new System.Text.StringBuilder(Math.Min(characterBudget, 16_384));
+        builder.Append(header);
+        var perTurn = Math.Max(96, (characterBudget - header.Length) / turns.Length);
+        foreach (var item in turns)
+        {
+            if (builder.Length >= characterBudget) break;
+            builder.Append("Turn ").Append(item.Turn.Sequence).Append(" user: ");
+            AppendBounded(builder, item.Prompt, perTurn / 2, characterBudget);
+            builder.Append("\nAssistant: ");
+            AppendBounded(builder, item.Response ?? string.Empty, perTurn / 2, characterBudget);
+            builder.Append('\n');
+        }
+        return builder.Length <= characterBudget
+            ? builder.ToString()
+            : builder.ToString(0, characterBudget);
+    }
+
+    private static void AppendBounded(
+        System.Text.StringBuilder builder,
+        string value,
+        int maximum,
+        int totalMaximum)
+    {
+        var available = Math.Max(0, Math.Min(maximum, totalMaximum - builder.Length));
+        if (available == 0) return;
+        if (value.Length <= available) builder.Append(value);
+        else if (available > 1) builder.Append(value.AsSpan(0, available - 1)).Append('…');
+    }
+
+    private static int Occupancy(long inputTokens, long capacity) =>
+        capacity <= 0 ? 100 : (int)Math.Clamp(inputTokens * 100 / capacity, 0, 100);
 
     private static OrchestrationTaskDefinition ConversationTaskDefinition(
         RunConversationSnapshot conversation,
@@ -635,7 +813,7 @@ internal static partial class ReadyAdminEndpoints
         return DomainResult.Success((agent, provider));
     }
 
-    private static object ConversationDetailsResponse(RunConversationDetails details) => new
+    private static object ConversationDetailsResponse(RunConversationDetails details, AgentBudget? budget) => new
     {
         run = ConversationResponse(details.Snapshot),
         provider = new
@@ -649,6 +827,7 @@ internal static partial class ReadyAdminEndpoints
         policySnapshotHash = details.Snapshot.PolicySnapshotHash,
         budgetSnapshotHash = details.Snapshot.BudgetSnapshotHash,
         skillSnapshotHash = details.Snapshot.SkillSnapshotHash,
+        context = budget is null ? null : ConversationContextStatus(details, budget),
         turns = details.Turns.Select(item => new
         {
             id = item.Turn.Id.Value,
@@ -670,6 +849,28 @@ internal static partial class ReadyAdminEndpoints
             item.Turn.UpdatedAt,
         }),
     };
+
+    private static object ConversationContextStatus(RunConversationDetails details, AgentBudget budget)
+    {
+        var messages = TurnMessages(details.Turns.Where(
+            item => item.Turn.State is RunConversationTurnState.Completed));
+        var estimate = EstimateInputTokens(details.SystemInstruction, string.Empty, messages);
+        var capacity = budget.EffectiveContextWindowTokens;
+        return new
+        {
+            capacityTokens = capacity,
+            estimatedInputTokens = estimate,
+            occupancyPercent = Occupancy(estimate, capacity),
+            discoveredTokens = budget.DiscoveredContextWindowTokens,
+            overrideTokens = budget.ContextWindowOverrideTokens,
+            source = budget.ContextWindowSource,
+            compressionEnabled = budget.ContextCompressionEnabled,
+            thresholdPercent = budget.ContextCompressionThresholdPercent,
+            targetPercent = budget.ContextCompressionTargetPercent,
+            protectedRecentTurns = budget.ContextProtectedRecentTurns,
+            compressionDue = estimate >= capacity * budget.ContextCompressionThresholdPercent / 100,
+        };
+    }
 
     private static bool ValidContinuation(ContinueRunConversationRequest? request)
     {

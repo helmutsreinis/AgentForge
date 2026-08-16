@@ -404,8 +404,25 @@
                   <label>Wall clock seconds<input id="agent-edit-max-wall" type="number" min="1" max="86400" required></label>
                 </div>
                 <div class="form-row">
-                  <label>Maximum input tokens<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
+                  <label>Run input-token budget<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
                   <label>Maximum output tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" required></label>
+                </div>
+                <div class="context-policy-editor">
+                  <div class="context-capacity-summary">
+                    <span>Endpoint-discovered context</span>
+                    <strong id="agent-edit-context-discovered">Not discovered</strong>
+                    <small id="agent-edit-context-effective">Effective fallback: run input budget</small>
+                  </div>
+                  <div class="form-row">
+                    <label>Lower context override <span class="optional">optional</span><input id="agent-edit-context-override" type="number" min="1" max="100000000" placeholder="Use discovered ceiling"></label>
+                    <label>Protect recent turns<input id="agent-edit-context-recent-turns" type="number" min="1" max="32" required></label>
+                  </div>
+                  <label class="inline-check"><input id="agent-edit-context-compression" type="checkbox"> Compress older conversation context near capacity</label>
+                  <div class="form-row">
+                    <label>Compression starts at %<input id="agent-edit-context-threshold" type="number" min="50" max="95" required></label>
+                    <label>Compression target %<input id="agent-edit-context-target" type="number" min="10" max="75" required></label>
+                  </div>
+                  <p class="field-note">Discovery is the hard ceiling. An override can only lower it; the full transcript remains durable when older active context is compressed.</p>
                 </div>
                 <div class="form-row four-column-row">
                   <label>Child depth<input id="agent-edit-child-depth" type="number" min="0" max="16" required></label>
@@ -512,6 +529,11 @@
           </div>
           <pre id="run-output-text"></pre>
           <p id="run-output-meta" class="resource-subtitle"></p>
+          <div id="run-context-meter" class="context-meter" hidden>
+            <div><strong id="run-context-label">Context</strong><span id="run-context-value"></span></div>
+            <progress id="run-context-progress" max="100" value="0"></progress>
+            <small id="run-context-note"></small>
+          </div>
           <div class="resource-actions">
             <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
           </div>

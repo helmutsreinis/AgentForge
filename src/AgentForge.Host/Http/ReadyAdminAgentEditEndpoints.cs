@@ -42,6 +42,12 @@ internal sealed record ReadyAgentProfileEditWebRequest(
     int? MaxToolInvocations = null,
     long? MaxInputTokens = null,
     int? MaxWallClockSeconds = null,
+    long? ContextWindowOverrideTokens = null,
+    bool? ContextCompressionEnabled = null,
+    int? ContextCompressionThresholdPercent = null,
+    int? ContextCompressionTargetPercent = null,
+    int? ContextProtectedRecentTurns = null,
+    bool? ClearContextWindowOverride = null,
     int? MaxChildDepth = null,
     int? MaxChildren = null,
     int? MaxChildConcurrency = null,
@@ -215,6 +221,16 @@ internal static partial class ReadyAdminEndpoints
                 discovered.Value.ObservedAtUtc,
                 correlationId = context.TraceIdentifier,
             };
+            foreach (var model in discovered.Value.Models)
+            {
+                session.ModelCatalogObservations[ModelCatalogObservationKey(
+                    resolved.Value.Provider.Id, model.Id)] = new ReadyModelCatalogObservation(
+                        resolved.Value.Provider.Id,
+                        resolved.Value.Provider.Version,
+                        model.Id,
+                        model.MaximumContextTokens,
+                        discovered.Value.ObservedAtUtc);
+            }
             StoreIdempotentResult(session, scopedKey, requestHash, response);
             return Results.Ok(response);
         }
@@ -529,14 +545,11 @@ internal static partial class ReadyAdminEndpoints
                 return Problem(context, 404, "Agent not found",
                     "The requested agent does not belong to this installation.", "agent-not-found");
             }
-            var candidateResult = AgentCandidate(agent, request);
-            if (!candidateResult.IsSuccess)
-            {
-                return DomainProblem(context, candidateResult.Failure!, "Agent policy preview failed");
-            }
-            var candidate = candidateResult.Value;
+            var targetProviderId = request.PrimaryProviderId is { } requestedProviderId
+                ? new ProviderProfileId(requestedProviderId)
+                : agent.ModelPolicy.PrimaryProviderProfileId;
             var targetProvider = await providers.FindByIdAsync(
-                candidate.ModelPolicy.PrimaryProviderProfileId, cancellationToken);
+                targetProviderId, cancellationToken);
             if (targetProvider is null || targetProvider.InstallationId != session.InstallationId)
             {
                 return Problem(context, 400, "Provider unavailable",
@@ -548,6 +561,24 @@ internal static partial class ReadyAdminEndpoints
                 return Problem(context, 409, "Provider changed",
                     "The selected provider version changed; refresh the policy editor.", "concurrency-conflict");
             }
+            var observation = FindContextObservation(session, targetProvider);
+            var discoveredContextWindow = observation?.MaximumContextTokens;
+            if (discoveredContextWindow is null &&
+                targetProvider.Id == agent.ModelPolicy.PrimaryProviderProfileId &&
+                string.Equals(targetProvider.Model, agent.Budget.DiscoveredContextModel, StringComparison.Ordinal))
+            {
+                discoveredContextWindow = agent.Budget.DiscoveredContextWindowTokens;
+            }
+            var candidateResult = AgentCandidate(
+                agent,
+                request,
+                discoveredContextWindow,
+                discoveredContextWindow.HasValue ? targetProvider.Model : null);
+            if (!candidateResult.IsSuccess)
+            {
+                return DomainProblem(context, candidateResult.Failure!, "Agent policy preview failed");
+            }
+            var candidate = candidateResult.Value;
             var administratorCredential = await MaterializeAdministratorCredentialAsync(
                 session.InstallationId, administrators, secretStore, cancellationToken);
             if (!administratorCredential.IsSuccess)
@@ -702,7 +733,9 @@ internal static partial class ReadyAdminEndpoints
 
     private static DomainResult<AgentIdentityCandidate> AgentCandidate(
         AgentIdentity current,
-        ReadyAgentProfileEditWebRequest request)
+        ReadyAgentProfileEditWebRequest request,
+        long? discoveredContextWindowTokens,
+        string? discoveredContextModel)
     {
         var dataLocality = current.ModelPolicy.DataLocality;
         var memoryScope = current.MemoryPolicy.Scope;
@@ -746,7 +779,19 @@ internal static partial class ReadyAdminEndpoints
                 request.MaxToolInvocations ?? current.Budget.MaxToolInvocations,
                 request.MaxInputTokens ?? current.Budget.MaxInputTokens,
                 request.MaxOutputTokens ?? current.Budget.MaxOutputTokens,
-                request.MaxWallClockSeconds ?? current.Budget.MaxWallClockSeconds),
+                request.MaxWallClockSeconds ?? current.Budget.MaxWallClockSeconds)
+            {
+                DiscoveredContextWindowTokens = discoveredContextWindowTokens,
+                DiscoveredContextModel = discoveredContextModel,
+                ContextWindowOverrideTokens = request.ContextWindowOverrideTokens ??
+                    (request.ClearContextWindowOverride is true
+                        ? null
+                        : current.Budget.ContextWindowOverrideTokens),
+                ContextCompressionEnabled = request.ContextCompressionEnabled ?? current.Budget.ContextCompressionEnabled,
+                ContextCompressionThresholdPercent = request.ContextCompressionThresholdPercent ?? current.Budget.ContextCompressionThresholdPercent,
+                ContextCompressionTargetPercent = request.ContextCompressionTargetPercent ?? current.Budget.ContextCompressionTargetPercent,
+                ContextProtectedRecentTurns = request.ContextProtectedRecentTurns ?? current.Budget.ContextProtectedRecentTurns,
+            },
             new ChildAgentLimits(
                 request.MaxChildDepth ?? current.ChildLimits.MaxDepth,
                 request.MaxChildren ?? current.ChildLimits.MaxChildren,
@@ -819,12 +864,33 @@ internal static partial class ReadyAdminEndpoints
             agent.Budget.MaxInputTokens,
             agent.Budget.MaxOutputTokens,
             agent.Budget.MaxWallClockSeconds,
+            agent.Budget.DiscoveredContextWindowTokens,
+            agent.Budget.DiscoveredContextModel,
+            agent.Budget.ContextWindowOverrideTokens,
+            agent.Budget.EffectiveContextWindowTokens,
+            agent.Budget.ContextWindowSource,
+            agent.Budget.ContextCompressionEnabled,
+            agent.Budget.ContextCompressionThresholdPercent,
+            agent.Budget.ContextCompressionTargetPercent,
+            agent.Budget.ContextProtectedRecentTurns,
         },
         agent.ChildLimits,
         agent.LearningPolicy,
         agent.Version,
         agent.UpdatedAt,
     };
+
+    private static string ModelCatalogObservationKey(ProviderProfileId providerId, string model) =>
+        $"{providerId.Value:D}:{model}";
+
+    private static ReadyModelCatalogObservation? FindContextObservation(
+        ReadyAdminSession session,
+        ProviderProfile provider) =>
+        session.ModelCatalogObservations.TryGetValue(
+            ModelCatalogObservationKey(provider.Id, provider.Model), out var observation) &&
+        observation.ProviderVersion == provider.Version
+            ? observation
+            : null;
 
     private static object ChangeResponse(SetupProfileChange change) => new
     {

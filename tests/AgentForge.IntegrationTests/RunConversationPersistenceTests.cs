@@ -43,6 +43,16 @@ public sealed class RunConversationPersistenceTests : IDisposable
         var providerId = ProviderProfileId.New();
         await SeedAuthorityAsync(services, installationId, agentId, providerId);
 
+        await using (var authority = services.CreateAsyncScope())
+        {
+            var storedAgent = await authority.ServiceProvider.GetRequiredService<IAgentIdentityRepository>()
+                .FindByIdAsync(agentId, CancellationToken.None);
+            Assert.NotNull(storedAgent);
+            Assert.Equal(262_144, storedAgent.Budget.DiscoveredContextWindowTokens);
+            Assert.Equal(131_072, storedAgent.Budget.EffectiveContextWindowTokens);
+            Assert.Equal(80, storedAgent.Budget.ContextCompressionThresholdPercent);
+        }
+
         var conversationId = new RunConversationId(Guid.NewGuid());
         RunConversationSnapshot firstCompleted;
         var secret = "sk-" + new string('x', 30);
@@ -244,7 +254,15 @@ public sealed class RunConversationPersistenceTests : IDisposable
             new AgentModelPolicy(providerId, ModelDataLocality.LocalOnly, false),
             new AgentMemoryPolicy(AgentMemoryScope.Agent, 30),
             new AgentCapabilityPolicy(NetworkPosture.Denied, [], []),
-            new AgentBudget(4, 0, 16_000, 16_384, 120),
+            new AgentBudget(4, 0, 16_000, 16_384, 120)
+            {
+                DiscoveredContextWindowTokens = 262_144,
+                DiscoveredContextModel = "qwen3.8",
+                ContextWindowOverrideTokens = 131_072,
+                ContextCompressionThresholdPercent = 80,
+                ContextCompressionTargetPercent = 50,
+                ContextProtectedRecentTurns = 6,
+            },
             new ChildAgentLimits(0, 0, 0, 0),
             new AgentLearningPolicy(LearningMode.Propose, MutableSkillScope.ProposalWorkspaceOnly),
             3,
