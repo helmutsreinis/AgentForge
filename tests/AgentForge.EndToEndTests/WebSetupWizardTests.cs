@@ -181,6 +181,11 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"memory-create-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"research-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-memory-query\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("class=\"gate-check\"><input id=\"memory-correction\" type=\"checkbox\"", appShellHtml, StringComparison.Ordinal);
+        using var styleSheet = await client.GetAsync("/styles.css");
+        var styleSheetCss = await styleSheet.Content.ReadAsStringAsync();
+        Assert.Contains(".run-composer[hidden] { display: none; }", styleSheetCss, StringComparison.Ordinal);
+        Assert.Contains(".compact-composer > .run-primary-grid", styleSheetCss, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-proposal-form\"", appShellHtml, StringComparison.Ordinal);

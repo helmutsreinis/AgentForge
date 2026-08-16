@@ -650,7 +650,7 @@
             </form>
             <form id="memory-create-form" class="run-composer compact-composer">
               <div class="run-primary-grid"><label>Kind<select id="memory-kind"><option value="User">User fact</option><option value="Procedural">Procedure</option></select></label><label>Retention days<input id="memory-retention" type="number" min="1" max="3650" value="30"></label></div>
-              <label><input id="memory-correction" type="checkbox"> This corrects prior behavior or knowledge</label>
+              <label class="gate-check"><input id="memory-correction" type="checkbox"> This corrects prior behavior or knowledge</label>
               <label>Content<textarea id="memory-content" maxlength="65536" rows="4" required placeholder="A durable fact or bounded procedure."></textarea></label>
               <button class="setup-submit" type="submit">Save scoped memory</button>
             </form>

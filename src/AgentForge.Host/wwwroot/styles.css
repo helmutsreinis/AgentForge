@@ -385,6 +385,7 @@ main {
   border-radius: 13px;
   background: #0b0c10;
 }
+.run-composer[hidden] { display: none; }
 .run-composer label, .history-toolbar label {
   display: grid;
   gap: 6px;
@@ -415,8 +416,10 @@ main {
 .attached-context-grid { padding-top: 0; }
 .context-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .context-card { display: grid; gap: 13px; min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: rgba(7, 8, 12, .45); }
+.context-card > * { min-width: 0; max-width: 100%; }
 .context-card h3 { margin: -4px 0 0; font-size: 20px; font-weight: 550; }
-.compact-composer { padding: 14px; gap: 11px; }
+.compact-composer { width: 100%; min-width: 0; max-width: 100%; padding: 14px; gap: 11px; }
+.compact-composer > .run-primary-grid { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
 .system-preview, .runtime-boundaries { display: grid; align-content: start; gap: 8px; }
 .system-preview > span, .runtime-boundaries > span { color: var(--dim); font-size: 9px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
 .system-preview p { max-height: 132px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #090a0e; color: var(--muted); font: 10px/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow: auto; }
