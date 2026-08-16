@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Installations;
+using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Providers;
@@ -12,6 +13,7 @@ using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.Learning;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
@@ -31,6 +33,11 @@ internal sealed record StreamAgentChatRequest(
     string? ResponseDepth,
     IReadOnlyList<string>? SkillIds);
 internal sealed record RunSkillBody(string Id, string Version, string PackageHash, string Body);
+internal sealed record CaptureLearningSignalWebRequest(
+    Guid SourceTaskId,
+    string Kind,
+    string Summary,
+    int OccurrenceCount);
 
 internal static class ReadyAdminEndpoints
 {
@@ -52,6 +59,8 @@ internal static class ReadyAdminEndpoints
         group.MapPost("/agents/{agentId:guid}/test-chat-stream", StreamAgentChatAsync);
         group.MapGet("/skills", ListSkillsAsync);
         group.MapPost("/skills/seed/csharp-review/install", InstallSeedSkillAsync);
+        group.MapGet("/learning/signals", ListLearningSignalsAsync);
+        group.MapPost("/learning/signals", CaptureLearningSignalAsync);
     }
 
     private static async Task<IResult> CreateSessionAsync(
@@ -1126,6 +1135,129 @@ internal static class ReadyAdminEndpoints
         });
     }
 
+    private static async Task<IResult> ListLearningSignalsAsync(
+        HttpContext context,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        ILearningRepository learning,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireAsync(
+            context, sessions, stateReader, clock, requireCsrf: false, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            return acquired.Failure;
+        }
+
+        var items = await learning.ListSignalsAsync(
+            acquired.Session!.InstallationId, 100, cancellationToken);
+        return Results.Ok(new
+        {
+            signals = items.Select(item => LearningSignalResponse(item.Signal, item.Classification)),
+            correlationId = context.TraceIdentifier,
+        });
+    }
+
+    private static async Task<IResult> CaptureLearningSignalAsync(
+        HttpContext context,
+        CaptureLearningSignalWebRequest request,
+        ReadyAdminSessionManager sessions,
+        IInstallationStateReader stateReader,
+        ITaskSnapshotStore tasks,
+        ILearningRepository learningRepository,
+        ILearningGovernanceService learning,
+        IClock clock,
+        CancellationToken cancellationToken)
+    {
+        var acquired = await AcquireMutationAsync(
+            context, sessions, stateReader, clock, cancellationToken);
+        if (acquired.Failure is not null)
+        {
+            return acquired.Failure;
+        }
+
+        var summary = NormalizeLearningSummary(request?.Summary);
+        if (request is null || request.SourceTaskId == Guid.Empty ||
+            !Enum.TryParse<LearningSignalKind>(request.Kind, ignoreCase: true, out var kind) ||
+            kind is LearningSignalKind.RepeatedSkillChain || summary is null ||
+            request.OccurrenceCount is < 1 or > 1_000_000)
+        {
+            return Problem(context, 400, "Invalid learning evidence",
+                "Choose a durable source run, a supported evidence kind, a one-line redacted summary, and a bounded occurrence count.",
+                "validation-failure");
+        }
+
+        var session = acquired.Session!;
+        await session.MutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            var task = await tasks.FindLatestAsync(
+                new OrchestrationTaskId(request.SourceTaskId), cancellationToken);
+            if (task is null || task.Definition.InstallationId != session.InstallationId)
+            {
+                return Problem(context, 404, "Source run not found",
+                    "Learning evidence must bind to a durable run from this installation.", "not-found");
+            }
+            if (task.State is not (OrchestrationTaskState.Completed or OrchestrationTaskState.Failed or
+                OrchestrationTaskState.Canceled or OrchestrationTaskState.DeadLettered))
+            {
+                return Problem(context, 409, "Source run is not terminal",
+                    "Wait for a durable terminal receipt before capturing learning evidence.",
+                    "concurrency-conflict");
+            }
+
+            var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
+            var stableIdentity = StableRequestIdentity(
+                session.InstallationId, "learning-signal", idempotencyKey);
+            var signalId = new LearningSignalId(new Guid(stableIdentity.AsSpan(0, 16)));
+            var correlation = new CorrelationId(
+                $"admin-learning:{Convert.ToHexStringLower(stableIdentity)}");
+            var causation = new CorrelationId($"run:{request.SourceTaskId:D}");
+            var existing = await learningRepository.FindSignalAsync(signalId, cancellationToken);
+            if (existing is not null)
+            {
+                var sameRequest = existing.Value.Signal.InstallationId == session.InstallationId &&
+                    existing.Value.Signal.Kind == kind &&
+                    existing.Value.Signal.RedactedSummary == summary &&
+                    existing.Value.Signal.SourceEvidenceHash == task.SnapshotHash &&
+                    existing.Value.Signal.OccurrenceCount == request.OccurrenceCount &&
+                    existing.Value.Signal.CapturedBy == session.ActorId &&
+                    existing.Value.Signal.CausationId == causation;
+                return sameRequest
+                    ? Replay(context, LearningSignalResponse(existing.Value.Signal, existing.Value.Classification))
+                    : Problem(context, 409, "Learning evidence conflict",
+                        "The idempotency key is already bound to different learning evidence.",
+                        "concurrency-conflict");
+            }
+
+            var captured = await learning.CaptureAsync(new CaptureLearningSignalRequest(
+                signalId,
+                session.InstallationId,
+                kind,
+                summary,
+                task.SnapshotHash,
+                [],
+                [],
+                [],
+                request.OccurrenceCount,
+                session.ActorId,
+                correlation,
+                causation), cancellationToken);
+            return captured.IsSuccess
+                ? Results.Created(
+                    $"/api/v1/admin/learning/signals/{signalId.Value:D}",
+                    LearningSignalResponse(
+                        (await learningRepository.FindSignalAsync(signalId, cancellationToken))!.Value.Signal,
+                        captured.Value))
+                : DomainProblem(context, captured.Failure!, "Learning evidence was not accepted");
+        }
+        finally
+        {
+            session.MutationGate.Release();
+        }
+    }
+
     private static async Task<ReadyAdminAcquisition> AcquireMutationAsync(
         HttpContext context,
         ReadyAdminSessionManager sessions,
@@ -1227,6 +1359,26 @@ internal static class ReadyAdminEndpoints
         skill.RecordVersion,
         skill.UpdatedAt,
     };
+
+    private static object LearningSignalResponse(
+        LearningSignal signal,
+        LearningClassification classification) => new
+        {
+            id = signal.Id.Value,
+            kind = signal.Kind.ToString(),
+            summary = signal.RedactedSummary,
+            action = classification.Action.ToString(),
+            classification.ReasonCode,
+            signal.OccurrenceCount,
+            sourceRunId = signal.CausationId is { } causation &&
+                causation.Value.StartsWith("run:", StringComparison.Ordinal)
+                ? causation.Value[4..]
+                : null,
+            signal.SourceEvidenceHash,
+            signal.SignalHash,
+            classification.ClassificationHash,
+            signal.CapturedAt,
+        };
 
     private static IResult DomainProblem(HttpContext context, DomainFailure failure, string title) =>
         Problem(context, failure.Code switch
@@ -1406,6 +1558,36 @@ internal static class ReadyAdminEndpoints
     private static bool PromptText(string? value, int maximum) =>
         !string.IsNullOrWhiteSpace(value) && value.Length <= maximum &&
         !value.Any(character => char.IsControl(character) && character is not ('\r' or '\n' or '\t'));
+
+    private static string? NormalizeLearningSummary(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 4_096)
+        {
+            return null;
+        }
+
+        var builder = new StringBuilder(value.Length);
+        var pendingSpace = false;
+        foreach (var character in value.Trim())
+        {
+            if (char.IsControl(character) && !char.IsWhiteSpace(character))
+            {
+                return null;
+            }
+            if (char.IsWhiteSpace(character))
+            {
+                pendingSpace = builder.Length > 0;
+                continue;
+            }
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+            builder.Append(character);
+        }
+        return builder.Length is > 0 and <= 4_096 ? builder.ToString() : null;
+    }
 
     private static bool IsTrustedLoopback(HttpContext context)
     {

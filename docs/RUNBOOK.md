@@ -658,6 +658,24 @@ the task row, fabricate completion evidence, or delete WAL files. Restarting cle
 registry; durable Planned/Running recovery remains governed by the orchestration lease rules. Verify that raw
 prompt and response markers are absent from the database, WAL/SHM, artifacts, logs, and exported evidence.
 
+## Ready recursive-learning intake
+
+Open **Runs** and select **Capture learning** on a terminal Completed, Failed, Canceled, or DeadLettered receipt.
+The Learning page must preselect that exact run. Choose a correction, successful procedure, recovery, or missing
+capability; enter only a bounded redacted summary; and choose **Classify evidence**. The resulting card must show
+the deterministic action, reason code, source run, occurrence count, and shortened source-receipt hash.
+
+A correction without an exact successful skill-usage receipt or explicit revision authorization must become
+`Memory`. A missing capability may become `NewSkill`, but this means eligible for a later isolated proposal only:
+no package, permission, active skill, tool call, or policy mutation is created by intake. Reusing the same mutation
+key with exact evidence is a replay; changing evidence under that key is a conflict. Nonterminal and foreign runs,
+missing CSRF, credential-shaped summaries, and unsupported repeated-chain claims must fail closed.
+
+If an expected signal is absent after refresh, preserve the database and inspect the terminal task snapshot plus
+the correlated `learning.signal-classified` audit event. Do not insert or edit learning JSON directly. Candidate
+generation must use a content-addressed isolated workspace and the separate proposer, verifier, critic, governor,
+evaluation, approval, canary, and rollback transitions.
+
 ## Gate and recovery rules
 
 - Record every command and result in `artifacts/gates/<gate-id>.md`.

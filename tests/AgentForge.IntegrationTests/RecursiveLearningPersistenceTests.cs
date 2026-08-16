@@ -99,6 +99,10 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
         await using (var restartScope = services.CreateAsyncScope())
         {
             var repository = restartScope.ServiceProvider.GetRequiredService<ILearningRepository>();
+            var signals = await repository.ListSignalsAsync(installationId, 10, CancellationToken.None);
+            var persistedSignal = Assert.Single(signals);
+            Assert.Equal(signalId, persistedSignal.Signal.Id);
+            Assert.Equal(LearningAction.SkillRevision, persistedSignal.Classification.Action);
             var persisted = await repository.FindLatestCandidateAsync(candidateId, CancellationToken.None);
             Assert.Equal(LearningCandidateState.Promoted, persisted?.State);
             Assert.Equal(skillProposalId, persisted?.SkillProposalId);

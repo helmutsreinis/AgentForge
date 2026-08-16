@@ -64,6 +64,14 @@ const elements = {
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
+  learningForm: document.querySelector("#learning-form"),
+  learningSourceRun: document.querySelector("#learning-source-run"),
+  learningKind: document.querySelector("#learning-kind"),
+  learningOccurrences: document.querySelector("#learning-occurrences"),
+  learningSummary: document.querySelector("#learning-summary"),
+  captureLearning: document.querySelector("#capture-learning"),
+  learningMessage: document.querySelector("#learning-message"),
+  learningList: document.querySelector("#learning-list"),
   accessModeTitle: document.querySelector("#access-mode-title"),
   accessModeDetail: document.querySelector("#access-mode-detail"),
 };
@@ -78,6 +86,7 @@ const admin = {
   runOptions: null,
   runPage: 1,
   runPageSize: 8,
+  pendingLearningTaskId: null,
   activeTaskId: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
@@ -413,8 +422,8 @@ function renderRunHistory() {
     addMeta(meta, "Snapshot", `v${run.version} · ${run.snapshotHash.slice(0, 18)}…`);
     content.append(title, meta);
     card.append(content);
+    const actions = makeElement("div", "resource-actions");
     if (!terminalStates.includes(run.state)) {
-      const actions = makeElement("div", "resource-actions");
       const cancel = makeElement("button", "secondary-action", "Cancel run");
       cancel.type = "button";
       cancel.addEventListener("click", async () => {
@@ -428,8 +437,17 @@ function renderRunHistory() {
         }
       });
       actions.append(cancel);
-      card.append(actions);
+    } else {
+      const learn = makeElement("button", "secondary-action", "Capture learning");
+      learn.type = "button";
+      learn.addEventListener("click", async () => {
+        admin.pendingLearningTaskId = run.taskId;
+        if (window.location.hash === "#learning") await loadLearning();
+        else window.location.hash = "#learning";
+      });
+      actions.append(learn);
     }
+    card.append(actions);
     elements.runList.append(card);
   }
   if (!page.length) {
@@ -597,12 +615,110 @@ async function installSeedSkill() {
   }
 }
 
+function populateLearningSources() {
+  const selected = admin.pendingLearningTaskId || elements.learningSourceRun.value;
+  const terminalStates = ["Completed", "Failed", "Canceled", "DeadLettered"];
+  elements.learningSourceRun.replaceChildren();
+  for (const run of admin.runs.filter(item => terminalStates.includes(item.state))) {
+    const option = document.createElement("option");
+    option.value = run.taskId;
+    option.textContent = `${run.name} · ${run.state} · ${formatRunTime(run.updatedAt)}`;
+    elements.learningSourceRun.append(option);
+  }
+  if (admin.runs.some(run => run.taskId === selected && terminalStates.includes(run.state))) {
+    elements.learningSourceRun.value = selected;
+  }
+  admin.pendingLearningTaskId = null;
+  const available = elements.learningSourceRun.options.length > 0;
+  const formBusy = elements.learningForm.getAttribute("aria-busy") === "true";
+  elements.learningSourceRun.disabled = !available || formBusy;
+  elements.captureLearning.disabled = !available || formBusy;
+}
+
+function learningActionCopy(action) {
+  return {
+    Memory: "Retain as scoped evidence; it has no authority to revise a skill.",
+    NewSkill: "Eligible for isolated candidate generation; no package has been created yet.",
+    SkillRevision: "Eligible only with an exact successful usage receipt or explicit revision authorization.",
+    Bundle: "Eligible only from a repeated exact multi-skill chain with compatible contracts.",
+    NoDurableAction: "No durable learning action is justified by this evidence.",
+  }[action] || "The deterministic classifier recorded this evidence without granting authority.";
+}
+
+function renderLearningSignals(signals) {
+  elements.learningList.replaceChildren();
+  for (const signal of signals) {
+    const card = makeElement("article", "resource-card learning-card");
+    const title = makeElement("div", "resource-title");
+    const titleCopy = document.createElement("div");
+    titleCopy.append(
+      makeElement("h3", "", signal.kind.replace(/([a-z])([A-Z])/g, "$1 $2")),
+      makeElement("p", "resource-subtitle", `${signal.id} · ${formatRunTime(signal.capturedAt)}`));
+    title.append(titleCopy, stateChip(signal.action));
+    const meta = makeElement("div", "resource-meta");
+    addMeta(meta, "Classification", signal.reasonCode);
+    addMeta(meta, "Occurrences", signal.occurrenceCount);
+    addMeta(meta, "Source run", signal.sourceRunId || "Hash-bound evidence");
+    addMeta(meta, "Evidence hash", `${signal.sourceEvidenceHash.slice(0, 24)}…`);
+    card.append(
+      title,
+      makeElement("p", "resource-description", signal.summary),
+      makeElement("p", "learning-disposition", learningActionCopy(signal.action)),
+      meta);
+    elements.learningList.append(card);
+  }
+  if (!signals.length) {
+    elements.learningList.append(makeElement("div", "empty-state", "No learning evidence captured. Use a terminal run receipt to start the governed intake path."));
+  }
+}
+
+async function loadLearning(message = "Loading classified learning evidence…") {
+  workspaceStatus(elements.learningMessage, message);
+  try {
+    if (!admin.runs.length) {
+      const runs = await adminRead("/api/v1/admin/runs");
+      admin.runs = runs.runs;
+    }
+    populateLearningSources();
+    const payload = await adminRead("/api/v1/admin/learning/signals");
+    renderLearningSignals(payload.signals);
+    workspaceStatus(elements.learningMessage,
+      `${payload.signals.length} classified learning ${payload.signals.length === 1 ? "signal" : "signals"} loaded.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.learningMessage, error instanceof Error ? error.message : "Learning evidence could not be loaded.", "error");
+  }
+}
+
+async function captureLearning(event) {
+  event.preventDefault();
+  setBusy(elements.learningForm, true);
+  try {
+    const result = await adminMutation("/api/v1/admin/learning/signals", {
+      sourceTaskId: elements.learningSourceRun.value,
+      kind: elements.learningKind.value,
+      summary: elements.learningSummary.value.trim(),
+      occurrenceCount: Number(elements.learningOccurrences.value),
+    });
+    elements.learningSummary.value = "";
+    elements.learningOccurrences.value = "1";
+    await loadLearning();
+    workspaceStatus(elements.learningMessage,
+      `${result.action}: ${result.reasonCode}. Evidence stored; authority unchanged.`, "ok");
+  } catch (error) {
+    workspaceStatus(elements.learningMessage, error instanceof Error ? error.message : "Learning evidence was not accepted.", "error");
+  } finally {
+    setBusy(elements.learningForm, false);
+    populateLearningSources();
+  }
+}
+
 const viewDetails = {
   overview: ["CONTROL PLANE", "Good evening."],
   setup: ["FIRST RUN", "Configure AgentForge"],
   agents: ["IDENTITIES", "Your local agents"],
   runs: ["ORCHESTRATION", "Durable runs"],
   skills: ["REGISTRY", "Governed skills"],
+  learning: ["LEARNING", "Evidence inbox"],
 };
 
 async function showCurrentView() {
@@ -619,6 +735,7 @@ async function showCurrentView() {
   if (view === "agents") await loadAgents();
   if (view === "runs") await loadRuns();
   if (view === "skills") await loadSkills();
+  if (view === "learning") await loadLearning();
 }
 
 function renderHost(result) {
@@ -1001,6 +1118,7 @@ elements.verifyForm.addEventListener("submit", verifyModel);
 elements.agentForm.addEventListener("submit", prepareReview);
 elements.reviewForm.addEventListener("submit", completeSetup);
 elements.runForm.addEventListener("submit", createRun);
+elements.learningForm.addEventListener("submit", captureLearning);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);
@@ -1042,6 +1160,7 @@ for (const button of document.querySelectorAll("[data-reload]")) {
     if (button.dataset.reload === "agents") loadAgents("Refreshing agent identities…");
     if (button.dataset.reload === "runs") loadRuns("Refreshing durable snapshots…");
     if (button.dataset.reload === "skills") loadSkills("Refreshing the skill registry…");
+    if (button.dataset.reload === "learning") loadLearning("Refreshing classified evidence…");
   });
 }
 window.addEventListener("hashchange", showCurrentView);

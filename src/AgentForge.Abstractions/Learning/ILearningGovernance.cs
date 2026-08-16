@@ -16,6 +16,11 @@ public interface ILearningRepository
         LearningSignalId id,
         CancellationToken cancellationToken);
 
+    ValueTask<IReadOnlyList<(LearningSignal Signal, LearningClassification Classification)>> ListSignalsAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken);
+
     ValueTask AppendCandidateAsync(
         LearningCandidate candidate,
         long? expectedVersion,

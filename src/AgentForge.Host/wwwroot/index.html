@@ -42,6 +42,10 @@
           <span class="nav-icon" aria-hidden="true">□</span>
           Skills
         </a>
+        <a class="nav-item" href="#learning" data-view="learning">
+          <span class="nav-icon" aria-hidden="true">∞</span>
+          Learning
+        </a>
       </nav>
 
       <div class="sidebar-footer">
@@ -364,6 +368,37 @@
         <div class="scope-notice"><strong>Governed by default</strong><span>Installation validates and records the package. Activation still requires the evaluation, approval, and canary promotion lifecycle.</span></div>
         <div id="skills-message" class="workspace-message" aria-live="polite">Open this page to load skills.</div>
         <div id="skill-list" class="resource-list"></div>
+      </section>
+
+      <section id="learning" class="workspace-panel app-view" aria-labelledby="learning-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">RECURSIVE LEARNING</span>
+            <h2 id="learning-title">Learning inbox</h2>
+            <p>Capture operator feedback against exact durable run evidence and let the deterministic classifier decide what may proceed.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="learning">Reload evidence</button>
+        </div>
+        <form id="learning-form" class="run-composer learning-form" autocomplete="off">
+          <div class="learning-primary-grid">
+            <label>Source run<select id="learning-source-run" required></select></label>
+            <label>Evidence kind<select id="learning-kind" required>
+              <option value="Correction">Correction</option>
+              <option value="SuccessfulProcedure">Successful procedure</option>
+              <option value="Recovery">Recovery</option>
+              <option value="MissingCapability">Missing capability</option>
+            </select></label>
+            <label>Observed occurrences<input id="learning-occurrences" type="number" min="1" max="1000000" value="1" required></label>
+          </div>
+          <label>Redacted evidence summary<textarea id="learning-summary" maxlength="4096" rows="5" required placeholder="Describe the correction, reusable success, recovery, or missing capability. Do not include credentials or private data."></textarea></label>
+          <div class="composer-actions">
+            <p>The source receipt hash, not prompt or model output, becomes immutable evidence. Classification never changes policy or creates a skill by itself.</p>
+            <button id="capture-learning" class="setup-submit" type="submit">Classify evidence</button>
+          </div>
+        </form>
+        <div class="scope-notice"><strong>Evidence before authority</strong><span>Corrections without exact skill-usage authority become memory. New-skill classifications still require an isolated proposal workspace, five separated roles, evaluation, critique, approval, canary, and rollback evidence.</span></div>
+        <div id="learning-message" class="workspace-message" aria-live="polite">Open this page to load classified evidence.</div>
+        <div id="learning-list" class="resource-list learning-list"></div>
       </section>
 
       <footer>

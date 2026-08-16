@@ -152,6 +152,8 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"refresh-after-setup\" class=\"setup-submit\" href=\"#overview\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-search\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
         using var agentList = await client.GetAsync("/api/v1/admin/agents");
         Assert.Equal(HttpStatusCode.OK, agentList.StatusCode);
         using var agentListDocument = JsonDocument.Parse(await agentList.Content.ReadAsByteArrayAsync());
@@ -197,9 +199,82 @@ public sealed class WebSetupWizardTests : IDisposable
         using var runList = await client.GetAsync("/api/v1/admin/runs");
         Assert.Equal(HttpStatusCode.OK, runList.StatusCode);
         Assert.Contains("MVP planned run", await runList.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var emptyLearning = await client.GetAsync("/api/v1/admin/learning/signals");
+        Assert.Equal(HttpStatusCode.OK, emptyLearning.StatusCode);
+        Assert.Equal(0, JsonDocument.Parse(await emptyLearning.Content.ReadAsByteArrayAsync())
+            .RootElement.GetProperty("signals").GetArrayLength());
+        using var nonterminalLearning = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-nonterminal", adminCsrf, JsonContent.Create(new
+            {
+                sourceTaskId = runId,
+                kind = "Correction",
+                summary = "The operator corrected a detail after reviewing this run.",
+                occurrenceCount = 1,
+            }));
+        Assert.Equal(HttpStatusCode.Conflict, nonterminalLearning.StatusCode);
         using var cancelRun = await MutationAsync(client, $"/api/v1/admin/runs/{runId:D}/cancel", "mvp-run-cancel-1", adminCsrf, JsonContent.Create(new { }));
         Assert.Equal(HttpStatusCode.OK, cancelRun.StatusCode);
         Assert.Contains("Canceled", await cancelRun.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var learningWithoutCsrf = await client.PostAsJsonAsync("/api/v1/admin/learning/signals", new
+        {
+            sourceTaskId = runId,
+            kind = "Correction",
+            summary = "A bounded correction.",
+            occurrenceCount = 1,
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, learningWithoutCsrf.StatusCode);
+        var correctionEvidence = new
+        {
+            sourceTaskId = runId,
+            kind = "Correction",
+            summary = "  The operator corrected a detail\n after reviewing this run.  ",
+            occurrenceCount = 1,
+        };
+        using var capturedCorrection = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-correction", adminCsrf,
+            JsonContent.Create(correctionEvidence));
+        Assert.Equal(HttpStatusCode.Created, capturedCorrection.StatusCode);
+        Assert.Contains("\"action\":\"Memory\"", await capturedCorrection.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("correction-without-revision-authority", await capturedCorrection.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var correctionReplay = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-correction", adminCsrf,
+            JsonContent.Create(correctionEvidence));
+        Assert.Equal(HttpStatusCode.OK, correctionReplay.StatusCode);
+        Assert.True(correctionReplay.Headers.Contains("Idempotent-Replay"));
+        using var correctionConflict = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-correction", adminCsrf, JsonContent.Create(new
+            {
+                sourceTaskId = runId,
+                kind = "MissingCapability",
+                summary = "This is different evidence.",
+                occurrenceCount = 1,
+            }));
+        Assert.Equal(HttpStatusCode.Conflict, correctionConflict.StatusCode);
+        using var capturedMissingCapability = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-missing-capability", adminCsrf, JsonContent.Create(new
+            {
+                sourceTaskId = runId,
+                kind = "MissingCapability",
+                summary = "The run lacked a governed capability required for the requested outcome.",
+                occurrenceCount = 1,
+            }));
+        Assert.Equal(HttpStatusCode.Created, capturedMissingCapability.StatusCode);
+        Assert.Contains("\"action\":\"NewSkill\"", await capturedMissingCapability.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var rejectedSensitiveSummary = await MutationAsync(
+            client, "/api/v1/admin/learning/signals", "learning-sensitive", adminCsrf, JsonContent.Create(new
+            {
+                sourceTaskId = runId,
+                kind = "Correction",
+                summary = "The api_key value must not become learning evidence.",
+                occurrenceCount = 1,
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedSensitiveSummary.StatusCode);
+        using var learningList = await client.GetAsync("/api/v1/admin/learning/signals");
+        Assert.Equal(HttpStatusCode.OK, learningList.StatusCode);
+        using var learningListDocument = JsonDocument.Parse(await learningList.Content.ReadAsByteArrayAsync());
+        Assert.Equal(2, learningListDocument.RootElement.GetProperty("signals").GetArrayLength());
+        Assert.Equal(runId.ToString("D"), learningListDocument.RootElement.GetProperty("signals")[0]
+            .GetProperty("sourceRunId").GetString());
 
         using var chat = await MutationAsync(client, $"/api/v1/admin/agents/{agentId:D}/test-chat", "mvp-chat-1", adminCsrf, JsonContent.Create(new
         {

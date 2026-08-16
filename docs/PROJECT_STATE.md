@@ -1,11 +1,11 @@
 # Project State
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## Current objective
 
-Deliver a testable post-R1 Ready-state MVP over the completed harness boundaries without exposing administrator
-credentials or bypassing model-execution, tool, and skill-promotion gates.
+Deliver a testable post-R1 recursive-learning journey over the completed harness boundaries without exposing
+administrator credentials or letting classified evidence bypass candidate, policy, tool, or promotion gates.
 
 ## Completed
 
@@ -153,6 +153,9 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 - Installed skill versions appear in the composer but remain disabled until both Active and explicitly granted to the selected agent. Selected skills resolve through the immutable run-snapshot service, include exact dependency authority, and enter only transient redacted model context; an ungranted selection is denied server-side even if a hostile client submits it.
 - Run receipts are now client-side searchable, status-filterable, and paginated over the bounded latest-100 API response. Setup completion uses a real `#overview` link rather than scrolling toward a hidden view. Live browser verification passed navigation, two-page history, filtering, policy-disabled state after form reset, and two exact `qwen3.6` configured-run responses.
 - The reproducible SDK/CI pin is updated from .NET 10.0.302 to the installed stable 10.0.400 feature band. Locked packages and target framework remain unchanged.
+- The Ready workspace now exposes a Learning inbox. An operator can hand off any terminal durable run receipt, select a bounded evidence kind, enter an explicitly redacted summary, and receive the existing deterministic memory/new-skill/revision/bundle/no-action classification.
+- Learning intake binds the exact installation, terminal task ID and snapshot hash, actor, correlation/causation, and idempotency key; it reuses the audited Learning service, persists no prompt or response text, rejects credential-shaped summaries, and cannot create a candidate or grant authority.
+- Deterministic Ready end-to-end coverage proves nonterminal, cross-request, missing-CSRF, sensitive-summary, and conflicting-replay denial plus exact replay, newest-first query, and SQLite restart persistence.
 
 ## Latest gate
 
@@ -166,13 +169,15 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 `artifacts/gates/POST-R1-RUNS-WORKSPACE-20260813.md`: Pass. Ready Runs exposes governed context/depth/skill choices and navigable durable history; the setup completion action now enters Overview.
 
+`artifacts/gates/POST-R1-LEARNING-INTAKE-20260814.md`: Pass. Terminal run evidence can enter the protected deterministic learning classifier and durable inbox without receiving candidate or execution authority.
+
 ## Known constraints and risks
 
 - Docker is not installed locally; the equipped release workflow passes both the secure-default image smoke and the real digest-pinned constrained-execution adapter test.
 - The production task API, authenticated SSE, policy-filtered MCP transports, plugins, backup/restore, and packaging are complete. Broader administration remains deliberately closed for R1.
 - Windows secret storage is available through current-user DPAPI. Linux requires a working Secret Service session and `secret-tool`; absence is a typed unsupported capability and never falls back to plaintext.
 - Runtime model contracts, deterministic/compatible adapters, context redaction, exact invocation-scoped hosted bearer materialization, pure routing, short-lived health/current-authority planning, durable run admission, start leases/heartbeats/recovery, bounded retry/failover, cross-attempt accounting, shared reservations, observed provider health, internal adapter execution, and the typed durable loop are implemented. Public invocation remains disabled; the default provider and loop-executor catalogs are empty.
-- Web setup and the protected Ready workspace are complete for the single operator. Runs supports one explicit bounded streamed prompt plus active cancellation against the pinned loopback/private model; autonomous or tool-using execution, agent editing, governed skill promotion controls, a general remote dashboard, and multi-user administration remain omitted.
+- Web setup and the protected Ready workspace are complete for the single operator. Runs supports one explicit bounded streamed prompt plus active cancellation against the pinned loopback/private model, and Learning captures/classifies terminal evidence. Autonomous or tool-using execution, agent editing, governed candidate generation/promotion controls, a general remote dashboard, and multi-user administration remain omitted.
 - Setup may enter `Ready` only through minimum-viability completion. Linux live completion requires Secret Service; deterministic completion remains portable and live absence never degrades.
 - Recovery entry, resume, provider/agent edits, topology-preserving profile rollback, and full-package restore are authenticated and snapshot/hash backed. Recovery remains configuration-only and cannot launch autonomous work. Adding/removing profile entities through restore is intentionally denied.
 - SQLite stores model start leases, heartbeat time, exact-version expired recovery, and provider health. Durable DAG and schedule workers own lease scanning/takeover; model-run recovery remains an internal exact-version service rather than an operator API.
@@ -182,4 +187,4 @@ credentials or bypassing model-execution, tool, and skill-promotion gates.
 
 ## Exact next action
 
-The next MVP slice should expose agent editing with a before/after effective-policy preview, exact optimistic concurrency, and restart-safe audit evidence. Tool grants, external messaging, skill promotion, and device writes must remain separate explicit gates.
+The next recursive-learning slice should create an isolated, content-addressed proposal workspace for a `NewSkill` signal, generate an immutable agent-proposed package with no authority beyond its declaration, and expose the five separated worker/proposer/verifier/critic/governor gates. Activation must remain impossible until deterministic target, holdout, adversarial, permission-diff, baseline, approval, and canary evidence all pass.

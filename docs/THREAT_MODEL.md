@@ -844,6 +844,13 @@ and persist beside source, signal, classification, workspace, package, and snaps
 tool output, secrets, and candidate source are not relational learning fields. A signal classification is data
 only and cannot alter policy or become executable instructions.
 
+The Ready learning-intake endpoint accepts only a task in a terminal state from the authenticated session's exact
+installation. It binds the signal to the durable task snapshot hash and run causation ID, normalizes the operator's
+redacted summary to one bounded line, rejects credential-shaped material through the domain classifier, and applies
+the same CSRF, exact-origin, serialized mutation, and idempotency boundary as other Ready administration. Listing is
+installation scoped and bounded. Intake deliberately supplies no usage receipt, revision authorization, or repeated
+skill chain, so hostile browser input cannot claim revision or bundle authority and a `NewSkill` result remains data.
+
 Existing-skill revisions require an exact successful usage receipt or unexpired explicit operator authorization
 for the current skill version and package hash. A candidate must be an immutable agent-proposed package and carry
 a content-addressed isolated-workspace receipt. Worker, proposer, verifier, critic, and governor actors are all
