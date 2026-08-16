@@ -687,17 +687,20 @@
                 <span id="brave-config-state" class="state-chip">NOT CONFIGURED</span>
               </div>
               <p id="brave-config-summary" class="resource-description">Add a write-only API key to enable cited web research.</p>
-              <form id="brave-config-form" class="compact-composer" autocomplete="off">
-                <label class="gate-check"><input id="brave-config-enabled" type="checkbox" checked> Enable Brave for approved research</label>
-                <label>API key <span class="field-note">Required initially; leave blank to retain the current key.</span><input id="brave-config-key" type="password" maxlength="512" autocomplete="new-password" placeholder="Write-only Brave subscription token"></label>
-                <div class="run-primary-grid">
+              <form id="brave-config-form" class="run-composer compact-composer integration-form" autocomplete="off">
+                <label class="gate-check integration-toggle"><input id="brave-config-enabled" type="checkbox" checked><span><strong>Enable Brave Search</strong><small>Make this provider available for explicitly approved research.</small></span></label>
+                <label>API key <span class="field-note">Required initially; leave blank to retain the protected current key.</span><input id="brave-config-key" type="password" maxlength="512" autocomplete="new-password" placeholder="Write-only Brave subscription token"></label>
+                <div class="form-row integration-settings-grid">
                   <label>Safe search<select id="brave-config-safe"><option value="Moderate">Moderate</option><option value="Strict">Strict</option><option value="Off">Off</option></select></label>
-                  <label>Country <span class="field-note">Optional ISO code</span><input id="brave-config-country" maxlength="2" placeholder="US"></label>
-                  <label>Search language<input id="brave-config-language" maxlength="16" value="en" required></label>
+                  <label>Country <span class="field-note">Optional two-letter ISO code</span><input id="brave-config-country" maxlength="2" placeholder="US"></label>
                 </div>
-                <button id="brave-config-preview" class="secondary-action" type="submit">Verify and preview</button>
+                <label>Search language <span class="field-note">Language code used to rank results</span><input id="brave-config-language" maxlength="16" value="en" required></label>
+                <div class="composer-actions integration-actions">
+                  <p>The endpoint and supplied credential will be verified before an exact configuration preview is created.</p>
+                  <button id="brave-config-preview" class="setup-submit" type="submit">Verify and preview</button>
+                </div>
               </form>
-              <form id="brave-config-review" class="compact-composer" hidden>
+              <form id="brave-config-review" class="run-composer compact-composer integration-form" hidden>
                 <div id="brave-config-details" class="review-grid"></div>
                 <code id="brave-config-preview-hash" class="preview-hash"></code>
                 <div class="resource-actions"><button id="brave-config-discard" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Apply Brave configuration</button></div>

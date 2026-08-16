@@ -182,7 +182,7 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"schedule-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#context\" data-view=\"context\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"memory-create-form\"", appShellHtml, StringComparison.Ordinal);
-        Assert.Contains("id=\"brave-config-form\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"brave-config-form\" class=\"run-composer compact-composer integration-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"brave-config-key\" type=\"password\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"research-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-memory-query\"", appShellHtml, StringComparison.Ordinal);
@@ -191,6 +191,8 @@ public sealed class WebSetupWizardTests : IDisposable
         var styleSheetCss = await styleSheet.Content.ReadAsStringAsync();
         Assert.Contains(".run-composer[hidden] { display: none; }", styleSheetCss, StringComparison.Ordinal);
         Assert.Contains(".compact-composer > .run-primary-grid", styleSheetCss, StringComparison.Ordinal);
+        Assert.Contains(".preview-hash { display: block; min-width: 0; max-width: 100%;", styleSheetCss, StringComparison.Ordinal);
+        Assert.Contains("grid-template-columns: repeat(2, minmax(0, 1fr))", styleSheetCss, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-proposal-form\"", appShellHtml, StringComparison.Ordinal);
