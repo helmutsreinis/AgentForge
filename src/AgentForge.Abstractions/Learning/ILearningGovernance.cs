@@ -1,6 +1,9 @@
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Artifacts;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
 using AgentForge.Domain.Skills;
 
 namespace AgentForge.Abstractions.Learning;
@@ -73,7 +76,8 @@ public sealed record ProposeLearningCandidateRequest(
     SkillId SkillId,
     SkillVersion CandidateVersion,
     ArtifactReference ProposalWorkspace,
-    LearningRoleAssignments Roles);
+    LearningRoleAssignments Roles,
+    SkillCandidateGenerationEvidence? GenerationEvidence = null);
 
 public sealed record ProposeNewSkillFromSignalRequest(
     LearningCandidateId CandidateId,
@@ -83,7 +87,47 @@ public sealed record ProposeNewSkillFromSignalRequest(
     SkillVersion CandidateVersion,
     string Description,
     IReadOnlyList<string> RequestedPermissions,
-    LearningRoleAssignments Roles);
+    LearningRoleAssignments Roles,
+    string? GeneratedMarkdown = null,
+    SkillCandidateGenerationEvidence? GenerationEvidence = null);
+
+public sealed record SkillCandidateGenerationEvidence(
+    int SchemaVersion,
+    LearningCandidateId CandidateId,
+    LearningSignalId SignalId,
+    string SignalHash,
+    string SourceEvidenceHash,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    ProviderProfileId ProviderId,
+    long ProviderVersion,
+    string Model,
+    ModelRequestId ModelRequestId,
+    string ModelEvidenceHash,
+    string RawResponseHash,
+    string SelectedMarkdownHash,
+    string GenerationRequestHash,
+    int ContextRedactionCount,
+    string FinishReason);
+
+public sealed record GenerateNewSkillFromSignalRequest(
+    LearningCandidateId CandidateId,
+    SkillProposalId SkillProposalId,
+    LearningSignalId SignalId,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    string Description,
+    IReadOnlyList<string> RequestedPermissions,
+    LearningRoleAssignments Roles,
+    AgentIdentityId AgentId,
+    string? OperatorGuidance);
+
+public sealed record GenerateNewSkillFromSignalResult(
+    LearningCandidate Candidate,
+    SkillCandidateGenerationEvidence Evidence,
+    bool WasReplay);
 
 public sealed record ProposeNewSkillFromSignalResult(
     LearningCandidate Candidate,
@@ -220,5 +264,12 @@ public interface ILearningCandidateEvaluator
     Task<DomainResult<AutomatedLearningEvaluationResult>> EvaluateAsync(
         LearningCandidateId candidateId,
         long expectedVersion,
+        CancellationToken cancellationToken);
+}
+
+public interface ILocalModelSkillCandidateGenerator
+{
+    Task<DomainResult<GenerateNewSkillFromSignalResult>> GenerateAsync(
+        GenerateNewSkillFromSignalRequest request,
         CancellationToken cancellationToken);
 }

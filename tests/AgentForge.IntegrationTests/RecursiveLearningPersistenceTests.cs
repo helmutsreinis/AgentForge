@@ -1,14 +1,23 @@
 using System.Formats.Tar;
 using System.Text.Json;
+using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Artifacts;
+using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
+using AgentForge.Abstractions.Models;
+using AgentForge.Abstractions.Persistence;
+using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Audit;
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
 using AgentForge.Domain.Skills;
 using AgentForge.Learning;
@@ -29,6 +38,87 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
     private static readonly string[] SupportedSystems = ["windows", "linux"];
     private static readonly string[] RequiredModelCapabilities = ["text-generation"];
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"agentforge-learning-{Guid.NewGuid():N}");
+
+    [Fact]
+    public async Task Local_generator_pins_private_authority_and_durable_replay_does_not_call_model_twice()
+    {
+        await using var services = BuildServices();
+        await InitializeAsync(services);
+        var installationId = new InstallationId(Guid.NewGuid());
+        await BeginInstallationAsync(services, installationId);
+        var providerId = ProviderProfileId.New();
+        var agentId = new AgentIdentityId(Guid.NewGuid());
+        var roles = Roles();
+        await using (var seed = services.CreateAsyncScope())
+        {
+            var now = DateTimeOffset.UtcNow;
+            await seed.ServiceProvider.GetRequiredService<IProviderProfileRepository>().AddAsync(new ProviderProfile(
+                providerId, installationId, "local-generation", "openai-compatible",
+                new Uri("http://127.0.0.1:8000/v1"), "qwen-fixture", SecretReference.NoCredential,
+                new ProviderCapabilitySummary(true, true, false, false, "fixture"),
+                2, now, now, roles.Worker, new CorrelationId("generation-provider")), CancellationToken.None);
+            await seed.ServiceProvider.GetRequiredService<IAgentIdentityRepository>().AddAsync(new AgentIdentity(
+                agentId, installationId, "generation-agent", null, null, "en", "Europe/Kiev", "concise", null,
+                new AgentModelPolicy(providerId, ModelDataLocality.LocalOnly, false),
+                new AgentMemoryPolicy(AgentMemoryScope.Agent, 30),
+                new AgentCapabilityPolicy(NetworkPosture.Denied, [], []),
+                new AgentBudget(4, 0, 16_000, 8_192, 120),
+                new ChildAgentLimits(0, 0, 0, 0),
+                new AgentLearningPolicy(LearningMode.Propose, MutableSkillScope.ProposalWorkspaceOnly),
+                3, now, now, roles.Worker, new CorrelationId("generation-agent")), CancellationToken.None);
+            Assert.True((await seed.ServiceProvider.GetRequiredService<IUnitOfWork>()
+                .CommitAsync(CancellationToken.None)).Succeeded);
+        }
+
+        var signalId = new LearningSignalId(Guid.NewGuid());
+        var candidateId = new LearningCandidateId(Guid.NewGuid());
+        SkillCandidateGenerationEvidence? firstEvidence = null;
+        var request = new GenerateNewSkillFromSignalRequest(
+            candidateId, new SkillProposalId(Guid.NewGuid()), signalId,
+            new SkillId("skill:test.local-generation"), new SkillVersion("1.0.0"),
+            "Generate one bounded local skill.", ["repository:read"], roles, agentId,
+            "Prefer observable verification evidence.");
+        await using (var first = services.CreateAsyncScope())
+        {
+            var governance = first.ServiceProvider.GetRequiredService<ILearningGovernanceService>();
+            Assert.True((await governance.CaptureAsync(new CaptureLearningSignalRequest(
+                signalId, installationId, LearningSignalKind.MissingCapability,
+                "A bounded local procedure is absent.", HashA, [], [], [], 1, roles.Worker,
+                new CorrelationId("generation-signal"), null), CancellationToken.None)).IsSuccess);
+            var generated = await first.ServiceProvider.GetRequiredService<ILocalModelSkillCandidateGenerator>()
+                .GenerateAsync(request, CancellationToken.None);
+            Assert.True(generated.IsSuccess, generated.Failure?.Message);
+            Assert.False(generated.Value.WasReplay);
+            Assert.Equal("qwen-fixture", generated.Value.Evidence.Model);
+            Assert.Equal(agentId, generated.Value.Evidence.AgentId);
+            firstEvidence = generated.Value.Evidence;
+        }
+
+        await using (var replay = services.CreateAsyncScope())
+        {
+            var generated = await replay.ServiceProvider.GetRequiredService<ILocalModelSkillCandidateGenerator>()
+                .GenerateAsync(request, CancellationToken.None);
+            Assert.True(generated.IsSuccess, generated.Failure?.Message);
+            Assert.True(generated.Value.WasReplay);
+            Assert.Equal(candidateId, generated.Value.Candidate.Id);
+            var evaluated = await replay.ServiceProvider.GetRequiredService<ILearningCandidateEvaluator>()
+                .EvaluateAsync(candidateId, 0, CancellationToken.None);
+            Assert.True(evaluated.IsSuccess, evaluated.Failure?.Message);
+            Assert.True(evaluated.Value.Receipt.Checks.Single(
+                check => check.Code == "provenance.local-model-generation").Passed);
+        }
+        Assert.Equal(1, services.GetRequiredService<CountingLocalModelInteraction>().InvocationCount);
+        await using (var auditScope = services.CreateAsyncScope())
+        {
+            var events = await auditScope.ServiceProvider.GetRequiredService<IAuditReader>().ReadAsync(
+                installationId, 0, 100, CancellationToken.None);
+            var proposedAudit = Assert.Single(events, item =>
+                item.OperationType == "learning.candidate-proposed");
+            Assert.Contains(firstEvidence!.SelectedMarkdownHash, proposedAudit.Output.Json, StringComparison.Ordinal);
+            Assert.DoesNotContain("Create a bounded read-only procedure", proposedAudit.Output.Json,
+                StringComparison.Ordinal);
+        }
+    }
 
     [Fact]
     public async Task Isolated_evaluator_owns_receipts_and_rejects_high_risk_permission_diffs()
@@ -71,7 +161,7 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
         {
             Assert.Equal("agentforge-managed-isolated-v1",
                 document.RootElement.GetProperty("evaluator").GetString());
-            Assert.Equal(5, document.RootElement.GetProperty("checks").GetArrayLength());
+            Assert.Equal(6, document.RootElement.GetProperty("checks").GetArrayLength());
         }
 
         var rejectedSignalId = new LearningSignalId(Guid.NewGuid());
@@ -413,6 +503,9 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
         services.AddAgentForgeAudit();
         services.AddAgentForgeSkills();
         services.AddAgentForgeLearning();
+        services.AddSingleton<CountingLocalModelInteraction>();
+        services.AddSingleton<ILocalModelInteractionService>(provider =>
+            provider.GetRequiredService<CountingLocalModelInteraction>());
         return services.BuildServiceProvider(validateScopes: true);
     }
 
@@ -463,6 +556,59 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
 
     private static LearningCandidateEvaluation Evaluation(bool passed) =>
         new(passed, passed, passed, passed, 10, passed ? 11 : 9, HashC);
+
+    private sealed class CountingLocalModelInteraction : ILocalModelInteractionService
+    {
+        public int InvocationCount { get; private set; }
+
+        public Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
+            LocalModelInteractionRequest request,
+            CancellationToken cancellationToken)
+        {
+            InvocationCount++;
+            var markdown = """
+## Purpose
+
+Create a bounded read-only procedure from classified evidence without granting execution authority.
+
+## Inputs
+
+- A specific operator goal.
+- The declared repository:read boundary.
+
+## Procedure
+
+1. Validate the supplied non-sensitive inputs.
+2. Describe the smallest repeatable read-only steps.
+3. Preserve unknown values and stop when authority is unavailable.
+
+## Verification
+
+List observable evidence that a separate verifier can compare with the requested outcome.
+
+## Failure conditions
+
+Stop on missing input, ambiguous evidence, unavailable permission, or an unverifiable outcome.
+
+## Permission boundary
+
+This proposal declares repository:read only and receives no tool, network, write, credential, message, device, or approval authority.
+""";
+            return Task.FromResult(DomainResult.Success(new LocalModelInteractionResult(
+                request.RequestId,
+                JsonSerializer.Serialize(new { markdown }),
+                new ModelUsage(50, 100, 0, null, null),
+                ModelFinishReason.Stop,
+                0,
+                4,
+                HashB)));
+        }
+
+        public Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
+            LocalModelInteractionRequest request,
+            ILocalModelInteractionObserver observer,
+            CancellationToken cancellationToken) => InvokeAsync(request, cancellationToken);
+    }
 
     public void Dispose()
     {

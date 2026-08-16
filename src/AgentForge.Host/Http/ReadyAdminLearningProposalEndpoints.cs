@@ -1,7 +1,9 @@
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
+using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Time;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
 
@@ -11,7 +13,8 @@ internal sealed record ProposeLearningCandidateWebRequest(
     string SkillId,
     string Version,
     string Description,
-    IReadOnlyList<string>? RequestedPermissions);
+    IReadOnlyList<string>? RequestedPermissions,
+    string? GenerationGuidance);
 
 internal sealed record TransitionLearningCandidateWebRequest(
     string Action,
@@ -45,7 +48,7 @@ internal static partial class ReadyAdminEndpoints
             acquired.Session!.InstallationId, 100, cancellationToken);
         return Results.Ok(new
         {
-            candidates = candidates.Select(LearningCandidateResponse),
+            candidates = candidates.Select(candidate => LearningCandidateResponse(candidate)),
             correlationId = context.TraceIdentifier,
         });
     }
@@ -57,7 +60,8 @@ internal static partial class ReadyAdminEndpoints
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
         ILearningRepository repository,
-        ILearningCandidateProposalService proposals,
+        ITaskSnapshotStore tasks,
+        ILocalModelSkillCandidateGenerator generator,
         IClock clock,
         CancellationToken cancellationToken)
     {
@@ -71,6 +75,9 @@ internal static partial class ReadyAdminEndpoints
         var skillId = (request.SkillId ?? string.Empty).Trim();
         var versionText = (request.Version ?? string.Empty).Trim();
         var description = (request.Description ?? string.Empty).Trim();
+        var generationGuidance = string.IsNullOrWhiteSpace(request.GenerationGuidance)
+            ? null
+            : request.GenerationGuidance.Trim();
         var permissions = (request.RequestedPermissions ?? [])
             .Select(value => value?.Trim() ?? string.Empty)
             .Order(StringComparer.Ordinal)
@@ -78,6 +85,7 @@ internal static partial class ReadyAdminEndpoints
         if (signalId == Guid.Empty || !SkillVersion.TryParse(versionText, out var version) ||
             !Text(skillId, 256) || !skillId.StartsWith("skill:", StringComparison.Ordinal) ||
             !Text(description, 512) || permissions.Length > 32 ||
+            generationGuidance is not null && !PromptText(generationGuidance, 2_048) ||
             permissions.Any(value => !Text(value, 256)) ||
             permissions.Distinct(StringComparer.Ordinal).Count() != permissions.Length)
         {
@@ -89,7 +97,15 @@ internal static partial class ReadyAdminEndpoints
         var session = acquired.Session!;
         var idempotencyKey = context.Request.Headers["Idempotency-Key"].ToString();
         var scopedKey = $"learning-candidate:{signalId:D}:{idempotencyKey}";
-        var requestHash = SnapshotHash(new { signalId, skillId, version = version!.Value, description, permissions });
+        var requestHash = SnapshotHash(new
+        {
+            signalId,
+            skillId,
+            version = version!.Value,
+            description,
+            permissions,
+            generationGuidance,
+        });
         await session.MutationGate.WaitAsync(cancellationToken);
         try
         {
@@ -114,12 +130,28 @@ internal static partial class ReadyAdminEndpoints
                     "Only evidence classified as NewSkill may enter the isolated proposal workflow.",
                     "policydenied");
             }
+            if (signal.Value.Signal.CausationId is not { } causation ||
+                !causation.Value.StartsWith("run:", StringComparison.Ordinal) ||
+                !Guid.TryParse(causation.Value[4..], out var sourceTaskId))
+            {
+                return Problem(context, 409, "Source run unavailable",
+                    "Ready candidate generation requires an exact durable source run.", "concurrency-conflict");
+            }
+            var sourceTask = await tasks.FindLatestAsync(
+                new OrchestrationTaskId(sourceTaskId), cancellationToken);
+            if (sourceTask is null || sourceTask.Definition.InstallationId != session.InstallationId ||
+                !string.Equals(sourceTask.SnapshotHash, signal.Value.Signal.SourceEvidenceHash, StringComparison.Ordinal))
+            {
+                return Problem(context, 409, "Source run changed",
+                    "The classified evidence no longer matches its exact durable source run snapshot.",
+                    "concurrency-conflict");
+            }
 
             var stable = StableRequestIdentity(session.InstallationId, "learning-candidate", idempotencyKey);
             var candidateId = new LearningCandidateId(new Guid(stable.AsSpan(0, 16)));
             var proposalId = new SkillProposalId(new Guid(stable.AsSpan(16, 16)));
             var roles = LearningRoles(session.InstallationId);
-            var proposed = await proposals.ProposeNewSkillAsync(new ProposeNewSkillFromSignalRequest(
+            var proposed = await generator.GenerateAsync(new GenerateNewSkillFromSignalRequest(
                 candidateId,
                 proposalId,
                 signal.Value.Signal.Id,
@@ -127,13 +159,15 @@ internal static partial class ReadyAdminEndpoints
                 version!,
                 description,
                 permissions,
-                roles), cancellationToken);
+                roles,
+                sourceTask.Definition.AgentId,
+                generationGuidance), cancellationToken);
             if (!proposed.IsSuccess)
             {
                 return DomainProblem(context, proposed.Failure!, "Learning proposal failed");
             }
 
-            var response = LearningCandidateResponse(proposed.Value.Candidate);
+            var response = LearningCandidateResponse(proposed.Value.Candidate, proposed.Value.Evidence);
             StoreIdempotentResult(session, scopedKey, requestHash, response);
             if (proposed.Value.WasReplay)
             {
@@ -350,60 +384,77 @@ internal static partial class ReadyAdminEndpoints
         },
     };
 
-    private static object LearningCandidateResponse(LearningCandidate candidate) => new
-    {
-        id = candidate.Id.Value,
-        signalId = candidate.SignalId.Value,
-        action = candidate.Action.ToString(),
-        skillProposalId = candidate.SkillProposalId.Value,
-        skillId = candidate.SkillId.Value,
-        candidateVersion = candidate.CandidateVersion.Value,
-        candidate.CandidatePackageHash,
-        requestedPermissions = candidate.RequestedPermissions,
-        roles = new
+    private static object LearningCandidateResponse(
+        LearningCandidate candidate,
+        SkillCandidateGenerationEvidence? generation = null) => new
         {
-            worker = candidate.Roles.Worker.Value,
-            proposer = candidate.Roles.Proposer.Value,
-            verifier = candidate.Roles.Verifier.Value,
-            critic = candidate.Roles.Critic.Value,
-            governor = candidate.Roles.Governor.Value,
-        },
-        state = candidate.State.ToString(),
-        candidate.Version,
-        candidate.SnapshotHash,
-        proposalWorkspace = new
-        {
-            candidate.ProposalWorkspace.ContentHash,
-            candidate.ProposalWorkspace.Length,
-            candidate.ProposalWorkspace.MediaType,
-        },
-        evaluation = candidate.Evaluation is null ? null : new
-        {
-            candidate.Evaluation.TargetPassed,
-            candidate.Evaluation.HoldoutPassed,
-            candidate.Evaluation.AdversarialPassed,
-            candidate.Evaluation.PermissionDiffApproved,
-            candidate.Evaluation.BaselineScore,
-            candidate.Evaluation.CandidateScore,
-            candidate.Evaluation.EvidenceHash,
-        },
-        critique = candidate.Critique is null ? null : new
-        {
-            candidate.Critique.Passed,
-            candidate.Critique.FindingCodes,
-            candidate.Critique.EvidenceHash,
-        },
-        activeAuthority = candidate.State is LearningCandidateState.Promoted,
-        nextGate = candidate.State switch
-        {
-            LearningCandidateState.Proposed => "deterministic-verification",
-            LearningCandidateState.Verified => "independent-critique",
-            LearningCandidateState.Critiqued => "governor-approval",
-            LearningCandidateState.Approved => "scoped-canary",
-            LearningCandidateState.Canary => "canary-evaluation",
-            _ => "terminal",
-        },
-        candidate.CreatedAt,
-        candidate.UpdatedAt,
-    };
+            id = candidate.Id.Value,
+            signalId = candidate.SignalId.Value,
+            action = candidate.Action.ToString(),
+            skillProposalId = candidate.SkillProposalId.Value,
+            skillId = candidate.SkillId.Value,
+            candidateVersion = candidate.CandidateVersion.Value,
+            candidate.CandidatePackageHash,
+            requestedPermissions = candidate.RequestedPermissions,
+            roles = new
+            {
+                worker = candidate.Roles.Worker.Value,
+                proposer = candidate.Roles.Proposer.Value,
+                verifier = candidate.Roles.Verifier.Value,
+                critic = candidate.Roles.Critic.Value,
+                governor = candidate.Roles.Governor.Value,
+            },
+            state = candidate.State.ToString(),
+            candidate.Version,
+            candidate.SnapshotHash,
+            proposalWorkspace = new
+            {
+                candidate.ProposalWorkspace.ContentHash,
+                candidate.ProposalWorkspace.Length,
+                candidate.ProposalWorkspace.MediaType,
+            },
+            evaluation = candidate.Evaluation is null ? null : new
+            {
+                candidate.Evaluation.TargetPassed,
+                candidate.Evaluation.HoldoutPassed,
+                candidate.Evaluation.AdversarialPassed,
+                candidate.Evaluation.PermissionDiffApproved,
+                candidate.Evaluation.BaselineScore,
+                candidate.Evaluation.CandidateScore,
+                candidate.Evaluation.EvidenceHash,
+            },
+            critique = candidate.Critique is null ? null : new
+            {
+                candidate.Critique.Passed,
+                candidate.Critique.FindingCodes,
+                candidate.Critique.EvidenceHash,
+            },
+            generation = generation is null ? null : new
+            {
+                agentId = generation.AgentId.Value,
+                generation.AgentVersion,
+                providerId = generation.ProviderId.Value,
+                generation.ProviderVersion,
+                generation.Model,
+                requestId = generation.ModelRequestId.Value,
+                generation.ModelEvidenceHash,
+                generation.RawResponseHash,
+                generation.SelectedMarkdownHash,
+                generation.GenerationRequestHash,
+                generation.ContextRedactionCount,
+                generation.FinishReason,
+            },
+            activeAuthority = candidate.State is LearningCandidateState.Promoted,
+            nextGate = candidate.State switch
+            {
+                LearningCandidateState.Proposed => "deterministic-verification",
+                LearningCandidateState.Verified => "independent-critique",
+                LearningCandidateState.Critiqued => "governor-approval",
+                LearningCandidateState.Approved => "scoped-canary",
+                LearningCandidateState.Canary => "canary-evaluation",
+                _ => "terminal",
+            },
+            candidate.CreatedAt,
+            candidate.UpdatedAt,
+        };
 }

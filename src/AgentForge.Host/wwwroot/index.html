@@ -569,8 +569,8 @@
         <form id="learning-proposal-form" class="run-composer learning-proposal-form" autocomplete="off" hidden>
           <div class="workspace-subheading compact-heading">
             <div>
-              <span class="stage-kicker">ISOLATED PROPOSAL</span>
-              <h3 id="learning-proposal-title">Create candidate skill</h3>
+              <span class="stage-kicker">LOCAL MODEL · ISOLATED PROPOSAL</span>
+              <h3 id="learning-proposal-title">Generate candidate skill</h3>
               <p id="learning-proposal-source"></p>
             </div>
             <button id="learning-proposal-close" class="secondary-action" type="button">Cancel</button>
@@ -580,10 +580,11 @@
             <label>Candidate version<input id="learning-proposal-version" maxlength="64" value="0.1.0" required></label>
           </div>
           <label>Description<textarea id="learning-proposal-description" maxlength="512" rows="3" required></textarea></label>
-          <label>Declared permissions <span class="field-note">Comma-separated; declarations are not grants.</span><input id="learning-proposal-permissions" maxlength="2048" placeholder="Leave empty for an authority-free scaffold"></label>
+          <label>Generation guidance <span class="field-note">Optional instructions from you; source evidence remains untrusted data.</span><textarea id="learning-proposal-guidance" maxlength="2048" rows="4" placeholder="Emphasize the bounded procedure, observable checks, and failure handling."></textarea></label>
+          <label>Declared read-only permissions <span class="field-note">Comma-separated declarations are not grants. Unknown or wider forms fail automatic evaluation.</span><input id="learning-proposal-permissions" maxlength="2048" placeholder="Leave empty, or use a bounded form such as repository:read"></label>
           <div class="composer-actions">
-            <p>AgentForge writes a content-addressed package into an isolated workspace. It remains inactive until separate verifier, critic, governor, and canary gates pass.</p>
-            <button id="create-learning-proposal" class="setup-submit" type="submit">Create isolated proposal</button>
+            <p>The source run's current agent calls only its pinned private model with zero tools. AgentForge accepts strict generated JSON, stores an immutable provenance receipt, and grants no authority.</p>
+            <button id="create-learning-proposal" class="setup-submit" type="submit">Generate inert candidate</button>
           </div>
         </form>
         <div class="workspace-subheading learning-candidate-heading">

@@ -74,10 +74,26 @@ internal sealed class LearningGovernanceService(
             candidateVersion.Package.Permissions, request.Roles, clock.UtcNow);
         if (!created.IsSuccess) return created;
         if (skillProposal.Value.CandidatePackageHash != created.Value.CandidatePackageHash ||
-            skillProposal.Value.BaselinePackageHash != created.Value.BaselinePackageHash)
+            skillProposal.Value.BaselinePackageHash != created.Value.BaselinePackageHash ||
+            !GenerationEvidenceMatches(request.GenerationEvidence, created.Value))
             return Conflict<LearningCandidate>("Skill governance authority changed during candidate creation.");
         return await AppendAsync(
-            created.Value, null, request.Roles.Proposer, "learning.candidate-proposed", cancellationToken);
+            created.Value, null, request.Roles.Proposer, "learning.candidate-proposed", cancellationToken,
+            request.GenerationEvidence is null ? null : new
+            {
+                agentId = request.GenerationEvidence.AgentId.Value,
+                request.GenerationEvidence.AgentVersion,
+                providerId = request.GenerationEvidence.ProviderId.Value,
+                request.GenerationEvidence.ProviderVersion,
+                request.GenerationEvidence.Model,
+                modelRequestId = request.GenerationEvidence.ModelRequestId.Value,
+                request.GenerationEvidence.ModelEvidenceHash,
+                request.GenerationEvidence.RawResponseHash,
+                request.GenerationEvidence.SelectedMarkdownHash,
+                request.GenerationEvidence.GenerationRequestHash,
+                request.GenerationEvidence.ContextRedactionCount,
+                request.GenerationEvidence.FinishReason,
+            });
     }
 
     public Task<DomainResult<LearningCandidate>> VerifyAsync(
@@ -293,7 +309,7 @@ internal sealed class LearningGovernanceService(
 
     private async Task<DomainResult<LearningCandidate>> AppendAsync(
         LearningCandidate candidate, long? expectedVersion, ActorId operationActor, string operation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, object? details = null)
     {
         try
         {
@@ -301,7 +317,7 @@ internal sealed class LearningGovernanceService(
             await RecordAsync(candidate.InstallationId, operationActor,
                 candidate.CorrelationId, candidate.CausationId, operation,
                 new { CandidateId = candidate.Id.ToString(), candidate.Version, candidate.SignalHash },
-                new { candidate.State, candidate.SnapshotHash }, cancellationToken);
+                new { candidate.State, candidate.SnapshotHash, details }, cancellationToken);
             return await CommitAsync(candidate, cancellationToken);
         }
         catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException)
@@ -328,4 +344,19 @@ internal sealed class LearningGovernanceService(
 
     private static DomainResult<T> Conflict<T>(string message) => DomainResult.Fail<T>(
         new DomainFailure(FailureCode.ConcurrencyConflict, message));
+
+    private static bool GenerationEvidenceMatches(
+        SkillCandidateGenerationEvidence? evidence,
+        LearningCandidate candidate) => evidence is null ||
+        evidence.SchemaVersion == 1 && evidence.CandidateId == candidate.Id &&
+        evidence.SignalId == candidate.SignalId && evidence.SkillId == candidate.SkillId &&
+        evidence.CandidateVersion == candidate.CandidateVersion &&
+        string.Equals(evidence.SignalHash, candidate.SignalHash, StringComparison.Ordinal) &&
+        evidence.AgentId.Value != Guid.Empty && evidence.ProviderId.Value != Guid.Empty &&
+        evidence.ModelRequestId.Value != Guid.Empty && evidence.AgentVersion >= 0 && evidence.ProviderVersion >= 0 &&
+        SkillPackageValidator.IsHash(evidence.SourceEvidenceHash) &&
+        SkillPackageValidator.IsHash(evidence.ModelEvidenceHash) &&
+        SkillPackageValidator.IsHash(evidence.RawResponseHash) &&
+        SkillPackageValidator.IsHash(evidence.SelectedMarkdownHash) &&
+        SkillPackageValidator.IsHash(evidence.GenerationRequestHash);
 }

@@ -6,6 +6,7 @@ using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
 
@@ -50,6 +51,11 @@ internal sealed class LearningCandidateProposalService(
         {
             return Invalid<ProposeNewSkillFromSignalResult>(
                 "Only an existing signal classified as NewSkill can create a new-skill proposal.");
+        }
+        if (!GenerationMatchesSignal(request, normalized.Value, signal.Value.Signal))
+        {
+            return Invalid<ProposeNewSkillFromSignalResult>(
+                "Local-model generation evidence does not match the exact candidate and classified source signal.");
         }
         var otherCandidates = await repository.ListCandidatesAsync(
             signal.Value.Signal.InstallationId, 500, cancellationToken);
@@ -103,7 +109,8 @@ internal sealed class LearningCandidateProposalService(
             normalized.Value.SkillId,
             normalized.Value.Version,
             workspace,
-            request.Roles), cancellationToken);
+            request.Roles,
+            request.GenerationEvidence), cancellationToken);
         return proposed.IsSuccess
             ? DomainResult.Success(new ProposeNewSkillFromSignalResult(proposed.Value, false))
             : DomainResult.Fail<ProposeNewSkillFromSignalResult>(proposed.Failure!);
@@ -132,10 +139,14 @@ internal sealed class LearningCandidateProposalService(
             EmptyHash,
             null);
         var validation = SkillPackageValidator.Validate(packageShape);
+        var generatedMarkdown = request.GeneratedMarkdown?.Trim()
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+        var generation = request.GenerationEvidence;
+        var generationValid = ValidGenerationEvidence(request, generatedMarkdown, generation);
         if (request.CandidateId.Value == Guid.Empty || request.SkillProposalId.Value == Guid.Empty ||
             description is null || permissions.Any(value => value is null) ||
             packageShape.Permissions.Count != permissions.Length || !request.Roles.IsSeparated() ||
-            !validation.IsSuccess)
+            !validation.IsSuccess || !generationValid)
         {
             return DomainResult.Fail<NormalizedProposal>(new DomainFailure(
                 FailureCode.ValidationFailure,
@@ -145,8 +156,33 @@ internal sealed class LearningCandidateProposalService(
         return DomainResult.Success(new NormalizedProposal(
             request.SkillId,
             request.CandidateVersion,
-            description,
-            packageShape.Permissions));
+            description!,
+            packageShape.Permissions,
+            generatedMarkdown,
+            generation));
+    }
+
+    private static bool ValidGenerationEvidence(
+        ProposeNewSkillFromSignalRequest request,
+        string? generatedMarkdown,
+        SkillCandidateGenerationEvidence? generation)
+    {
+        if (generatedMarkdown is null || generation is null)
+        {
+            return generatedMarkdown is null && generation is null;
+        }
+        return SkillCandidateDraftParser.Parse(JsonSerializer.Serialize(new { markdown = generatedMarkdown })).IsSuccess &&
+            generation.SchemaVersion == 1 && generation.CandidateId == request.CandidateId &&
+            generation.SignalId == request.SignalId && generation.SkillId == request.SkillId &&
+            generation.CandidateVersion == request.CandidateVersion && generation.AgentId.Value != Guid.Empty &&
+            generation.AgentVersion >= 0 && generation.ProviderId.Value != Guid.Empty && generation.ProviderVersion >= 0 &&
+            Bounded(generation.Model, 256) && generation.ModelRequestId.Value != Guid.Empty &&
+            SkillPackageValidator.IsHash(generation.ModelEvidenceHash) &&
+            SkillPackageValidator.IsHash(generation.RawResponseHash) &&
+            SkillPackageValidator.IsHash(generation.SelectedMarkdownHash) &&
+            SkillPackageValidator.IsHash(generation.GenerationRequestHash) &&
+            generation.ContextRedactionCount >= 0 && generation.FinishReason == nameof(ModelFinishReason.Stop) &&
+            string.Equals(generation.SelectedMarkdownHash, Hash(generatedMarkdown), StringComparison.Ordinal);
     }
 
     private static SortedDictionary<string, byte[]> BuildPackageFiles(
@@ -154,7 +190,7 @@ internal sealed class LearningCandidateProposalService(
         NormalizedProposal proposal)
     {
         var name = proposal.SkillId.Value["skill:".Length..];
-        var markdown = $"""
+        var markdown = proposal.GeneratedMarkdown is null ? $"""
 ---
 name: {name}
 description: {JsonSerializer.Serialize(proposal.Description)}
@@ -173,6 +209,20 @@ This immutable scaffold was generated from governed evidence and is not active.
 Develop a bounded, repeatable procedure that addresses the source evidence. Preserve explicit inputs, outputs,
 failure conditions, verification evidence, and the declared permission boundary. A verifier must replace or refine
 this scaffold and pass target, holdout, adversarial, baseline, and permission-diff evaluation before approval.
+""" : $"""
+---
+name: {name}
+description: {JsonSerializer.Serialize(proposal.Description)}
+---
+
+# Proposed {name}
+
+This immutable candidate was authored by a pinned local model from governed, redacted evidence. It is not active and
+the generated procedure is untrusted until the independent evaluation, critique, approval, and canary gates pass.
+
+{SkillCandidateDraftParser.GeneratedStartMarker}
+{proposal.GeneratedMarkdown}
+{SkillCandidateDraftParser.GeneratedEndMarker}
 """;
         var manifest = JsonSerializer.SerializeToUtf8Bytes(new
         {
@@ -190,12 +240,29 @@ this scaffold and pass target, holdout, adversarial, baseline, and permission-di
             permissions = proposal.Permissions,
             signature = (object?)null,
         }, ManifestJson);
-        return new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
+        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
         {
             ["SKILL.md"] = StrictUtf8.GetBytes(markdown.Replace("\r\n", "\n", StringComparison.Ordinal)),
             ["skill.harness.json"] = manifest,
         };
+        if (proposal.GenerationEvidence is not null)
+        {
+            files["generation.harness.json"] = JsonSerializer.SerializeToUtf8Bytes(
+                proposal.GenerationEvidence, ManifestJson);
+        }
+        return files;
     }
+
+    private static bool GenerationMatchesSignal(
+        ProposeNewSkillFromSignalRequest request,
+        NormalizedProposal proposal,
+        LearningSignal signal) => proposal.GenerationEvidence is null ||
+        proposal.GeneratedMarkdown is not null &&
+        proposal.GenerationEvidence.SignalId == signal.Id &&
+        string.Equals(proposal.GenerationEvidence.SignalHash, signal.SignalHash, StringComparison.Ordinal) &&
+        string.Equals(proposal.GenerationEvidence.SourceEvidenceHash, signal.SourceEvidenceHash, StringComparison.Ordinal) &&
+        proposal.GenerationEvidence.SkillId == proposal.SkillId &&
+        proposal.GenerationEvidence.CandidateVersion == proposal.Version;
 
     private DomainResult<string> PrepareWorkspaceDirectory(LearningCandidateId candidateId)
     {
@@ -314,6 +381,9 @@ this scaffold and pass target, holdout, adversarial, baseline, and permission-di
         return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 
+    private static bool Bounded(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(char.IsControl);
+
     private static bool IsLinked(string path) =>
         (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
@@ -323,6 +393,9 @@ this scaffold and pass target, holdout, adversarial, baseline, and permission-di
 
     private const string EmptyHash =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+    private static string Hash(string value) =>
+        $"sha256:{Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(StrictUtf8.GetBytes(value)))}";
 
     private static DomainResult<T> Invalid<T>(string message) =>
         DomainResult.Fail<T>(new DomainFailure(FailureCode.ValidationFailure, message));
@@ -337,5 +410,7 @@ this scaffold and pass target, holdout, adversarial, baseline, and permission-di
         SkillId SkillId,
         SkillVersion Version,
         string Description,
-        IReadOnlyList<string> Permissions);
+        IReadOnlyList<string> Permissions,
+        string? GeneratedMarkdown,
+        SkillCandidateGenerationEvidence? GenerationEvidence);
 }

@@ -1052,6 +1052,35 @@ state. Sandbox cleanup failure can leave bounded non-secret proposal material un
 cannot write outside it. Candidate-authored executable behavioral tests are not run by this managed evaluator; adding
 them requires the digest-pinned container isolation boundary and a separately gated test contract.
 
+## Local-model skill-generation boundary
+
+Classified summaries, source-run metadata, optional operator guidance, model output, and browser candidate fields are
+untrusted. The Ready endpoint scopes the signal to the authenticated installation, derives its source task from the
+immutable causation ID, requires the latest terminal task snapshot hash to equal the signal's source-evidence hash, and
+derives the agent ID from that task. The browser cannot select a generation agent, provider, model, evidence hash,
+generation receipt, or generated body.
+
+Generation reloads the current agent and exact pinned provider. Agent policy must be `LocalOnly`, forbid fallback,
+permit `Propose` or `ScopedAuto` learning, and restrict mutation to a proposal workspace/approved class. The provider
+must be a credential-free vLLM/OpenAI-compatible text profile; the model adapter separately restricts its endpoint to
+loopback or a literal private network. The request supplies zero tools, no skill bodies, no environment, no process,
+no credential, and no external fallback. The fixed system instruction treats every user-message field as reference
+data, but authorization never relies on model obedience.
+
+AgentForge preflights all generation input through the sensitive-data redactor and vetoes any detected secret rather
+than silently persisting it. Model output remains transient until it parses as one exact JSON object with only a
+bounded `markdown` string, six exact procedure headings, no package-internal markers/frontmatter, no active script tag,
+and no sensitive-data match. A non-Stop/truncated response, malformed JSON, duplicate/extra field, missing heading, or
+policy failure creates no package or candidate. No raw prompt or complete raw response is persisted.
+
+The accepted Markdown is wrapped between AgentForge-owned markers. `generation.harness.json` binds signal and source
+hashes, candidate/skill/version, agent/provider/model versions, stable model request, provider evidence, raw-response
+hash, selected-body hash, generation-request hash, redaction count, and finish reason. Both files enter the ordinary
+portable package hash and the content-addressed proposal workspace. A durable replay verifies that exact receipt before
+returning and never calls the model again for a matching candidate ID. The automated evaluator rehashes the marked body
+and checks the receipt before `Verified`; independent critic, governor, canary, activation, and per-agent grant gates
+remain mandatory because well-formed model output may still be substantively wrong.
+
 ## R1 final disposition
 
 The final review re-evaluated every trust boundary above against production composition rather than the milestone in

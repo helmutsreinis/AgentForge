@@ -7,6 +7,7 @@ using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Skills;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
 
@@ -132,6 +133,16 @@ internal sealed class IsolatedLearningCandidateEvaluator(
                     ? "The hostile authority-escalation corpus found no prohibited instruction patterns."
                     : "The package contains an instruction pattern that attempts to bypass policy, approval, or secret boundaries."));
 
+            var generationPassed = loaded is not null && ValidateGenerationProvenance(
+                candidate, loaded.Package, isolatedDirectory.Value);
+            checks.Add(new LearningEvaluationCheck(
+                "provenance.local-model-generation", generationPassed,
+                generationPassed
+                    ? File.Exists(Path.Combine(isolatedDirectory.Value, "generation.harness.json"))
+                        ? "The local-model receipt matches the source signal, pinned identities, response hash, and generated Markdown."
+                        : "The deterministic scaffold has no model-generation claim or generated-content markers."
+                    : "Local-model provenance is missing, malformed, or does not bind the exact generated Markdown and candidate."));
+
             var permissionPassed = loaded is not null && PermissionDiffIsBounded(candidate, loaded.Package);
             checks.Add(new LearningEvaluationCheck(
                 "permissions.exact-readonly-diff", permissionPassed,
@@ -139,7 +150,8 @@ internal sealed class IsolatedLearningCandidateEvaluator(
                     ? "Declared permissions exactly match the candidate and use only automatically allowed read-only forms."
                     : "The permission diff is mismatched or requires explicit high-risk authorization that this evaluator cannot grant."));
 
-            var targetPassed = checks.Where(check => check.Code is "workspace.integrity" or "target.package-contract")
+            var targetPassed = checks.Where(check => check.Code is
+                    "workspace.integrity" or "target.package-contract" or "provenance.local-model-generation")
                 .All(check => check.Passed);
             var holdoutPassed = checks.Single(check => check.Code == "holdout.deterministic-reload").Passed;
             var baselineScore = candidate.BaselinePackageHash is null ? 0m : 100m;
@@ -290,9 +302,11 @@ internal sealed class IsolatedLearningCandidateEvaluator(
             }
         }
 
-        return names.SetEquals(["SKILL.md", "skill.harness.json"])
+        return names.SetEquals(["SKILL.md", "skill.harness.json"]) ||
+            names.SetEquals(["SKILL.md", "skill.harness.json", "generation.harness.json"])
             ? DomainResult.Success(true)
-            : Invalid<bool>("The evaluator requires exactly SKILL.md and skill.harness.json at the workspace root.");
+            : Invalid<bool>(
+                "The evaluator requires the portable skill files and, only for model-authored candidates, one generation receipt.");
     }
 
     private static bool ExactCandidate(
@@ -328,6 +342,62 @@ internal sealed class IsolatedLearningCandidateEvaluator(
             normalized.EndsWith(":metadata", StringComparison.Ordinal) ||
             normalized.EndsWith(".metadata", StringComparison.Ordinal);
     }
+
+    private static bool ValidateGenerationProvenance(
+        LearningCandidate candidate,
+        SkillPackage package,
+        string directory)
+    {
+        var path = Path.Combine(directory, "generation.harness.json");
+        var start = package.Markdown.IndexOf(SkillCandidateDraftParser.GeneratedStartMarker, StringComparison.Ordinal);
+        var end = package.Markdown.IndexOf(SkillCandidateDraftParser.GeneratedEndMarker, StringComparison.Ordinal);
+        if (!File.Exists(path))
+        {
+            return start < 0 && end < 0;
+        }
+        if (start < 0 || end <= start ||
+            start != package.Markdown.LastIndexOf(SkillCandidateDraftParser.GeneratedStartMarker, StringComparison.Ordinal) ||
+            end != package.Markdown.LastIndexOf(SkillCandidateDraftParser.GeneratedEndMarker, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            var evidence = JsonSerializer.Deserialize<SkillCandidateGenerationEvidence>(
+                File.ReadAllBytes(path), ReceiptJson);
+            if (evidence is null)
+            {
+                return false;
+            }
+            var markdownStart = start + SkillCandidateDraftParser.GeneratedStartMarker.Length;
+            var generatedMarkdown = package.Markdown[markdownStart..end].Trim();
+            return evidence.SchemaVersion == 1 &&
+                evidence.CandidateId == candidate.Id && evidence.SignalId == candidate.SignalId &&
+                string.Equals(evidence.SignalHash, candidate.SignalHash, StringComparison.Ordinal) &&
+                evidence.SkillId == candidate.SkillId && evidence.CandidateVersion == candidate.CandidateVersion &&
+                evidence.AgentId.Value != Guid.Empty && evidence.AgentVersion >= 0 &&
+                evidence.ProviderId.Value != Guid.Empty && evidence.ProviderVersion >= 0 &&
+                Bounded(evidence.Model, 256) && evidence.ModelRequestId.Value != Guid.Empty &&
+                SkillPackageValidator.IsHash(evidence.SourceEvidenceHash) &&
+                SkillPackageValidator.IsHash(evidence.ModelEvidenceHash) &&
+                SkillPackageValidator.IsHash(evidence.RawResponseHash) &&
+                SkillPackageValidator.IsHash(evidence.GenerationRequestHash) &&
+                evidence.ContextRedactionCount >= 0 && evidence.FinishReason == nameof(ModelFinishReason.Stop) &&
+                string.Equals(evidence.SelectedMarkdownHash, HashText(generatedMarkdown), StringComparison.Ordinal) &&
+                SkillCandidateDraftParser.Parse(JsonSerializer.Serialize(new { markdown = generatedMarkdown })).IsSuccess;
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static string HashText(string value) =>
+        $"sha256:{Convert.ToHexStringLower(SHA256.HashData(StrictUtf8.GetBytes(value)))}";
+
+    private static bool Bounded(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= maximum && !value.Any(char.IsControl);
 
     private static bool SafeRelativePath(string path) =>
         !string.IsNullOrWhiteSpace(path) && path.Length <= 512 && !Path.IsPathRooted(path) &&

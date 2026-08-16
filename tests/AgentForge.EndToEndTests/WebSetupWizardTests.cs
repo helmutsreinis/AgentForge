@@ -449,6 +449,34 @@ public sealed class WebSetupWizardTests : IDisposable
                 candidateBody.requestedPermissions,
             }));
         Assert.Equal(HttpStatusCode.BadRequest, invalidProposal.StatusCode);
+        using var sensitiveGeneration = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-sensitive-generation",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                candidateBody.skillId,
+                candidateBody.version,
+                candidateBody.description,
+                candidateBody.requestedPermissions,
+                generationGuidance = "Use password=not-for-model in the candidate.",
+            }));
+        Assert.Equal(HttpStatusCode.Forbidden, sensitiveGeneration.StatusCode);
+        using var malformedGeneration = await MutationAsync(
+            client,
+            $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
+            "learning-malformed-generation",
+            adminCsrf,
+            JsonContent.Create(new
+            {
+                candidateBody.skillId,
+                candidateBody.version,
+                candidateBody.description,
+                candidateBody.requestedPermissions,
+                generationGuidance = "force-malformed",
+            }));
+        Assert.Equal(HttpStatusCode.BadRequest, malformedGeneration.StatusCode);
         using var proposedCandidate = await MutationAsync(
             client,
             $"/api/v1/admin/learning/signals/{missingCapabilitySignalId:D}/candidates",
@@ -462,6 +490,12 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal("deterministic-verification",
             proposedCandidateDocument.RootElement.GetProperty("nextGate").GetString());
         Assert.False(proposedCandidateDocument.RootElement.GetProperty("activeAuthority").GetBoolean());
+        var generation = proposedCandidateDocument.RootElement.GetProperty("generation");
+        Assert.Equal("qwen3.8", generation.GetProperty("model").GetString());
+        Assert.Equal(agentId, generation.GetProperty("agentId").GetGuid());
+        Assert.Equal("Stop", generation.GetProperty("finishReason").GetString());
+        Assert.StartsWith("sha256:", generation.GetProperty("selectedMarkdownHash").GetString(),
+            StringComparison.Ordinal);
         Assert.Equal("repository:read", proposedCandidateDocument.RootElement
             .GetProperty("requestedPermissions")[0].GetString());
         var candidateId = proposedCandidateDocument.RootElement.GetProperty("id").GetGuid();
@@ -519,7 +553,7 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal("Verified", verifiedDocument.RootElement.GetProperty("candidate").GetProperty("state").GetString());
         var evaluationReceipt = verifiedDocument.RootElement.GetProperty("receipt");
         Assert.Equal("agentforge-managed-isolated-v1", evaluationReceipt.GetProperty("evaluator").GetString());
-        Assert.Equal(5, evaluationReceipt.GetProperty("checks").GetArrayLength());
+        Assert.Equal(6, evaluationReceipt.GetProperty("checks").GetArrayLength());
         Assert.All(evaluationReceipt.GetProperty("checks").EnumerateArray(),
             check => Assert.True(check.GetProperty("passed").GetBoolean(), check.GetProperty("summary").GetString()));
         Assert.Equal("application/vnd.agentforge.learning-evaluation+json",
@@ -1346,15 +1380,55 @@ public sealed class WebSetupWizardTests : IDisposable
     {
         public Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
             LocalModelInteractionRequest request,
-            CancellationToken cancellationToken) => Task.FromResult(DomainResult.Success(
-            new LocalModelInteractionResult(
+            CancellationToken cancellationToken)
+        {
+            var output = request.SystemInstruction.Contains(
+                "bounded local skill-candidate author", StringComparison.Ordinal)
+                ? request.Prompt.Contains("force-malformed", StringComparison.Ordinal)
+                    ? "This is not a JSON candidate."
+                    : JsonSerializer.Serialize(new
+                    {
+                        markdown = """
+## Purpose
+
+Provide a bounded procedure for addressing the classified missing capability without acquiring authority.
+
+## Inputs
+
+- The operator-approved task goal.
+- The declared read-only permission boundary.
+- Observable input constraints supplied at invocation time.
+
+## Procedure
+
+1. Restate the intended outcome and all known constraints.
+2. Identify the smallest repeatable read-only steps that could produce the outcome.
+3. Stop and report an unknown whenever required input or authority is absent.
+4. Return the proposed result together with evidence a separate verifier can inspect.
+
+## Verification
+
+Confirm that every stated input maps to one bounded step, every output has observable evidence, and no undeclared action is claimed.
+
+## Failure conditions
+
+Fail when input is missing, evidence is ambiguous, the requested operation exceeds the declaration, or verification cannot be completed.
+
+## Permission boundary
+
+The procedure may describe only repository:read behavior. It receives no execution, network, credential, messaging, device, or approval authority.
+""",
+                    })
+                : "I am the bounded AgentForge test agent.";
+            return Task.FromResult(DomainResult.Success(new LocalModelInteractionResult(
                 request.RequestId,
-                "I am the bounded AgentForge test agent.",
+                output,
                 new ModelUsage(12, 9, 0, null, null),
                 ModelFinishReason.Stop,
                 0,
                 4,
                 "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")));
+        }
 
         public async Task<DomainResult<LocalModelInteractionResult>> InvokeAsync(
             LocalModelInteractionRequest request,
