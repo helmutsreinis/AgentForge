@@ -23,6 +23,7 @@ passing gate report.
 | AF-HOST-003 | REST mutations are correlated, authenticated, auditable, versioned, and idempotent. Streaming run events are authenticated. | 1,10 | Verified |
 | AF-ADMIN-001 | A Ready installation exposes a protected single-operator workspace on loopback or explicitly enabled HTTPS remote origin that lists persisted agents, streams an explicit bounded prompt against an agent's pinned loopback/private model with active operator cancellation and durable terminal evidence, lists/cancels durable runs, and installs/lists validated seed skills without disclosing the administrator credential or bypassing tool and promotion gates. | Post-R1 | Verified |
 | AF-ADMIN-002 | A Ready operator can edit bounded agent identity/instruction fields and the model ID on its existing pinned provider through an authenticated, versioned, hash-bound preview/apply flow. Model edits preserve endpoint and credential topology, require endpoint discovery and a live bounded probe, and every committed edit remains Ready, atomic, idempotent, concurrency-safe, and audited without changing capability authority. | Post-R1 | Verified |
+| AF-ADMIN-003 | A Ready operator can version and audit an agent's generated-output ceiling without changing any other budget or capability authority, and can select scalable response presets or an exact per-run output-token limit no greater than that durable ceiling or the server hard cap. | Post-R1 | Verified |
 
 ## Durable state, identity, and security
 

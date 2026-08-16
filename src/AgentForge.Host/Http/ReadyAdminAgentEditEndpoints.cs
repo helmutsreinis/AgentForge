@@ -28,7 +28,8 @@ internal sealed record ReadyAgentProfileEditWebRequest(
     string PreferredLanguage,
     string TimeZone,
     string ResponseStyle,
-    string? DefaultWorkspace);
+    string? DefaultWorkspace,
+    long? MaxOutputTokens);
 
 internal sealed record ReadyEditApplyWebRequest(string PreviewHash);
 
@@ -485,6 +486,13 @@ internal static partial class ReadyAdminEndpoints
                 return Problem(context, 404, "Agent not found",
                     "The requested agent does not belong to this installation.", "agent-not-found");
             }
+            var maxOutputTokens = request.MaxOutputTokens ?? agent.Budget.MaxOutputTokens;
+            if (maxOutputTokens is < 256 or > 262_144)
+            {
+                return Problem(context, 400, "Invalid output ceiling",
+                    "The Ready output-token ceiling must be between 256 and 262,144 tokens.",
+                    "validationfailure");
+            }
 
             var candidate = new AgentIdentityCandidate(
                 request.Name,
@@ -497,7 +505,7 @@ internal static partial class ReadyAdminEndpoints
                 agent.ModelPolicy,
                 agent.MemoryPolicy,
                 agent.CapabilityPolicy,
-                agent.Budget,
+                agent.Budget with { MaxOutputTokens = maxOutputTokens },
                 agent.ChildLimits,
                 agent.LearningPolicy);
             var administratorCredential = await MaterializeAdministratorCredentialAsync(
@@ -534,12 +542,12 @@ internal static partial class ReadyAdminEndpoints
             var allowedPaths = new HashSet<string>(StringComparer.Ordinal)
             {
                 "agent.name", "agent.expertise", "agent.mission", "agent.preferredLanguage",
-                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace",
+                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace", "agent.budget",
             };
             if (preview.Value.Changes.Any(change => !allowedPaths.Contains(change.Path)))
             {
-                return Problem(context, 403, "Identity-only edit required",
-                    "The Ready identity editor cannot change model authority, budgets, capabilities, memory, children, or learning policy.",
+                return Problem(context, 403, "Profile edit boundary",
+                    "The Ready profile editor can change only identity, instructions, and the bounded output-token ceiling.",
                     "policydenied");
             }
 
@@ -561,7 +569,10 @@ internal static partial class ReadyAdminEndpoints
                     preview.Value.Effective.Model,
                     capabilities = preview.Value.Effective.Capabilities,
                 },
-                immutableAuthorityPreserved = true,
+                immutableAuthorityPreserved = !preview.Value.Changes.Any(change => change.Path == "agent.budget"),
+                warning = preview.Value.Changes.Any(change => change.Path == "agent.budget")
+                    ? "This raises or lowers the agent's maximum generated-output budget. Other authority remains unchanged."
+                    : "Only the displayed identity and instruction fields will change; effective authority is preserved.",
                 correlationId = correlation.Value,
             };
             StoreIdempotentResult(session, scopedKey, requestHash, response);
@@ -712,6 +723,12 @@ internal static partial class ReadyAdminEndpoints
         agent.TimeZone,
         agent.ResponseStyle,
         agent.DefaultWorkspace,
+        budget = new
+        {
+            agent.Budget.MaxInputTokens,
+            agent.Budget.MaxOutputTokens,
+            agent.Budget.MaxWallClockSeconds,
+        },
         agent.Version,
         agent.UpdatedAt,
     };

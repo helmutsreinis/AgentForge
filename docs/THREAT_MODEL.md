@@ -981,13 +981,22 @@ through a thinking-disabled chat probe both before preview and immediately befor
 materialized only around those calls and never enter the session preview or response.
 
 An agent profile edit is reconstructed from current durable policy and may change only bounded identity/instruction
-paths. Model policy, data locality/fallback, memory, tool/skill grants, network posture, budgets, child limits, and
-learning permissions are copied server-side and rejected if the effective diff contains another path. Preview hashes
+paths and the generated-output member of its budget record. That ceiling is bounded to 256–262,144 tokens. Model
+policy, data locality/fallback, memory, tool/skill grants, network posture, turns, tool invocations, input tokens,
+wall-clock time, child limits, and learning permissions are copied server-side and rejected if the effective diff
+contains another path. Preview hashes
 bind installation/provider/agent versions, normalized candidate, actor, correlation, and effective evidence. Previews
 are short-lived in-memory session objects; apply requires the exact hash and re-runs validation under optimistic
 concurrency. A committed edit increments the installation while preserving Ready state and transactionally appends
 redacted `setup.provider-edited` or `setup.agent-edited` audit evidence. A crash or stale preview cannot silently apply
 part of a profile or widen authority.
+
+Run response presets and browser numeric bounds are convenience controls, not policy evidence. The authenticated
+stream endpoint independently clamps the effective agent ceiling to the 262,144-token hard cap and rejects an explicit
+limit below one or above that ceiling before task admission. The exact accepted value is bound into the run snapshot,
+event configuration, idempotency request hash, and provider request. A larger output allowance does not expand tool,
+network, skill, file, message, device, credential, or fallback authority; interactive wall-clock time remains capped at
+270 seconds and the corresponding node lease never exceeds five minutes.
 
 ## R1 final disposition
 

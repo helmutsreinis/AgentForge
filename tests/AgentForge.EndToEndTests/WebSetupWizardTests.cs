@@ -158,12 +158,14 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Contains("id=\"refresh-after-setup\" class=\"setup-submit\" href=\"#overview\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-search\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"run-model-summary\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"run-token-limit\" type=\"number\" min=\"1\" max=\"262144\" step=\"1\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("href=\"#learning\" data-view=\"learning\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-proposal-form\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"learning-candidate-list\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"agent-editor\"", appShellHtml, StringComparison.Ordinal);
         Assert.Contains("id=\"agent-discover-models\"", appShellHtml, StringComparison.Ordinal);
+        Assert.Contains("id=\"agent-edit-max-output\"", appShellHtml, StringComparison.Ordinal);
         using var agentList = await client.GetAsync("/api/v1/admin/agents");
         Assert.Equal(HttpStatusCode.OK, agentList.StatusCode);
         using var agentListDocument = JsonDocument.Parse(await agentList.Content.ReadAsByteArrayAsync());
@@ -263,6 +265,7 @@ public sealed class WebSetupWizardTests : IDisposable
             profileCandidate.timeZone,
             profileCandidate.responseStyle,
             profileCandidate.defaultWorkspace,
+            maxOutputTokens = 32_768,
         };
         using var profilePreview = await MutationAsync(
             client,
@@ -272,6 +275,7 @@ public sealed class WebSetupWizardTests : IDisposable
             JsonContent.Create(refreshedProfileCandidate));
         Assert.Equal(HttpStatusCode.OK, profilePreview.StatusCode);
         Assert.Contains("agent.mission", await profilePreview.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("agent.budget", await profilePreview.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var profilePreviewHash = await ReadPropertyAsync(profilePreview, "previewHash");
         using var profileApply = await MutationAsync(
             client,
@@ -287,6 +291,13 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal("qwen3.8", runOptionsDocument.RootElement.GetProperty("provider").GetProperty("model").GetString());
         Assert.Equal("Denied", runOptionsDocument.RootElement.GetProperty("restrictions").GetProperty("tools").GetString());
         Assert.Equal("detailed", runOptionsDocument.RootElement.GetProperty("responseDepths")[2].GetProperty("id").GetString());
+        Assert.Equal(8_192, runOptionsDocument.RootElement.GetProperty("responseDepths")[2]
+            .GetProperty("maximumOutputTokens").GetInt32());
+        Assert.Equal("extended", runOptionsDocument.RootElement.GetProperty("responseDepths")[3]
+            .GetProperty("id").GetString());
+        Assert.Equal("maximum", runOptionsDocument.RootElement.GetProperty("responseDepths")[4]
+            .GetProperty("id").GetString());
+        Assert.Equal(32_768, runOptionsDocument.RootElement.GetProperty("maximumOutputTokens").GetInt32());
 
         using var runWithoutCsrf = await client.PostAsJsonAsync("/api/v1/admin/runs", new
         {
@@ -623,14 +634,15 @@ public sealed class WebSetupWizardTests : IDisposable
             "Stream a bounded answer.",
             name: "Configured local answer",
             runInstructions: "Use a short verification list.",
-            responseDepth: "detailed");
+            responseDepth: "detailed",
+            maximumOutputTokens: 12_000);
         var streamedText = await streamed.Content.ReadAsStringAsync();
-        Assert.Equal(HttpStatusCode.OK, streamed.StatusCode);
+        Assert.True(streamed.StatusCode == HttpStatusCode.OK, streamedText);
         Assert.Equal("text/event-stream", streamed.Content.Headers.ContentType?.MediaType);
         Assert.Contains("event: run-started", streamedText, StringComparison.Ordinal);
         Assert.Contains("\"name\":\"Configured local answer\"", streamedText, StringComparison.Ordinal);
         Assert.Contains("\"responseDepth\":\"detailed\"", streamedText, StringComparison.Ordinal);
-        Assert.Contains("\"maximumOutputTokens\":2048", streamedText, StringComparison.Ordinal);
+        Assert.Contains("\"maximumOutputTokens\":12000", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: output-delta", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: usage", streamedText, StringComparison.Ordinal);
         Assert.Contains("event: completed", streamedText, StringComparison.Ordinal);
@@ -643,9 +655,20 @@ public sealed class WebSetupWizardTests : IDisposable
             "Stream a bounded answer.",
             name: "Configured local answer",
             runInstructions: "Use a short verification list.",
-            responseDepth: "detailed");
+            responseDepth: "detailed",
+            maximumOutputTokens: 12_000);
         Assert.Equal(HttpStatusCode.Conflict, streamReplay.StatusCode);
         Assert.Contains("fresh idempotency key", await streamReplay.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        using var excessiveOutput = await StreamMutationAsync(
+            client,
+            $"/api/v1/admin/agents/{agentId:D}/test-chat-stream",
+            "mvp-stream-output-over-budget",
+            adminCsrf,
+            "Attempt an excessive output budget.",
+            responseDepth: "maximum",
+            maximumOutputTokens: 40_000);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, excessiveOutput.StatusCode);
+        Assert.Contains("agent ceiling of 32,768", await excessiveOutput.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
         using var cancelStream = await StreamMutationAsync(
             client,
@@ -701,6 +724,7 @@ public sealed class WebSetupWizardTests : IDisposable
         Assert.Equal(AgentForge.Domain.Agents.AgentMemoryScope.Agent, configuredAgent.MemoryPolicy.Scope);
         Assert.Equal(30, configuredAgent.MemoryPolicy.RetentionDays);
         Assert.Equal(64, configuredAgent.Budget.MaxTurns);
+        Assert.Equal(32_768, configuredAgent.Budget.MaxOutputTokens);
         Assert.Equal(0, configuredAgent.Budget.MaxToolInvocations);
         Assert.Equal(0, configuredAgent.ChildLimits.MaxChildren);
         Assert.Equal(AgentForge.Domain.Agents.NetworkPosture.Denied, configuredAgent.CapabilityPolicy.NetworkPosture);
@@ -798,12 +822,21 @@ public sealed class WebSetupWizardTests : IDisposable
         string? name = null,
         string? runInstructions = null,
         string? responseDepth = null,
+        int? maximumOutputTokens = null,
         IReadOnlyList<string>? skillIds = null,
         HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, path)
         {
-            Content = JsonContent.Create(new { prompt, name, runInstructions, responseDepth, skillIds }),
+            Content = JsonContent.Create(new
+            {
+                prompt,
+                name,
+                runInstructions,
+                responseDepth,
+                maximumOutputTokens,
+                skillIds,
+            }),
         };
         request.Headers.Add("Idempotency-Key", idempotencyKey);
         request.Headers.Add("X-CSRF-Token", csrf);

@@ -31,6 +31,7 @@ internal sealed class SetupProfileEditor(
     IClock clock,
     ISensitiveDataRedactor redactor) : ISetupProfileEditor
 {
+    private const long MaximumReadyOutputTokens = 262_144;
     private static readonly JsonSerializerOptions HashSerializerOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<DomainResult<ProviderEditPreview>> PreviewProviderAsync(
@@ -442,13 +443,15 @@ internal sealed class SetupProfileEditor(
             var readyFields = new HashSet<string>(StringComparer.Ordinal)
             {
                 "agent.name", "agent.expertise", "agent.mission", "agent.preferredLanguage",
-                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace",
+                "agent.timeZone", "agent.responseStyle", "agent.defaultWorkspace", "agent.budget",
             };
-            if (changes.Any(change => !readyFields.Contains(change.Path)))
+            var budgetChanged = changes.Any(change => change.Path == "agent.budget");
+            if (changes.Any(change => !readyFields.Contains(change.Path)) ||
+                budgetChanged && !IsReadyOutputBudgetChange(current.Budget, effectiveAgent.Budget))
             {
                 return DomainResult.Fail<AgentPreparation>(new DomainFailure(
                     FailureCode.PolicyDenied,
-                    "A Ready agent edit may change identity and instruction fields only."));
+                    "A Ready agent edit may change identity, instructions, and only the bounded output-token ceiling."));
             }
         }
         var requestHash = ComputeHash(new
@@ -586,6 +589,13 @@ internal sealed class SetupProfileEditor(
         AddChange(changes, "agent.learningPolicy", Serialize(current.LearningPolicy), Serialize(effective.LearningPolicy));
         return changes;
     }
+
+    private static bool IsReadyOutputBudgetChange(AgentBudget current, AgentBudget effective) =>
+        effective.MaxOutputTokens is >= 256 and <= MaximumReadyOutputTokens &&
+        effective.MaxTurns == current.MaxTurns &&
+        effective.MaxToolInvocations == current.MaxToolInvocations &&
+        effective.MaxInputTokens == current.MaxInputTokens &&
+        effective.MaxWallClockSeconds == current.MaxWallClockSeconds;
 
     private static void AddChange(
         List<SetupProfileChange> changes,

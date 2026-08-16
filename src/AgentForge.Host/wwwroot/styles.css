@@ -396,7 +396,7 @@ main {
   font: 12px/1.45 Inter, system-ui, sans-serif;
 }
 .run-composer textarea { resize: vertical; }
-.run-primary-grid { display: grid; grid-template-columns: minmax(220px, 1.25fr) minmax(170px, .8fr) minmax(150px, .65fr); gap: 10px; }
+.run-primary-grid { display: grid; grid-template-columns: minmax(210px, 1.2fr) minmax(155px, .7fr) minmax(145px, .65fr) minmax(145px, .65fr); gap: 10px; }
 .run-prompt-label textarea { min-height: 104px; }
 .run-context { border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .012); }
 .run-context summary { padding: 14px 15px; color: #d7d4df; font-size: 11px; font-weight: 650; cursor: pointer; }

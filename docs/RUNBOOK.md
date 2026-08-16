@@ -641,8 +641,12 @@ restore a verified backup—never edit or omit a broken event to force export.
 
 ## Ready streamed-model operations
 
-Open **Runs**, select the persisted local-only agent, enter a bounded prompt, and choose **Run local model**. The
-page should show `Starting`, then `Running`, append response deltas, display usage when the provider reports it,
+Open **Runs**, select the persisted local-only agent, enter a bounded prompt, choose a response preset or an exact
+output-token limit, and choose **Run local model**. Concise, Balanced, Detailed, Extended, and Maximum project 512,
+2,048, 8,192, 16,384, and the agent's configured ceiling respectively. The numeric value is the authoritative per-run
+maximum and may not exceed the agent ceiling or the 262,144-token server cap. It does not force the provider to fill
+the allowance; normal model stop conditions may finish earlier. Interactive execution remains limited to 270 seconds.
+The page should show `Starting`, then `Running`, append response deltas, display usage when the provider reports it,
 and finish as `Completed`. The newest durable card must be `Streaming local model test`, state `Completed`,
 snapshot version 2. Refreshing the page intentionally does not restore the raw answer; only the durable receipt
 is retained.
@@ -660,10 +664,12 @@ prompt and response markers are absent from the database, WAL/SHM, artifacts, lo
 
 ## Ready agent and model editing
 
-Open **Agents**, choose **Edit agent**, and use the two independent editors. Identity editing accepts only the
-displayed name, expertise, mission, language, time zone, response style, and default workspace fields. The server
-reconstructs the candidate from current durable state and preserves model policy, memory, capability/tool/skill
-grants, budgets, child limits, and learning policy. Review every before/after value and apply only the exact preview.
+Open **Agents**, choose **Edit agent**, and use the two independent editors. Profile editing accepts only the
+displayed name, expertise, mission, language, time zone, response style, default workspace, and maximum-output fields.
+The output ceiling must be between 256 and 262,144 tokens. The server reconstructs the candidate from current durable
+state and preserves model policy, memory, capability/tool/skill grants, turns, tool-invocation, input, wall-clock,
+child-agent, and learning authority. Review every before/after value, including `agent.budget`, and apply only the
+exact preview.
 
 For a model update, choose **Discover models**. Discovery reads only the current pinned endpoint; the Ready UI cannot
 change provider type, endpoint, or secret reference. Select a returned model, preview the update, confirm the live

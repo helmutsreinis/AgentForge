@@ -31,6 +31,7 @@ internal sealed record StreamAgentChatRequest(
     string? Name,
     string? RunInstructions,
     string? ResponseDepth,
+    int? MaximumOutputTokens,
     IReadOnlyList<string>? SkillIds);
 internal sealed record RunSkillBody(string Id, string Version, string PackageHash, string Body);
 internal sealed record CaptureLearningSignalWebRequest(
@@ -41,6 +42,9 @@ internal sealed record CaptureLearningSignalWebRequest(
 
 internal static partial class ReadyAdminEndpoints
 {
+    private const int MaximumInteractiveOutputTokens = 262_144;
+    private const int MaximumInteractiveEvents = MaximumInteractiveOutputTokens + 512;
+    private const int MaximumInteractiveWallClockSeconds = 270;
     private static readonly JsonSerializerOptions HashJson = new(JsonSerializerDefaults.Web);
 
     public static void MapReadyAdminApi(this WebApplication app)
@@ -277,10 +281,14 @@ internal static partial class ReadyAdminEndpoints
             },
             responseDepths = new[]
             {
-                ResponseDepthOption("concise", "Concise", 384, agent.Budget.MaxOutputTokens),
-                ResponseDepthOption("balanced", "Balanced", 1_024, agent.Budget.MaxOutputTokens),
-                ResponseDepthOption("detailed", "Detailed", 2_048, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("concise", "Concise", 512, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("balanced", "Balanced", 2_048, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("detailed", "Detailed", 8_192, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("extended", "Extended", 16_384, agent.Budget.MaxOutputTokens),
+                ResponseDepthOption("maximum", "Maximum", MaximumInteractiveOutputTokens, agent.Budget.MaxOutputTokens),
             },
+            maximumOutputTokens = (int)Math.Clamp(
+                agent.Budget.MaxOutputTokens, 1L, MaximumInteractiveOutputTokens),
             skills = registered
                 .Where(item => item.Status is not (SkillPackageStatus.Archived or SkillPackageStatus.Quarantined))
                 .OrderBy(item => item.Package.Id.Value, StringComparer.Ordinal)
@@ -657,7 +665,7 @@ internal static partial class ReadyAdminEndpoints
         if (agentId == Guid.Empty || request is null || !ValidStreamRequest(request))
         {
             await Problem(context, 400, "Invalid run configuration",
-                "Choose an agent, use bounded printable run fields, select at most four distinct skill IDs, and choose concise, balanced, or detailed output.",
+                "Choose an agent, use bounded printable run fields, select at most four distinct skill IDs, and use a supported output preset and token limit.",
                 "validation-failure").ExecuteAsync(context);
             return;
         }
@@ -719,8 +727,20 @@ internal static partial class ReadyAdminEndpoints
             taskId = new OrchestrationTaskId(new Guid(stableRequestIdentity.AsSpan(0, 16)));
             correlation = new CorrelationId(
                 $"admin-chat-stream:{Convert.ToHexStringLower(stableRequestIdentity)}");
-            maximumOutputTokens = ResponseTokenLimit(responseDepth, agent.Budget.MaxOutputTokens);
-            maximumWallClockSeconds = Math.Clamp(agent.Budget.MaxWallClockSeconds, 1, 120);
+            var agentOutputCeiling = (int)Math.Clamp(
+                agent.Budget.MaxOutputTokens, 1L, MaximumInteractiveOutputTokens);
+            if (request.MaximumOutputTokens is { } requestedTokens &&
+                (requestedTokens < 1 || requestedTokens > agentOutputCeiling))
+            {
+                await Problem(context, 422, "Output budget exceeded",
+                    $"Choose an output-token limit between 1 and the agent ceiling of {agentOutputCeiling:N0}.",
+                    "budget-exceeded").ExecuteAsync(context);
+                return;
+            }
+            maximumOutputTokens = request.MaximumOutputTokens ??
+                ResponseTokenLimit(responseDepth, agent.Budget.MaxOutputTokens);
+            maximumWallClockSeconds = Math.Clamp(
+                agent.Budget.MaxWallClockSeconds, 1, MaximumInteractiveWallClockSeconds);
 
             if (selectedSkillIds.Any(skillId => !agent.CapabilityPolicy.SkillGrants.Contains(
                 skillId, StringComparer.Ordinal)))
@@ -741,6 +761,7 @@ internal static partial class ReadyAdminEndpoints
                     Name = runName,
                     RunInstructions = runInstructions,
                     ResponseDepth = responseDepth,
+                    MaximumOutputTokens = maximumOutputTokens,
                     SkillIds = selectedSkillIds,
                 }, HashJson));
                 var skillSnapshot = await skillSnapshots.CreateAsync(
@@ -858,7 +879,9 @@ internal static partial class ReadyAdminEndpoints
                 created.Value.Snapshot.Version,
                 new TaskNodeId("local-model"),
                 owner,
-                TimeSpan.FromMinutes(2),
+                TimeSpan.FromSeconds(Math.Min(
+                    maximumWallClockSeconds + 30,
+                    MaximumInteractiveWallClockSeconds + 30)),
                 cancellationToken);
             if (!claim.IsSuccess)
             {
@@ -935,7 +958,7 @@ internal static partial class ReadyAdminEndpoints
                 new ModelInvocationLimits(
                     maximumOutputTokens,
                     0,
-                    4_096,
+                    Math.Max(4_096, Math.Min(MaximumInteractiveEvents, maximumOutputTokens + 512)),
                     maximumWallClockSeconds),
                 correlation), observer, linkedCancellation.Token);
             if (!interaction.IsSuccess)
@@ -1483,12 +1506,14 @@ internal static partial class ReadyAdminEndpoints
         };
 
     private static int ResponseTokenLimit(string responseDepth, long agentMaximum) =>
-        (int)Math.Clamp(agentMaximum, 1L, responseDepth switch
+        (int)Math.Clamp(agentMaximum, 1L, Math.Min(MaximumInteractiveOutputTokens, responseDepth switch
         {
-            "concise" => 384,
-            "detailed" => 2_048,
-            _ => 1_024,
-        });
+            "concise" => 512,
+            "detailed" => 8_192,
+            "extended" => 16_384,
+            "maximum" => MaximumInteractiveOutputTokens,
+            _ => 2_048,
+        }));
 
     private static bool ValidStreamRequest(StreamAgentChatRequest request)
     {
@@ -1500,7 +1525,8 @@ internal static partial class ReadyAdminEndpoints
             (string.IsNullOrWhiteSpace(request.Name) || Text(request.Name.Trim(), 120)) &&
             (string.IsNullOrWhiteSpace(request.RunInstructions) ||
                 PromptText(request.RunInstructions.Trim(), 2_048)) &&
-            depth is "concise" or "balanced" or "detailed" &&
+            depth is "concise" or "balanced" or "detailed" or "extended" or "maximum" &&
+            (request.MaximumOutputTokens is null or >= 1 and <= MaximumInteractiveOutputTokens) &&
             skills.Count <= 4 &&
             skills.All(SkillIdText) &&
             skills.Distinct(StringComparer.Ordinal).Count() == skills.Count;

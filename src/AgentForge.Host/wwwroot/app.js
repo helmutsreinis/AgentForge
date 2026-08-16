@@ -54,6 +54,7 @@ const elements = {
   agentEditLanguage: document.querySelector("#agent-edit-language"),
   agentEditTimezone: document.querySelector("#agent-edit-timezone"),
   agentEditStyle: document.querySelector("#agent-edit-style"),
+  agentEditMaxOutput: document.querySelector("#agent-edit-max-output"),
   agentEditWorkspace: document.querySelector("#agent-edit-workspace"),
   agentEditReview: document.querySelector("#agent-edit-review"),
   agentEditReviewTitle: document.querySelector("#agent-edit-review-title"),
@@ -68,6 +69,7 @@ const elements = {
   runName: document.querySelector("#run-name"),
   runAgent: document.querySelector("#run-agent"),
   runDepth: document.querySelector("#run-depth"),
+  runTokenLimit: document.querySelector("#run-token-limit"),
   runInstructions: document.querySelector("#run-instructions"),
   runSystemPreview: document.querySelector("#run-system-preview"),
   runSkills: document.querySelector("#run-skills"),
@@ -407,6 +409,7 @@ async function openAgentEditor(agentId) {
     elements.agentEditLanguage.value = payload.agent.preferredLanguage;
     elements.agentEditTimezone.value = payload.agent.timeZone;
     elements.agentEditStyle.value = payload.agent.responseStyle;
+    elements.agentEditMaxOutput.value = payload.agent.budget.maxOutputTokens;
     elements.agentEditWorkspace.value = payload.agent.defaultWorkspace ?? "";
     setAgentEditorStatus("Edit identity fields or discover the endpoint's current model catalog.", "ok");
     elements.agentEditor.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -479,7 +482,7 @@ async function previewAgentProfile(event) {
   if (!admin.agentEdit) return;
   setBusy(elements.agentProfileForm, true);
   discardAgentEditPreview();
-  setAgentEditorStatus("Validating the identity change and preserving effective authority…");
+  setAgentEditorStatus("Validating the profile and bounded response-budget change…");
   try {
     const payload = await adminMutation(
       `/api/v1/admin/agents/${admin.agentEdit.agent.id}/profile/preview`, {
@@ -492,6 +495,7 @@ async function previewAgentProfile(event) {
         timeZone: elements.agentEditTimezone.value.trim(),
         responseStyle: elements.agentEditStyle.value.trim(),
         defaultWorkspace: elements.agentEditWorkspace.value.trim() || null,
+        maxOutputTokens: Number(elements.agentEditMaxOutput.value),
       });
     renderAgentEditPreview("profile", payload);
     setAgentEditorStatus("The exact profile diff is ready for review.", "ok");
@@ -534,12 +538,20 @@ function renderRunOptions(payload) {
   for (const depth of payload.responseDepths) {
     const option = document.createElement("option");
     option.value = depth.id;
+    option.dataset.tokens = depth.maximumOutputTokens;
     option.textContent = `${depth.label} · up to ${depth.maximumOutputTokens.toLocaleString()} tokens`;
     elements.runDepth.append(option);
   }
   elements.runDepth.value = payload.responseDepths.some(item => item.id === selectedDepth)
     ? selectedDepth
     : "balanced";
+  elements.runTokenLimit.max = payload.maximumOutputTokens;
+  const selectedOption = payload.responseDepths.find(item => item.id === elements.runDepth.value);
+  const currentLimit = Number(elements.runTokenLimit.value);
+  elements.runTokenLimit.value = Number.isInteger(currentLimit) && currentLimit >= 1 &&
+    currentLimit <= payload.maximumOutputTokens
+    ? currentLimit
+    : selectedOption.maximumOutputTokens;
 
   elements.runSkills.replaceChildren();
   if (!payload.skills.length) {
@@ -728,6 +740,7 @@ async function createRun(event) {
         name: elements.runName.value.trim() || null,
         runInstructions: elements.runInstructions.value.trim() || null,
         responseDepth: elements.runDepth.value,
+        maximumOutputTokens: Number(elements.runTokenLimit.value),
         skillIds,
       },
       async (eventName, payload) => {
@@ -1628,6 +1641,10 @@ elements.learningGateClose.addEventListener("click", closeLearningGate);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
 elements.model.addEventListener("change", renderModelDetails);
 elements.runAgent.addEventListener("change", loadRunOptions);
+elements.runDepth.addEventListener("change", () => {
+  const preset = Number(elements.runDepth.selectedOptions[0]?.dataset.tokens);
+  if (Number.isInteger(preset) && preset > 0) elements.runTokenLimit.value = preset;
+});
 elements.runSearch.addEventListener("input", () => {
   admin.runPage = 1;
   renderRunHistory();

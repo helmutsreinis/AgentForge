@@ -9,6 +9,14 @@ using AgentForge.Domain.Providers;
 
 namespace AgentForge.Models;
 
+internal static class LocalModelInteractionBounds
+{
+    public const int MaximumOutputTokens = 262_144;
+    public const int MaximumEvents = 300_000;
+    public const int MaximumWallClockSeconds = 270;
+    public const int MaximumOutputCharacters = 2_097_152;
+}
+
 internal interface ILocalModelProviderFactory
 {
     DomainResult<IModelProvider> Create(ProviderProfile profile);
@@ -64,8 +72,8 @@ internal sealed class LocalModelProviderFactory(
             new ModelProviderRoutingEvidence(
                 location,
                 ModelCapabilityEvidenceSource.PolicyApproved,
-                131_072,
-                4_096,
+                524_288,
+                LocalModelInteractionBounds.MaximumOutputTokens,
                 9_000,
                 null,
                 null,
@@ -136,9 +144,12 @@ internal sealed class LocalModelInteractionService(
     {
         if (request is null || request.RequestId.Value == Guid.Empty || request.Provider is null ||
             !Content(request.SystemInstruction, 24_576) || !Content(request.Prompt, 16_384) ||
-            request.Limits is null || request.Limits.MaximumOutputTokens is < 1 or > 4_096 ||
-            request.Limits.MaximumToolCalls != 0 || request.Limits.MaximumEvents is < 2 or > 8_192 ||
-            request.Limits.MaximumWallClockSeconds is < 1 or > 120 ||
+            request.Limits is null || request.Limits.MaximumOutputTokens is < 1 or
+                > LocalModelInteractionBounds.MaximumOutputTokens ||
+            request.Limits.MaximumToolCalls != 0 || request.Limits.MaximumEvents is < 2 or
+                > LocalModelInteractionBounds.MaximumEvents ||
+            request.Limits.MaximumWallClockSeconds is < 1 or
+                > LocalModelInteractionBounds.MaximumWallClockSeconds ||
             !Text(request.CorrelationId.Value, 128))
         {
             return DomainResult.Fail<LocalModelInteractionResult>(new DomainFailure(
@@ -172,6 +183,9 @@ internal sealed class LocalModelInteractionService(
         ModelCompletedEvent? completed = null;
         ModelStartedEvent? started = null;
         var eventCount = 0;
+        var maximumOutputCharacters = (int)Math.Min(
+            LocalModelInteractionBounds.MaximumOutputCharacters,
+            Math.Max(32_768L, request.Limits.MaximumOutputTokens * 8L));
         await foreach (var item in created.Value.StreamAsync(modelRequest, cancellationToken))
         {
             eventCount++;
@@ -188,7 +202,7 @@ internal sealed class LocalModelInteractionService(
                     }
                     break;
                 case ModelTextDeltaEvent value:
-                    if (output.Length + value.Delta.Length > 32_768)
+                    if ((long)output.Length + value.Delta.Length > maximumOutputCharacters)
                     {
                         return Failure(FailureCode.BudgetExceeded, "The local model response exceeded the interactive output bound.");
                     }

@@ -289,9 +289,9 @@
             </form>
             <form id="agent-profile-form" class="setup-form" autocomplete="off">
               <div class="stage-heading">
-                <span class="stage-kicker">IDENTITY &amp; INSTRUCTIONS</span>
+                <span class="stage-kicker">PROFILE &amp; RESPONSE BUDGET</span>
                 <h3>Agent profile</h3>
-                <p>Authority, budgets, capabilities, memory, child-agent limits, and learning policy remain immutable here.</p>
+                <p>Identity, instructions, and the generated-output ceiling are versioned here. Tool, skill, network, memory, child-agent, and learning authority remain unchanged.</p>
               </div>
               <div class="form-row">
                 <label>Name<input id="agent-edit-name" maxlength="80" required></label>
@@ -302,7 +302,10 @@
                 <label>Preferred language<input id="agent-edit-language" maxlength="32" required></label>
                 <label>Time zone<input id="agent-edit-timezone" maxlength="128" required></label>
               </div>
-              <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
+              <div class="form-row">
+                <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
+                <label>Maximum output tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" step="256" required></label>
+              </div>
               <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
               <div class="stage-actions">
                 <button class="setup-submit" type="submit">Preview profile update</button>
@@ -342,7 +345,10 @@
               <option value="concise">Concise</option>
               <option value="balanced" selected>Balanced</option>
               <option value="detailed">Detailed</option>
+              <option value="extended">Extended</option>
+              <option value="maximum">Maximum</option>
             </select></label>
+            <label>Output token limit<input id="run-token-limit" type="number" min="1" max="262144" step="1" value="2048" required></label>
           </div>
           <label class="run-prompt-label">Objective<textarea id="run-prompt" required maxlength="16384" rows="4" placeholder="Describe the result you want from this run."></textarea></label>
           <details class="run-context" open>

@@ -50,6 +50,26 @@ public sealed class LocalModelInteractionServiceTests
     }
 
     [Fact]
+    public async Task Invocation_accepts_scaled_local_output_and_wall_clock_bounds()
+    {
+        var provider = new ScriptedProvider(static (request, cancellationToken) =>
+            SuccessfulStream(request, cancellationToken));
+        var service = new LocalModelInteractionService(new FakeFactory(provider));
+        var request = Request() with
+        {
+            Limits = new ModelInvocationLimits(32_768, 0, 33_280, 270),
+        };
+
+        var result = await service.InvokeAsync(request, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(provider.ObservedRequest);
+        Assert.Equal(32_768, provider.ObservedRequest!.Limits.MaximumOutputTokens);
+        Assert.Equal(33_280, provider.ObservedRequest.Limits.MaximumEvents);
+        Assert.Equal(270, provider.ObservedRequest.Limits.MaximumWallClockSeconds);
+    }
+
+    [Fact]
     public async Task Invocation_denies_tool_calls_even_when_a_provider_emits_one()
     {
         var provider = new ScriptedProvider(static (request, cancellationToken) =>
@@ -92,6 +112,7 @@ public sealed class LocalModelInteractionServiceTests
         Assert.Equal(FailureCode.UnsupportedCapability, credentialedRoute.Failure!.Code);
         Assert.True(privateRoute.IsSuccess);
         Assert.Equal(ModelProviderDataLocation.PrivateNetwork, privateRoute.Value.Descriptor.Routing!.DataLocation);
+        Assert.Equal(262_144, privateRoute.Value.Descriptor.Routing.MaximumOutputTokens);
         (privateRoute.Value as IDisposable)?.Dispose();
     }
 
