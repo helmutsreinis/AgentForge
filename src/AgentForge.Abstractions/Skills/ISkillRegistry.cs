@@ -35,6 +35,11 @@ public interface ISkillProposalRepository
     ValueTask<SkillProposal?> FindLatestAsync(
         SkillProposalId proposalId,
         CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<SkillProposal>> ListLatestAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken);
 }
 
 public interface ISkillRunSnapshotStore

@@ -32,6 +32,23 @@ internal sealed class SkillGovernanceService(
             return Invalid("The exact installed candidate does not exist.");
         }
 
+        var existing = await proposals.FindLatestAsync(proposalId, cancellationToken);
+        if (existing is not null)
+        {
+            var exactReplay = SkillGovernanceStateMachine.IsConsistent(existing) &&
+                existing.State is SkillProposalState.Proposed && existing.Version == 0 &&
+                existing.InstallationId == installationId && existing.SkillId == skillId &&
+                existing.CandidateVersion == candidateVersion &&
+                existing.CandidatePackageHash == candidate.Package.PackageHash &&
+                existing.BaselineVersion == baseline?.Package.Version &&
+                existing.BaselinePackageHash == baseline?.Package.PackageHash &&
+                existing.ProposedBy == proposedBy && existing.CorrelationId == correlationId &&
+                existing.CausationId == causationId;
+            return exactReplay
+                ? DomainResult.Success(existing)
+                : Conflict("The proposal ID is already bound to different or advanced governance state.");
+        }
+
         var created = SkillGovernanceStateMachine.Create(
             proposalId,
             candidate,

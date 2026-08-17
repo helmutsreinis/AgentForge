@@ -104,11 +104,11 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
         }
 
         if (normalizedCandidate.ModelPolicy.DataLocality is ModelDataLocality.LocalOnly &&
-            !IsLoopback(providerProfile.Endpoint))
+            !IsLocalProvider(providerProfile.Endpoint))
         {
             return DomainResult.Fail<EffectiveAgentDefinition>(new DomainFailure(
                 FailureCode.PolicyDenied,
-                "A LocalOnly agent requires a loopback provider endpoint during bootstrap."));
+                "A LocalOnly agent requires a loopback or private-network provider endpoint during bootstrap."));
         }
 
         var capabilities = new List<EffectiveCapability>
@@ -124,11 +124,19 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
                 "Tool calls require both provider support, an exact grant, and runtime approval."),
             new(
                 "network.loopback",
-                normalizedCandidate.CapabilityPolicy.NetworkPosture is NetworkPosture.LoopbackOnly
+                normalizedCandidate.CapabilityPolicy.NetworkPosture is
+                    NetworkPosture.LoopbackOnly or NetworkPosture.ApprovedEndpointsOnly
                     ? CapabilityDecision.Allow
                     : CapabilityDecision.Deny,
                 "The configured network posture is applied exactly."),
-            Deny("network.external", "No external network grant exists in the bootstrap policy."),
+            new(
+                "network.approved-endpoints",
+                normalizedCandidate.CapabilityPolicy.NetworkPosture is NetworkPosture.ApprovedEndpointsOnly &&
+                    normalizedCandidate.CapabilityPolicy.ToolGrants.Contains("tool:search.web", StringComparer.Ordinal)
+                    ? CapabilityDecision.RequireApproval
+                    : CapabilityDecision.Deny,
+                "External requests are limited to fixed tool endpoints and still require an exact approval."),
+            Deny("network.external", "Unrestricted external network access is never granted by this posture."),
             Deny("credentials.materialize", "Agents cannot directly materialize provider credentials."),
             new(
                 "agent.children",
@@ -210,6 +218,22 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
             return new DomainFailure(FailureCode.ValidationFailure, "Agent budget is outside bootstrap safety bounds.");
         }
 
+        if (budget.DiscoveredContextWindowTokens is < 1 or > 100_000_000 ||
+            !IsBoundedText(budget.DiscoveredContextModel, 256, required: false) ||
+            budget.DiscoveredContextWindowTokens.HasValue != !string.IsNullOrWhiteSpace(budget.DiscoveredContextModel) ||
+            budget.ContextWindowOverrideTokens is < 1 or > 100_000_000 ||
+            budget.DiscoveredContextWindowTokens is { } discovered &&
+                budget.ContextWindowOverrideTokens is { } overridden && overridden > discovered ||
+            budget.ContextCompressionThresholdPercent is < 50 or > 95 ||
+            budget.ContextCompressionTargetPercent is < 10 or > 75 ||
+            budget.ContextCompressionTargetPercent >= budget.ContextCompressionThresholdPercent ||
+            budget.ContextProtectedRecentTurns is < 1 or > 32)
+        {
+            return new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Context capacity or compression policy is outside safe bounds; an override may only lower a discovered ceiling.");
+        }
+
         if (candidate.MemoryPolicy.RetentionDays is < 0 or > 3650 ||
             candidate.MemoryPolicy.Scope is AgentMemoryScope.Task && candidate.MemoryPolicy.RetentionDays != 0)
         {
@@ -281,9 +305,34 @@ internal sealed class ConservativeAgentDefinitionEvaluator(ISensitiveDataRedacto
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static bool IsLoopback(Uri endpoint) =>
-        endpoint.IsLoopback ||
-        string.Equals(endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLocalProvider(Uri endpoint)
+    {
+        if (endpoint.IsLoopback || string.Equals(endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!System.Net.IPAddress.TryParse(endpoint.IdnHost, out var address))
+        {
+            return false;
+        }
+
+        address = address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
+        if (System.Net.IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        var bytes = address.GetAddressBytes();
+        return address.AddressFamily switch
+        {
+            System.Net.Sockets.AddressFamily.InterNetwork => bytes[0] == 10 ||
+                bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
+                bytes[0] == 192 && bytes[1] == 168,
+            System.Net.Sockets.AddressFamily.InterNetworkV6 => (bytes[0] & 0xfe) == 0xfc,
+            _ => false,
+        };
+    }
 
     private static EffectiveCapability Allow(string id, string reason) => new(id, CapabilityDecision.Allow, reason);
 

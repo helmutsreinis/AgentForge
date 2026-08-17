@@ -79,7 +79,48 @@ public sealed class AgentDefinitionEvaluatorTests
     }
 
     [Fact]
-    public void Local_only_policy_rejects_non_loopback_provider()
+    public void Local_only_policy_accepts_private_network_provider()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var normalized = evaluator.NormalizeAndValidate(CreateCandidate());
+        Assert.True(normalized.IsSuccess);
+        var provider = CreateProvider() with { Endpoint = new Uri("http://192.168.1.89:8000/v1") };
+
+        var result = evaluator.Evaluate(normalized.Value, provider);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        AssertDecision(result.Value, "model.text", CapabilityDecision.Allow);
+        AssertDecision(result.Value, "network.external", CapabilityDecision.Deny);
+    }
+
+    [Fact]
+    public void Approved_search_endpoint_requires_exact_approval_without_external_network_authority()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            CapabilityPolicy = new AgentCapabilityPolicy(
+                NetworkPosture.ApprovedEndpointsOnly,
+                ["tool:search.web"],
+                []),
+        };
+
+        var normalized = evaluator.NormalizeAndValidate(candidate);
+        Assert.True(normalized.IsSuccess, normalized.Failure?.Message);
+
+        var result = evaluator.Evaluate(normalized.Value, CreateProvider());
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        AssertDecision(result.Value, "network.approved-endpoints", CapabilityDecision.RequireApproval);
+        AssertDecision(result.Value, "tool:search.web", CapabilityDecision.RequireApproval);
+        AssertDecision(result.Value, "network.external", CapabilityDecision.Deny);
+        AssertDecision(result.Value, "credentials.materialize", CapabilityDecision.Deny);
+    }
+
+    [Fact]
+    public void Local_only_policy_rejects_public_provider()
     {
         using var services = BuildServices();
         var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
@@ -101,6 +142,51 @@ public sealed class AgentDefinitionEvaluatorTests
         var candidate = CreateCandidate() with
         {
             Mission = "sk-" + new string('x', 32),
+        };
+
+        var result = evaluator.NormalizeAndValidate(candidate);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(FailureCode.ValidationFailure, result.Failure?.Code);
+    }
+
+    [Fact]
+    public void Accepts_operator_context_override_below_endpoint_ceiling()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            Budget = CreateCandidate().Budget with
+            {
+                DiscoveredContextWindowTokens = 262_144,
+                DiscoveredContextModel = "qwen3.8",
+                ContextWindowOverrideTokens = 131_072,
+                ContextCompressionThresholdPercent = 80,
+                ContextCompressionTargetPercent = 50,
+            },
+        };
+
+        var result = evaluator.NormalizeAndValidate(candidate);
+
+        Assert.True(result.IsSuccess, result.Failure?.Message);
+        Assert.Equal(131_072, result.Value.Budget.EffectiveContextWindowTokens);
+        Assert.Equal("OperatorOverride", result.Value.Budget.ContextWindowSource);
+    }
+
+    [Fact]
+    public void Rejects_operator_context_override_above_endpoint_ceiling()
+    {
+        using var services = BuildServices();
+        var evaluator = services.GetRequiredService<IAgentDefinitionEvaluator>();
+        var candidate = CreateCandidate() with
+        {
+            Budget = CreateCandidate().Budget with
+            {
+                DiscoveredContextWindowTokens = 131_072,
+                DiscoveredContextModel = "qwen3.8",
+                ContextWindowOverrideTokens = 262_144,
+            },
         };
 
         var result = evaluator.NormalizeAndValidate(candidate);

@@ -16,8 +16,12 @@ internal sealed class RemoteAccessMiddleware(RequestDelegate next)
         }
 
         var origin = context.Request.Headers.Origin.ToString();
-        if (remote && (string.IsNullOrWhiteSpace(origin) ||
-            !options.Value.AllowedOrigins.Contains(origin, StringComparer.Ordinal)))
+        var requestOrigin = $"{context.Request.Scheme}://{context.Request.Host.Value}";
+        var safeSameOriginRead = HttpMethods.IsGet(context.Request.Method) ||
+            HttpMethods.IsHead(context.Request.Method);
+        if (remote && (string.IsNullOrWhiteSpace(origin)
+                ? !safeSameOriginRead || !options.Value.AllowedOrigins.Contains(requestOrigin, StringComparer.Ordinal)
+                : !options.Value.AllowedOrigins.Contains(origin, StringComparer.Ordinal)))
         {
             await Problem(context, StatusCodes.Status403Forbidden,
                 "Origin denied", "The remote browser origin is not explicitly allowed.");

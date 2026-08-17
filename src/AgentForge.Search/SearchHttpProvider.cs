@@ -16,7 +16,10 @@ public sealed record SearchHttpProviderOptions(
     SecretReference CredentialReference,
     string? GoogleEngineId,
     int MaximumResponseBytes = 1_048_576,
-    TimeSpan? Timeout = null);
+    TimeSpan? Timeout = null,
+    SearchSafeSearch SafeSearch = SearchSafeSearch.Moderate,
+    string CountryCode = "",
+    string SearchLanguage = "en");
 
 public sealed class SearchHttpProvider : ISearchProvider, IDisposable
 {
@@ -183,7 +186,9 @@ public sealed class SearchHttpProvider : ISearchProvider, IDisposable
             effectiveTimeout <= TimeSpan.FromSeconds(30) &&
             options.CredentialReference.Store == secretStore.StoreName &&
             options.CredentialReference.Key.Length is >= 1 and <= 512 &&
-            (kind != SearchProviderKind.GoogleCustomSearch || IsEngineId(options.GoogleEngineId));
+            (kind != SearchProviderKind.GoogleCustomSearch || IsEngineId(options.GoogleEngineId)) &&
+            (kind != SearchProviderKind.Brave ||
+                Enum.IsDefined(options.SafeSearch) && IsCountryCode(options.CountryCode) && IsLanguage(options.SearchLanguage));
         if (!valid)
         {
             handler.Dispose();
@@ -204,6 +209,15 @@ public sealed class SearchHttpProvider : ISearchProvider, IDisposable
     private Uri BuildUri(SearchRequest request)
     {
         var query = $"q={Uri.EscapeDataString(request.Query)}&count={request.MaximumResults}";
+        if (Descriptor.Kind == SearchProviderKind.Brave)
+        {
+            query += $"&safesearch={_options.SafeSearch.ToString().ToLowerInvariant()}";
+            if (_options.CountryCode.Length > 0)
+            {
+                query += $"&country={Uri.EscapeDataString(_options.CountryCode)}";
+            }
+            query += $"&search_lang={Uri.EscapeDataString(_options.SearchLanguage)}";
+        }
         if (Descriptor.Kind == SearchProviderKind.GoogleCustomSearch)
         {
             query = $"q={Uri.EscapeDataString(request.Query)}&num={Math.Min(request.MaximumResults, 10)}&cx={Uri.EscapeDataString(_options.GoogleEngineId!)}";
@@ -274,6 +288,12 @@ public sealed class SearchHttpProvider : ISearchProvider, IDisposable
 
     private static bool IsEngineId(string? value) =>
         value is { Length: >= 1 and <= 128 } && !value.Any(char.IsControl);
+
+    private static bool IsCountryCode(string value) =>
+        value.Length == 0 || value.Length == 2 && value.All(char.IsAsciiLetter);
+
+    private static bool IsLanguage(string value) =>
+        value.Length is >= 2 and <= 16 && value.All(character => char.IsAsciiLetter(character) || character == '-');
 
     private static SocketsHttpHandler CreateHandler() => new()
     {

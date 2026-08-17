@@ -45,6 +45,31 @@ public sealed record ToolInvocationRequest(
     CorrelationId CorrelationId,
     CorrelationId? CausationId = null);
 
+public sealed record ToolInvocationPlanRequest(
+    long ExpectedInstallationVersion,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    ActorId ActorId,
+    string ToolId,
+    string ToolVersion,
+    IReadOnlyDictionary<string, ToolParameterValue> Parameters,
+    string Workspace,
+    CorrelationId CorrelationId,
+    CorrelationId? CausationId = null);
+
+public sealed record ToolInvocationPlan(
+    CapabilityInvocationRequest Invocation,
+    AuthorizationContext Authorization,
+    ToolDescriptor Descriptor,
+    IReadOnlyList<string> Arguments);
+
+public sealed record BuiltInToolExecutionRequest(
+    string HandlerId,
+    IReadOnlyDictionary<string, ToolParameterValue> Parameters,
+    string Workspace,
+    string? Target,
+    int MaximumOutputBytes);
+
 public sealed record ToolInvocationRecord(
     ToolInvocationId Id,
     InstallationId InstallationId,

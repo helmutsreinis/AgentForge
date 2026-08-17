@@ -1,6 +1,3 @@
-using System.Collections.ObjectModel;
-using System.Globalization;
-using System.Text.Json;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
@@ -22,8 +19,7 @@ internal sealed class ToolInvocationService(
     IAgentIdentityRepository agents,
     ICapabilityApprovalRepository approvals,
     IToolInvocationRepository invocations,
-    IToolCatalog catalog,
-    IAuthorizationContextFactory contextFactory,
+    IToolInvocationPlanner planner,
     ICapabilityPolicyFactory policyFactory,
     ICapabilityPolicyEvaluator policyEvaluator,
     ISensitiveDataRedactor redactor,
@@ -31,10 +27,9 @@ internal sealed class ToolInvocationService(
     IUnitOfWork unitOfWork,
     IClock clock,
     IIdentifierGenerator identifiers,
-    ISandbox sandbox) : IToolInvocationService
+    ISandbox sandbox,
+    IBuiltInToolExecutor builtInExecutor) : IToolInvocationService
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
-
     public async Task<DomainResult<ToolInvocationResult>> InvokeAsync(
         ToolInvocationRequest request,
         IProcessOutputObserver? observer,
@@ -42,85 +37,39 @@ internal sealed class ToolInvocationService(
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        if (request.ExpectedInstallationVersion < 0 || request.AgentId.Value == Guid.Empty ||
-            request.AgentVersion < 0 || !IsBounded(request.ActorId.Value, 256) ||
-            !IsBounded(request.IdempotencyKey, 256) || !IsBounded(request.CorrelationId.Value, 128) ||
-            request.CausationId is { } causation && !IsBounded(causation.Value, 128) ||
-            !IsBounded(request.Workspace, 2048) || request.Parameters is null || request.Parameters.Count > 64 ||
-            request.Parameters.Keys.Any(item => !IsBounded(item, 128)))
+        if (!IsBounded(request.IdempotencyKey, 256) ||
+            redactor.Redact(new { request.IdempotencyKey }).ContainsRedactions)
         {
-            return Invalid("Tool invocation identity, idempotency, or parameters are invalid.");
+            return Invalid("Tool invocation idempotency is invalid.");
         }
 
-        request = request with
-        {
-            Parameters = new ReadOnlyDictionary<string, ToolParameterValue>(
-                new Dictionary<string, ToolParameterValue>(request.Parameters, StringComparer.Ordinal)),
-        };
-        if (redactor.Redact(new
-        {
-            ActorId = request.ActorId.Value,
-            request.IdempotencyKey,
-            CorrelationId = request.CorrelationId.Value,
-            CausationId = request.CausationId?.Value,
-            request.Workspace,
-            request.Parameters,
-        }).ContainsRedactions)
-        {
-            return Invalid("Tool invocation accepts no direct credential-shaped input; use secret references.");
-        }
-
-        var installation = await installations.ReadAsync(cancellationToken);
-        if (installation.State is not InstallationState.Ready ||
-            installation.Version != request.ExpectedInstallationVersion)
-        {
-            return Denied("Tool invocation requires the exact current Ready installation version.");
-        }
-
-        var agent = await agents.FindByIdAsync(request.AgentId, cancellationToken);
-        if (agent is null || agent.InstallationId != installation.Id || agent.Version != request.AgentVersion)
-        {
-            return Denied("Tool invocation requires the exact current agent policy version.");
-        }
-
-        var described = await catalog.DescribeAsync(request.ToolId, request.ToolVersion, cancellationToken);
-        if (!described.IsSuccess)
-        {
-            return DomainResult.Fail<ToolInvocationResult>(described.Failure!);
-        }
-
-        var descriptor = described.Value;
-        if (!NetworkPolicyAllows(agent.CapabilityPolicy.NetworkPosture, descriptor.Definition.Process.NetworkPolicy))
-        {
-            return Denied("The agent network posture does not permit the descriptor's process network policy.");
-        }
-
-        var prepared = Prepare(descriptor.Definition, request.Parameters);
-        if (!prepared.IsSuccess)
-        {
-            return DomainResult.Fail<ToolInvocationResult>(prepared.Failure!);
-        }
-
-        var authorization = contextFactory.Create(new CapabilityInvocationRequest(
-            installation.Id,
-            installation.Version,
-            agent.Id,
-            agent.Version,
+        var planned = await planner.PlanAsync(new ToolInvocationPlanRequest(
+            request.ExpectedInstallationVersion,
+            request.AgentId,
+            request.AgentVersion,
             request.ActorId,
-            descriptor.Definition.CapabilityId,
-            descriptor.Definition.RiskClass,
-            descriptor.Definition.Id,
-            descriptor.Definition.Version,
-            descriptor.DescriptorHash,
-            prepared.Value.ParametersJson,
-            descriptor.Definition.TargetKind,
-            prepared.Value.Target,
+            request.ToolId,
+            request.ToolVersion,
+            request.Parameters,
             request.Workspace,
             request.CorrelationId,
-            request.CausationId));
-        if (!authorization.IsSuccess)
+            request.CausationId), cancellationToken);
+        if (!planned.IsSuccess)
         {
-            return DomainResult.Fail<ToolInvocationResult>(authorization.Failure!);
+            return DomainResult.Fail<ToolInvocationResult>(planned.Failure!);
+        }
+
+        var descriptor = planned.Value.Descriptor;
+        var authorization = planned.Value.Authorization;
+        var installation = await installations.ReadAsync(cancellationToken);
+        var agent = await agents.FindByIdAsync(request.AgentId, cancellationToken);
+        if (installation.Id != authorization.InstallationId ||
+            installation.State is not InstallationState.Ready ||
+            installation.Version != authorization.InstallationVersion ||
+            agent is null || agent.InstallationId != installation.Id ||
+            agent.Version != authorization.AgentVersion)
+        {
+            return Denied("Tool invocation requires the exact current Ready installation and agent policy versions.");
         }
 
         var existing = await invocations.FindByIdempotencyKeyAsync(
@@ -129,16 +78,16 @@ internal sealed class ToolInvocationService(
             cancellationToken);
         if (existing is not null)
         {
-            return Replay(existing, authorization.Value);
+            return Replay(existing, authorization);
         }
 
         var approval = await approvals.FindLatestAsync(
             installation.Id,
             agent.Id,
-            authorization.Value.RequestHash,
+            authorization.RequestHash,
             cancellationToken);
-        var policy = policyFactory.Create(agent, authorization.Value);
-        var evaluation = policyEvaluator.Evaluate(authorization.Value, policy, approval, clock.UtcNow);
+        var policy = policyFactory.Create(agent, authorization);
+        var evaluation = policyEvaluator.Evaluate(authorization, policy, approval, clock.UtcNow);
         if (evaluation.Decision is CapabilityDecision.Deny)
         {
             return Denied(evaluation.Reason);
@@ -161,7 +110,7 @@ internal sealed class ToolInvocationService(
 
             var consumed = CapabilityApprovalStateMachine.Consume(
                 approval,
-                authorization.Value.RequestHash,
+                authorization.RequestHash,
                 clock.UtcNow);
             if (!consumed.IsSuccess)
             {
@@ -174,7 +123,7 @@ internal sealed class ToolInvocationService(
 
         var authorized = ToolInvocationStateMachine.Authorize(
             new ToolInvocationId(identifiers.NewGuid()),
-            authorization.Value,
+            authorization,
             descriptor.DescriptorHash,
             consumedApprovalId,
             request.IdempotencyKey,
@@ -196,7 +145,7 @@ internal sealed class ToolInvocationService(
         var currentAgent = await agents.FindByIdAsync(agent.Id, cancellationToken);
         var currentPolicyMatches = currentAgent is not null && FixedEquals(
             policy.Fingerprint,
-            policyFactory.Create(currentAgent, authorization.Value).Fingerprint);
+            policyFactory.Create(currentAgent, authorization).Fingerprint);
         if (currentInstallation.Id != installation.Id || currentInstallation.State is not InstallationState.Ready ||
             currentInstallation.Version != installation.Version || currentAgent is null ||
             currentAgent.InstallationId != installation.Id || currentAgent.Version != agent.Version ||
@@ -219,23 +168,29 @@ internal sealed class ToolInvocationService(
                 : DomainResult.Fail<ToolInvocationResult>(persisted.Failure!);
         }
 
-        var processRequest = new ProcessExecutionRequest(
-            descriptor.Definition.Process.ExecutablePath,
-            prepared.Value.Arguments,
-            authorization.Value.NormalizedWorkspace!,
-            authorization.Value.NormalizedWorkspace!,
-            new Dictionary<string, string>(StringComparer.Ordinal),
-            TimeSpan.FromSeconds(descriptor.Definition.Process.TimeoutSeconds),
-            descriptor.Definition.Process.MaximumOutputBytes,
-            descriptor.Definition.Process.NetworkPolicy,
-            descriptor.Definition.Process.RequiredSandbox,
-            descriptor.Definition.Process.RequiredFeatures,
-            descriptor.Definition.SideEffects.HasFlag(ToolSideEffectKind.WritesFileSystem)
-                ? ProcessFileSystemPolicy.ReadWriteWorkspace
-                : ProcessFileSystemPolicy.ReadOnlyWorkspace);
         try
         {
-            var execution = await sandbox.ExecuteAsync(processRequest, observer, cancellationToken);
+            var execution = descriptor.Definition.ExecutionKind is ToolExecutionKind.BuiltIn
+                ? await builtInExecutor.ExecuteAsync(new BuiltInToolExecutionRequest(
+                    descriptor.Definition.BuiltInHandlerId!,
+                    request.Parameters,
+                    authorization.NormalizedWorkspace!,
+                    authorization.NormalizedTarget,
+                    descriptor.Definition.Process.MaximumOutputBytes), cancellationToken)
+                : await sandbox.ExecuteAsync(new ProcessExecutionRequest(
+                    descriptor.Definition.Process.ExecutablePath,
+                    planned.Value.Arguments,
+                    authorization.NormalizedWorkspace!,
+                    authorization.NormalizedWorkspace!,
+                    new Dictionary<string, string>(StringComparer.Ordinal),
+                    TimeSpan.FromSeconds(descriptor.Definition.Process.TimeoutSeconds),
+                    descriptor.Definition.Process.MaximumOutputBytes,
+                    descriptor.Definition.Process.NetworkPolicy,
+                    descriptor.Definition.Process.RequiredSandbox,
+                    descriptor.Definition.Process.RequiredFeatures,
+                    descriptor.Definition.SideEffects.HasFlag(ToolSideEffectKind.WritesFileSystem)
+                        ? ProcessFileSystemPolicy.ReadWriteWorkspace
+                        : ProcessFileSystemPolicy.ReadOnlyWorkspace), observer, cancellationToken);
             if (!execution.IsSuccess)
             {
                 var failure = execution.Failure!;
@@ -371,101 +326,6 @@ internal sealed class ToolInvocationService(
             null), cancellationToken);
     }
 
-    private static DomainResult<PreparedInvocation> Prepare(
-        ToolDescriptorDefinition descriptor,
-        IReadOnlyDictionary<string, ToolParameterValue> supplied)
-    {
-        var declared = descriptor.Parameters.ToDictionary(item => item.Name, StringComparer.Ordinal);
-        if (supplied.Keys.Any(item => !declared.ContainsKey(item)) ||
-            descriptor.Parameters.Any(item => item.Required && !supplied.ContainsKey(item.Name)))
-        {
-            return InvalidPrepared("Tool values must match the exact descriptor parameter schema.");
-        }
-
-        var normalized = new SortedDictionary<string, object?>(StringComparer.Ordinal);
-        var rendered = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var pair in supplied)
-        {
-            var value = NormalizeValue(declared[pair.Key], pair.Value);
-            if (!value.IsSuccess)
-            {
-                return DomainResult.Fail<PreparedInvocation>(value.Failure!);
-            }
-
-            normalized.Add(pair.Key, value.Value.CanonicalValue);
-            rendered.Add(pair.Key, value.Value.ArgumentValue);
-        }
-
-        var arguments = new List<string>(descriptor.Process.FixedArguments);
-        foreach (var binding in descriptor.Process.ArgumentBindings)
-        {
-            if (binding.Kind is ToolArgumentBindingKind.Literal)
-            {
-                arguments.Add(binding.Token!);
-                continue;
-            }
-
-            if (!supplied.TryGetValue(binding.ParameterName!, out var suppliedValue))
-            {
-                continue;
-            }
-
-            switch (binding.Kind)
-            {
-                case ToolArgumentBindingKind.Positional:
-                    arguments.Add(rendered[binding.ParameterName!]);
-                    break;
-                case ToolArgumentBindingKind.NamedValue:
-                    arguments.Add(binding.Token!);
-                    arguments.Add(rendered[binding.ParameterName!]);
-                    break;
-                case ToolArgumentBindingKind.BooleanSwitch when suppliedValue.Switch is true:
-                    arguments.Add(binding.Token!);
-                    break;
-            }
-        }
-
-        var target = descriptor.TargetParameterName is null
-            ? null
-            : (string?)normalized[descriptor.TargetParameterName];
-        return DomainResult.Success(new PreparedInvocation(
-            JsonSerializer.Serialize(normalized, SerializerOptions),
-            target,
-            Array.AsReadOnly(arguments.ToArray())));
-    }
-
-    private static DomainResult<NormalizedValue> NormalizeValue(
-        ToolParameterDescriptor descriptor,
-        ToolParameterValue value)
-    {
-        if (value is null || !Enum.IsDefined(value.Kind))
-        {
-            return InvalidValue("Tool parameter value kind is invalid.");
-        }
-
-        switch (descriptor.Type, value.Kind)
-        {
-            case (ToolParameterType.Text, ToolParameterValueKind.Text)
-                when value.Text is not null && value.WholeNumber is null && value.Switch is null &&
-                value.Text.Length <= descriptor.MaximumLength && !value.Text.Any(char.IsControl) &&
-                (descriptor.AllowedValues.Count == 0 || descriptor.AllowedValues.Contains(value.Text, StringComparer.Ordinal)):
-                return DomainResult.Success(new NormalizedValue(value.Text, value.Text));
-            case (ToolParameterType.WholeNumber, ToolParameterValueKind.WholeNumber)
-                when value.Text is null && value.WholeNumber is { } number && value.Switch is null &&
-                number >= descriptor.MinimumInteger && number <= descriptor.MaximumInteger:
-                return DomainResult.Success(new NormalizedValue(
-                    number,
-                    number.ToString(CultureInfo.InvariantCulture)));
-            case (ToolParameterType.Switch, ToolParameterValueKind.Switch)
-                when value.Text is null && value.WholeNumber is null && value.Switch is { } enabled:
-                return DomainResult.Success(new NormalizedValue(
-                    enabled,
-                    enabled ? bool.TrueString : bool.FalseString));
-            default:
-                return InvalidValue("Tool parameter value does not match its exact type and bounds.");
-        }
-    }
-
     private static DomainResult<ToolInvocationResult> Replay(
         ToolInvocationRecord existing,
         AuthorizationContext context)
@@ -488,14 +348,6 @@ internal sealed class ToolInvocationService(
         return DomainResult.Success(new ToolInvocationResult(existing, true, [], [], null));
     }
 
-    private static bool NetworkPolicyAllows(NetworkPosture posture, ProcessNetworkPolicy policy) =>
-        posture switch
-        {
-            NetworkPosture.Denied => policy is ProcessNetworkPolicy.Denied,
-            NetworkPosture.LoopbackOnly => policy is ProcessNetworkPolicy.Denied or ProcessNetworkPolicy.LoopbackOnly,
-            _ => false,
-        };
-
     private DateTimeOffset TimestampAtOrAfter(ToolInvocationRecord invocation)
     {
         var timestamp = clock.UtcNow;
@@ -516,16 +368,4 @@ internal sealed class ToolInvocationService(
     private static DomainResult<ToolInvocationResult> Denied(string message) =>
         DomainResult.Fail<ToolInvocationResult>(new DomainFailure(FailureCode.PolicyDenied, message));
 
-    private static DomainResult<PreparedInvocation> InvalidPrepared(string message) =>
-        DomainResult.Fail<PreparedInvocation>(new DomainFailure(FailureCode.ValidationFailure, message));
-
-    private static DomainResult<NormalizedValue> InvalidValue(string message) =>
-        DomainResult.Fail<NormalizedValue>(new DomainFailure(FailureCode.ValidationFailure, message));
-
-    private sealed record PreparedInvocation(
-        string ParametersJson,
-        string? Target,
-        IReadOnlyList<string> Arguments);
-
-    private sealed record NormalizedValue(object CanonicalValue, string ArgumentValue);
 }

@@ -84,10 +84,65 @@ the secure first-run wizard. Confirm `/health/live` is 200, `/health/ready` is 5
 clean installation, `/api/v1/setup/status` is available, and `/api/v1/runtime/ping` is
 503. The CLI returns exit code 2 for setup-required.
 
-The page obtains a one-time setup nonce from the loopback origin. All subsequent mutations
-require its short-lived HttpOnly session, a session-bound CSRF token, and an idempotency key.
-Credential text is submitted only to the same loopback origin and cleared from the form. The
-CLI remains the recovery surface when the daemon or wizard is unavailable.
+Open the loopback page and choose **Setup**. The server creates the protected browser session
+automatically; no bootstrap nonce or security token is operator input. Refreshing the page
+resumes the active 30-minute HttpOnly SameSite session. All mutations still require the
+session-bound CSRF token and an exact idempotency key.
+
+Enter an OpenAI-compatible base endpoint such as `http://127.0.0.1:8000/v1`, then select
+**Connect and find models**. AgentForge performs one bounded policy-checked `GET /models`,
+renders the returned identifiers, and sends one bounded chat probe only after the operator
+selects **Run connection test**. If the server has no `/models` route, select **Enter a model
+ID manually**, enter the exact server-side identifier, then select and verify it through the
+same probe; manual entry never bypasses verification. API-key text is optional only for loopback/private vLLM or
+generic compatible endpoints; public providers require HTTPS and a credential. Credential
+text is submitted only to the same loopback origin and cleared from the form after setup.
+The CLI remains the recovery surface when the daemon or wizard is unavailable.
+
+When setup reaches `Ready`, use **Agents**, **Runs**, and **Skills** in the same loopback page. Opening
+one of these pages creates a 30-minute local operator session by validating the current user's protected
+administrator credential on the server; the credential is never returned to the browser. **Agents** shows
+the persisted identity and its policy/budget summary. **Runs** accepts an explicit title, bounded objective,
+optional run-level guidance, and concise/balanced/detailed response limit. It previews the base agent instruction,
+pinned provider boundaries, and exact skill choices. Only Active immutable skill versions already granted to that
+agent may be selected; their exact snapshot is bound to the durable run before model invocation. Context is
+redacted; tools, browsing, fallback, files, messaging, and devices remain unavailable. The page displays the
+transient answer and token usage while the orchestrator retains a durable Completed/Failed evidence receipt rather
+than raw prompt, guidance, skill body, or answer text. History is searchable, status-filterable, and paginated; a
+nonterminal definition can still be canceled. **Skills** lists immutable registry versions and can install the
+packaged C# review seed; an installed version remains inactive until the normal evaluation, separate approval, and
+canary lifecycle.
+
+The **Agents** workspace is also the supported Ready-state profile administration surface. Choose
+**New provider**, enter its exact endpoint and model, and preview the change. AgentForge performs a
+bounded live model probe and immediately clears API-key text from the page. If a credential was used,
+re-enter the same value for apply: the server probes again and accepts only the credential fingerprint
+bound to the exact preview. The browser session stores neither the raw credential nor its secret
+reference. A private loopback/LAN compatible provider may explicitly use no credential; public providers
+require HTTPS and an OS-backed credential reference.
+
+Choose **New agent** to construct a complete policy against an existing provider, or **Edit agent** to
+version an existing one. Review locality/fallback, memory, network posture, exact tool and Active-skill
+grants, run budgets, child-agent limits, and learning authority before apply. `LocalOnly` cannot enable
+cloud fallback; `Task` memory has zero durable retention; a positive tool-call budget requires at least
+one exact tool grant and zero grants require a zero tool-call budget; child concurrency cannot exceed
+the child count; and learning/mutable-skill scope must remain a valid pair. A successful create/edit
+increments the Ready installation version. Editing the pinned agent or provider does not rewrite old run
+snapshots, and an existing conversation must start a new conversation before using the new authority.
+Do not modify provider, agent, grant, or budget rows directly in SQLite.
+
+To use that workspace from another computer, bind the host to a specific LAN HTTPS endpoint, configure that
+exact HTTPS origin, and supply a fresh 20-256 character `AgentForge:Host:RemoteAccessCode` through process or
+protected service configuration. The remote browser prompts once for this temporary code; it is sent only to
+the session-creation endpoint, cleared from browser memory after success, and replaced by the normal 30-minute
+Secure/HttpOnly/SameSite=Strict session cookie. Keep the Windows/Linux firewall rule limited to the exact TCP
+port, program, trusted profile/interface, and local subnet. A self-signed test certificate must be explicitly
+trusted on the client or accepted only for that test session; production remote mode requires a managed trusted
+certificate. Never expose the port through router forwarding or a public interface by default.
+
+If a workspace page reports that its operator session is stale, reload it from loopback. If the protected
+credential cannot be materialized, run `agentforge doctor` as the installing OS user; never copy the secret
+reference or administrator verifier into the browser, configuration, or command line.
 
 Begin a deterministic offline setup transaction with:
 
@@ -555,6 +610,11 @@ Failed target, holdout, adversarial, permission, critic, or canary evidence is a
 evidence and issuing a new candidate against the current baseline. The generated down migrations destroy learning
 and proposal provenance; restore the complete stopped pre-0023 backup instead of applying them to operator state.
 
+Migration 0028 adds append-only durable conversation snapshots and fabricates no history for legacy task receipts.
+Stop AgentForge and back up the database, WAL/SHM, and artifact directory together. After upgrade, complete two turns,
+restart, open the same conversation, and verify each text artifact's length and SHA-256. The down migration drops only
+conversation metadata and leaves shared immutable artifacts; restore the full pre-0028 backup for a clean downgrade.
+
 Milestone 1 cold-restore evidence copies the stopped database (including any WAL/SHM
 members), artifacts, and OS-protected secret files as one directory tree, records a
 SHA-256 for every file, compares the restored set, initializes migrations, verifies
@@ -601,6 +661,165 @@ append-only audit bytes; the export may have applied additional redaction and do
 hashes cover transformed JSON. Reusing an idempotency key with the exact request returns the same
 receipt. A changed request is a conflict. If audit verification fails, preserve the database and
 restore a verified backup—never edit or omit a broken event to force export.
+
+## Ready streamed-model operations
+
+Open **Runs**, select the persisted local-only agent, enter a bounded prompt, choose a response preset or an exact
+output-token limit, and choose **Run local model**. Concise, Balanced, Detailed, Extended, and Maximum project 512,
+2,048, 8,192, 16,384, and the agent's configured ceiling respectively. The numeric value is the authoritative per-run
+maximum and may not exceed the agent ceiling or the 262,144-token server cap. It does not force the provider to fill
+the allowance; normal model stop conditions may finish earlier. Interactive execution remains limited to 270 seconds.
+The page should show `Starting`, then `Running`, append response deltas, display usage when the provider reports it,
+and finish as `Completed`. Open the resulting conversation card to re-read the hash-verified redacted prompt and
+answer, then send a follow-up. Each follow-up creates a separate leased task while preserving the conversation's exact
+agent/provider versions and policy, budget, system, and skill snapshot hashes. The model receives at most the newest
+20 completed turns and 100,000 history characters; a conversation accepts at most 64 turns.
+
+For a long response, choose **Cancel interaction** once the stream starts. The cancel mutation records the
+durable `Canceled` state before stopping the matching provider call. The page must end at `Canceled`, hide the
+cancel control, and show a version-2 Canceled receipt after the run list refreshes. A missing terminal event,
+browser disconnect, stale Ready session, conflicting idempotency key, or provider failure must not display a
+false completion.
+
+If a provider or browser interruption is retryable, the conversation shows `Needs resume`. Resume reuses the exact
+stored prompt and bounded completed history, but only after the prior task node is Ready or its worker lease expires;
+it never replays a completed turn. If cancellation or resume appears stuck, inspect the newest conversation and task
+snapshots plus lease expiry before restarting. Do not edit rows, fabricate completion evidence, or delete WAL files.
+Prompts and answers are intentionally retained as redacted content-addressed text artifacts; verify their recorded
+length and SHA-256 hashes, and verify that credential-shaped source values are absent from the database, artifacts,
+logs, audit, and exports.
+
+## Ready schedules, memory, and research
+
+Open **Schedules**, select the exact agent, configure a one-shot, interval, cron, or calendar trigger, and review the
+next calculated occurrences before applying. The preview displays the current agent/provider versions and binds all
+recurrence, misfire, overlap, retry, prompt, output, policy, budget, and skill values. Applying writes an immutable
+artifact-backed template. Use **Run now**, **Pause**, and **Resume** only from the latest displayed schedule version;
+refresh after any conflict. A successful occurrence appears in ordinary Runs history under the schedule name. Restart
+recovery reclaims only expired leases and uses the occurrence's deterministic task/conversation identity, so a
+completed model turn is not repeated.
+
+If a schedule remains queued, verify the host worker is running, the due/retry time has passed, and the pinned agent and
+provider versions still exist. An agent/provider edit intentionally makes the old template fail typed; create a
+replacement schedule rather than editing database JSON. Legacy schedules without an agent-run template remain inert.
+Back up the database and artifacts before investigating integrity failures, and never remove WAL files or fabricate an
+occurrence completion.
+
+Open **Context** to create User or Procedural memory under the selected agent's configured Agent/Operator scope. Search
+uses bounded literal full-text matching and returns unexpired entries only. Retention may not exceed current policy;
+Task-scoped agents cannot attach memory before a task exists. Delete uses the same exact agent/scope tuple. Content is
+redacted before persistence, but the operator must still avoid unrecognized secrets.
+
+Research lists only configured search adapters. Select providers, preview the exact query/result limit, then apply once
+to create a short-lived citation receipt. With no configured provider, the UI reports an unavailable capability;
+deterministic acceptance does not imply live search is configured. In **Runs**, enter an optional memory query and/or
+select the approved same-agent research receipt. The start event reports attached memory/citation counts. Attached text
+is immutable untrusted reference data: it cannot grant model browsing, tools, network, files, messages, devices, or
+policy changes. Follow-up turns reuse the content-addressed pinned system context and do not perform new retrieval.
+
+Brave Search is configured inside the **Context → Core research skill** card. Enter the replacement API key only in
+the write-only password field, select safe-search, optional two-letter country, and search language, then choose
+**Verify and preview**. AgentForge calls only Brave's fixed official HTTPS web-search endpoint with the key in the
+subscription header, retains only a credential fingerprint in the preview, and shows the live probe receipt. Apply
+the exact review to store a new OS-backed reference and a versioned provider profile. The page clears the key after
+apply or discard. To rotate, enter a replacement key and repeat; to change policy without rotation, leave it blank.
+Disabling preserves the protected key for later re-enable but removes Brave from research selection.
+
+If verification reports quota, authentication, or availability failure, do not edit the database or secret files.
+Check the Brave dashboard, rotate a disclosed key there, and retry with a fresh idempotency key. A provider rotation,
+enable/disable action, or search-policy change invalidates outstanding research previews and separates cached results
+by configuration evidence. The model still receives only the explicitly attached bounded citation receipt and never
+receives the Brave key or direct network authority.
+
+## Ready agent and model editing
+
+Open **Agents**, choose **Edit agent**, and use the two independent editors. Profile editing accepts only the
+displayed name, expertise, mission, language, time zone, response style, default workspace, and maximum-output fields.
+The output ceiling must be between 256 and 262,144 tokens. The server reconstructs the candidate from current durable
+state and preserves model policy, memory, capability/tool/skill grants, turns, tool-invocation, input, wall-clock,
+child-agent, and learning authority. Review every before/after value, including `agent.budget`, and apply only the
+exact preview.
+
+For a model update, choose **Discover models**. Discovery reads only the current pinned endpoint; the Ready UI cannot
+change provider type, endpoint, or secret reference. Select a returned model, preview the update, confirm the live
+bounded probe and affected-agent list, then apply. Apply probes the selected model again and commits provider,
+installation version, and `setup.provider-edited` audit evidence in one transaction. A shared provider changes the
+model for every listed agent.
+
+A provider or agent change increments the Ready installation version. Any older preview must then fail with a
+concurrency conflict; reload the editor and preview again. An exact retry with the same idempotency key replays the
+stored receipt. A different body under that key conflicts. To roll back a model selection, rediscover the endpoint,
+select the prior model, and use the same preview/apply path—do not edit SQLite rows or secret files. If a model probe
+fails, keep the current profile and inspect endpoint availability before retrying.
+
+## Ready recursive-learning intake
+
+Open **Runs** and select **Capture learning** on a terminal Completed, Failed, Canceled, or DeadLettered receipt.
+The Learning page must preselect that exact run. Choose a correction, successful procedure, recovery, or missing
+capability; enter only a bounded redacted summary; and choose **Classify evidence**. The resulting card must show
+the deterministic action, reason code, source run, occurrence count, and shortened source-receipt hash.
+
+A correction without an exact successful skill-usage receipt or explicit revision authorization must become
+`Memory`. A missing capability may become `NewSkill`, but this means eligible for a later isolated proposal only:
+no package, permission, active skill, tool call, or policy mutation is created by intake. Reusing the same mutation
+key with exact evidence is a replay; changing evidence under that key is a conflict. Nonterminal and foreign runs,
+missing CSRF, credential-shaped summaries, and unsupported repeated-chain claims must fail closed.
+
+If an expected signal is absent after refresh, preserve the database and inspect the terminal task snapshot plus
+the correlated `learning.signal-classified` audit event. Do not insert or edit learning JSON directly. Candidate
+generation must use a content-addressed isolated workspace and the separate proposer, verifier, critic, governor,
+evaluation, approval, canary, and rollback transitions.
+
+### New-skill candidate governance
+
+For a card classified `NewSkill`, choose **Create isolated proposal**. Confirm the `skill:` identifier, semantic
+version, description, and declared permissions. Permissions are declarations only; proposal creation grants none.
+The resulting queue card must report `Proposed`, `active authority: None`, the exact package/workspace hashes, five
+separated roles, and `deterministic verification` as its next gate. A second candidate for the same signal must fail.
+
+Use the queue action to record each gate in order. Evidence-bearing gates require a local evidence note; the browser
+hashes the candidate/version/action/note tuple and transmits only its SHA-256 receipt. Keep the underlying test or
+review transcript separately because AgentForge intentionally does not retain the note. Verification requires target,
+holdout, adversarial, permission-diff, baseline, and candidate metrics. A failed verification or critique rejects;
+a failed or regressing canary quarantines. Approval does not activate, and starting a canary does not promote.
+
+Only a passing canary may change the registry package to `Active`; the agent still needs an exact skill grant before
+a run can select it. **Roll back promotion** requires fresh evidence and quarantines the candidate while restoring an
+exact baseline when one exists. Every request is optimistic-versioned and idempotent. On a stale conflict, reload the
+queue and never edit candidate, proposal, registry, or artifact records directly. The managed evaluator owns structural,
+provenance, deterministic, adversarial-authority, and permission checks; critic/canary notes remain explicit operator
+evidence until an independently sandboxed behavioral-fixture contract is available.
+
+### AI-built bearer API skills
+
+Use this workflow when AgentForge should build an integration procedure instead of receiving a hand-written product
+adapter. First open **Skills → Bearer-authenticated HTTP API** and create a named profile. For Microsoft Partner
+Center use profile ID `microsoft-partner-center`, base endpoint
+`https://api.partnercenter.microsoft.com/v1/`, probe path `customers?size=1`, and the non-secret headers
+`MS-CorrelationId: {correlationId}` and `MS-RequestId: {requestId}`. Paste the bearer
+token only into the write-only token field. Preview performs one bounded live GET; apply repeats it and persists only
+the OS-backed reference. Later rotation uses the same form and deletes the prior reference only after commit.
+
+Create or select a terminal run whose exact evidence demonstrates the missing integration. From **Learning**, capture
+it as `MissingCapability`. On the resulting `NewSkill` card choose **Generate with local agent**, set the immutable
+skill ID/version/description, declare only bounded read permissions, enable **Require configured HTTP API reads**, and
+give non-secret endpoint guidance. The pinned local model receives `tool:http-api.get` as a declaration in its authoring
+context but receives no live tool and no token. Generation must finish as strict JSON; AgentForge writes the package and
+provenance receipt, then the managed evaluator independently verifies it.
+
+Complete critique, governor approval, canary, and promotion. In **Skills**, grant the Active skill to the agent. In
+**Agents**, enable **Read configured APIs for active skills**; this maps to `tool:http-api.read`, approved-endpoint
+network posture, and a positive tool ceiling. Start a new run and select the skill. The model sees only enabled profile
+names/base endpoints plus the skill procedure. Every proposed GET pauses with the exact profile, path, scalar query,
+response limit, resolved HTTPS endpoint, and risk. Approval is single-use. Denial makes no request. The bearer token is
+materialized for that invocation only and never enters the model result, package, audit payload, or profile API.
+
+If preview returns 401/403, rotate or reissue the Partner Center bearer token; do not put it in skill guidance or
+static headers. If a call is unavailable, confirm all four independent authorities: profile enabled, skill Active and
+selected, skill granted to the agent, and `tool:http-api.read` present with `ApprovedEndpointsOnly`. Path/origin escape,
+secret-shaped static headers, unknown templates, oversized/non-UTF-8 output, stale approvals, and disabled profiles
+fail closed. Set `AGENTFORGE_LIVE_PARTNER_CENTER_BEARER_TOKEN` only on a credential-equipped test agent to run the
+named live gate; normal CI skips it.
 
 ## Gate and recovery rules
 

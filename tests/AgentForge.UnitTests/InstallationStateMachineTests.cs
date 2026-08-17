@@ -71,7 +71,7 @@ public sealed class InstallationStateMachineTests
     }
 
     [Fact]
-    public void Configuration_change_is_versioned_only_while_configuring()
+    public void Configuration_change_is_versioned_while_configuring_or_ready()
     {
         var configuring = InstallationSnapshot.CreateUninitialized(
             InstallationId.New(),
@@ -94,15 +94,16 @@ public sealed class InstallationStateMachineTests
         Assert.Equal(InstallationState.Configuring, changed.Value.State);
         Assert.Equal(6, changed.Value.Version);
 
-        var rejected = InstallationStateMachine.Transition(
+        var readyChange = InstallationStateMachine.Transition(
             changed.Value with { State = InstallationState.Ready },
             InstallationTrigger.ConfigurationChanged,
             Now.AddMinutes(2),
             Actor,
             new CorrelationId("profile-edit-ready"));
 
-        Assert.False(rejected.IsSuccess);
-        Assert.Equal(FailureCode.InvalidStateTransition, rejected.Failure?.Code);
+        Assert.True(readyChange.IsSuccess, readyChange.Failure?.Message);
+        Assert.Equal(InstallationState.Ready, readyChange.Value.State);
+        Assert.Equal(7, readyChange.Value.Version);
     }
 
     private static InstallationSnapshot Transition(

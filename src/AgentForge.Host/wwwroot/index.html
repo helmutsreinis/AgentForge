@@ -21,38 +21,51 @@
       </a>
 
       <nav>
-        <a class="nav-item active" href="#overview" aria-current="page">
+        <a class="nav-item active" href="#overview" data-view="overview" aria-current="page">
           <span class="nav-icon" aria-hidden="true">⌂</span>
           Overview
         </a>
-        <a class="nav-item" href="#setup">
+        <a class="nav-item" href="#setup" data-view="setup">
           <span class="nav-icon" aria-hidden="true">◇</span>
           Setup
-          <span class="nav-badge">1</span>
+          <span id="setup-badge" class="nav-badge">1</span>
         </a>
-        <span class="nav-item disabled" aria-disabled="true">
+        <a class="nav-item" href="#agents" data-view="agents">
           <span class="nav-icon" aria-hidden="true">⌘</span>
           Agents
-          <span class="soon">Soon</span>
-        </span>
-        <span class="nav-item disabled" aria-disabled="true">
+        </a>
+        <a class="nav-item" href="#runs" data-view="runs">
           <span class="nav-icon" aria-hidden="true">↗</span>
           Runs
-          <span class="soon">Soon</span>
-        </span>
-        <span class="nav-item disabled" aria-disabled="true">
+        </a>
+        <a class="nav-item" href="#schedules" data-view="schedules">
+          <span class="nav-icon" aria-hidden="true">◷</span>
+          Schedules
+        </a>
+        <a class="nav-item" href="#context" data-view="context">
+          <span class="nav-icon" aria-hidden="true">◎</span>
+          Context
+        </a>
+        <a class="nav-item" href="#skills" data-view="skills">
           <span class="nav-icon" aria-hidden="true">□</span>
           Skills
-          <span class="soon">Soon</span>
-        </span>
+        </a>
+        <a class="nav-item" href="#tools" data-view="tools">
+          <span class="nav-icon" aria-hidden="true">⌗</span>
+          Tools
+        </a>
+        <a class="nav-item" href="#learning" data-view="learning">
+          <span class="nav-icon" aria-hidden="true">∞</span>
+          Learning
+        </a>
       </nav>
 
       <div class="sidebar-footer">
         <div class="local-status">
           <span class="status-dot good" aria-hidden="true"></span>
           <span>
-            <strong>Local mode</strong>
-            <small>Loopback only</small>
+            <strong id="access-mode-title">Local control plane</strong>
+            <small id="access-mode-detail">Loopback UI · private model route</small>
           </span>
         </div>
         <p>Production R1 preview</p>
@@ -62,8 +75,8 @@
     <main id="main-content">
       <header class="topbar">
         <div>
-          <span class="eyebrow">CONTROL PLANE</span>
-          <h1>Good evening.</h1>
+          <span id="view-kicker" class="eyebrow">CONTROL PLANE</span>
+          <h1 id="view-title">Good evening.</h1>
         </div>
         <div class="topbar-actions">
           <span id="last-updated" class="last-updated" aria-live="polite">Connecting…</span>
@@ -73,7 +86,8 @@
         </div>
       </header>
 
-      <section id="overview" class="hero" aria-labelledby="hero-title">
+      <div id="overview" class="app-view">
+      <section class="hero" aria-labelledby="hero-title">
         <div class="hero-orb" aria-hidden="true"><span></span></div>
         <div class="hero-copy">
           <div id="state-pill" class="pill warning">
@@ -82,8 +96,8 @@
           </div>
           <h2 id="hero-title">Your local agent harness<br>starts here.</h2>
           <p id="state-description">AgentForge is checking the durable installation state before enabling runtime operations.</p>
-          <a class="primary-action" href="#setup">
-            View setup guide
+          <a id="hero-action" class="primary-action" href="#setup">
+            <span id="hero-action-label">View setup guide</span>
             <span aria-hidden="true">→</span>
           </a>
         </div>
@@ -130,34 +144,813 @@
           </div>
         </article>
       </section>
+      </div>
 
-      <section id="setup" class="setup-panel" aria-labelledby="setup-title">
+      <section id="setup" class="setup-panel app-view" aria-labelledby="setup-title" hidden>
         <div class="setup-copy">
           <span class="section-number">01</span>
           <div>
             <span class="eyebrow">FIRST RUN</span>
-            <h2 id="setup-title">Secure first-run setup</h2>
-            <p>The loopback wizard uses the same setup service and validation as the CLI. Its one-time nonce, session cookie, CSRF token, and idempotency keys expire when setup completes.</p>
+            <h2 id="setup-title">Connect your first agent</h2>
+            <p>AgentForge discovers the models available at your endpoint, verifies the one you choose, and shows the effective policy before anything is saved.</p>
+            <div class="setup-assurance">
+              <strong>Protected local setup</strong>
+              <span>Your setup session is created automatically and resumes safely after a refresh.</span>
+            </div>
           </div>
         </div>
-        <form id="setup-form" class="setup-form" autocomplete="off">
-          <div id="setup-message" class="setup-message" aria-live="polite">Loading one-time setup nonce…</div>
-          <label>Setup nonce<input id="setup-nonce" name="nonce" required maxlength="128" spellcheck="false"></label>
-          <div class="form-row">
-            <label>Provider name<input id="provider-name" value="primary" required maxlength="128"></label>
-            <label>Provider type<select id="provider-type"><option value="deterministic">Deterministic</option><option value="vllm">vLLM</option><option value="openai-compatible">OpenAI compatible</option></select></label>
+        <div class="setup-workspace">
+          <ol id="setup-progress" class="setup-progress" aria-label="Setup progress">
+            <li class="active" data-step="1"><span>1</span><b>Connect</b></li>
+            <li data-step="2"><span>2</span><b>Choose</b></li>
+            <li data-step="3"><span>3</span><b>Verify</b></li>
+            <li data-step="4"><span>4</span><b>Agent</b></li>
+            <li data-step="5"><span>5</span><b>Review</b></li>
+          </ol>
+
+          <div id="setup-message" class="setup-message" aria-live="polite">Starting protected setup…</div>
+
+          <form id="provider-form" class="setup-form setup-stage" data-stage="1" autocomplete="off">
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 1 of 5</span>
+              <h3>Where is your model server?</h3>
+              <p>Enter its OpenAI-compatible base URL. AgentForge will request the model catalog without running a model.</p>
+            </div>
+            <div class="form-row">
+              <label>Connection name<input id="provider-name" value="primary" required maxlength="128"></label>
+              <label>Adapter<select id="provider-type"><option value="openai-compatible">OpenAI compatible</option><option value="vllm">vLLM</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option></select></label>
+            </div>
+            <label>Base endpoint<input id="provider-endpoint" type="url" value="http://127.0.0.1:8000/v1" required maxlength="2048" placeholder="http://127.0.0.1:8000/v1"></label>
+            <label>API key <span class="optional">Optional for local servers</span><input id="provider-credential" type="password" maxlength="8192" autocomplete="new-password" placeholder="Leave blank if your local server does not require one"></label>
+            <button id="discover-models" class="setup-submit" type="submit">Connect and find models</button>
+            <button id="show-manual-model" class="text-action" type="button">Enter a model ID manually</button>
+            <div id="manual-model-panel" class="manual-model-panel" hidden>
+              <p>Use this only when the endpoint does not expose a model catalog. AgentForge will still verify the exact model before saving.</p>
+              <label>Model ID<input id="manual-model" maxlength="256" placeholder="qwen3.6"></label>
+              <button id="use-manual-model" class="secondary-action" type="button">Use this model ID</button>
+            </div>
+          </form>
+
+          <form id="model-form" class="setup-form setup-stage" data-stage="2" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 2 of 5</span>
+              <h3>Choose a model</h3>
+              <p id="model-summary">Models reported by your endpoint appear here.</p>
+            </div>
+            <label>Available models<select id="provider-model" required></select></label>
+            <div id="model-details" class="model-details" aria-live="polite"></div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="1">Back</button>
+              <button class="setup-submit" type="submit">Use selected model</button>
+            </div>
+          </form>
+
+          <form id="verify-form" class="setup-form setup-stage" data-stage="3" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 3 of 5</span>
+              <h3>Verify the connection</h3>
+              <p>AgentForge will send one bounded prompt to confirm that the selected model can answer through this endpoint.</p>
+            </div>
+            <div id="verify-summary" class="review-card"></div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="2">Back</button>
+              <button id="test-model" class="setup-submit" type="submit">Run connection test</button>
+            </div>
+          </form>
+
+          <form id="agent-form" class="setup-form setup-stage" data-stage="4" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 4 of 5</span>
+              <h3>Name your local agent</h3>
+              <p>This creates the identity that owns policy, memory, budgets, and model routing.</p>
+            </div>
+            <div class="form-row">
+              <label>Agent name<input id="agent-name" value="local-agent" required maxlength="128"></label>
+              <label>Time zone<input id="agent-timezone" value="UTC" required maxlength="128"></label>
+            </div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="3">Back</button>
+              <button class="setup-submit" type="submit">Continue to review</button>
+            </div>
+          </form>
+
+          <form id="review-form" class="setup-form setup-stage" data-stage="5" hidden>
+            <div class="stage-heading">
+              <span class="stage-kicker">Step 5 of 5</span>
+              <h3>Review and finish</h3>
+              <p>Confirm the local connection and conservative first-run policy before AgentForge persists the profile.</p>
+            </div>
+            <div id="review-summary" class="review-grid"></div>
+            <div class="policy-preview">
+              <strong>Conservative by default</strong>
+              <span>Local-only model routing · network denied · no tool calls · no child agents · learning proposals require governance</span>
+            </div>
+            <div class="stage-actions">
+              <button class="secondary-action" type="button" data-back="4">Back</button>
+              <button id="setup-submit" class="setup-submit" type="submit">Configure AgentForge</button>
+            </div>
+          </form>
+
+          <div id="setup-complete" class="setup-complete" hidden>
+            <span class="stage-kicker">Ready</span>
+            <h3>Your local agent is configured.</h3>
+            <p>The provider, model, agent identity, and conservative policy were saved successfully.</p>
+            <a id="refresh-after-setup" class="setup-submit" href="#overview">View system status</a>
           </div>
-          <label>Endpoint<input id="provider-endpoint" type="url" value="http://127.0.0.1:9000/v1" required maxlength="2048"></label>
-          <div class="form-row">
-            <label>Model<input id="provider-model" value="deterministic-text-v1" required maxlength="256"></label>
-            <label>Credential<input id="provider-credential" type="password" required maxlength="4096"></label>
+
+          <p class="setup-note">API keys are sent only to this loopback origin, never shown in review, and cleared from the page immediately after setup.</p>
+        </div>
+      </section>
+
+      <section id="agents" class="workspace-panel app-view" aria-labelledby="agents-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">IDENTITIES &amp; POLICY</span>
+            <h2 id="agents-title">Agents</h2>
+            <p>Create providers and agents, then preview the complete versioned policy before any authority changes.</p>
           </div>
-          <div class="form-row">
-            <label>Agent name<input id="agent-name" value="local-agent" required maxlength="128"></label>
-            <label>Time zone<input id="agent-timezone" value="UTC" required maxlength="128"></label>
+          <div class="stage-actions">
+            <button id="new-provider" class="secondary-action" type="button">New provider</button>
+            <button id="new-agent" class="setup-submit" type="button">New agent</button>
+            <button class="secondary-action" type="button" data-reload="agents">Reload agents</button>
           </div>
-          <button id="setup-submit" class="setup-submit" type="submit">Configure AgentForge <span aria-hidden="true">→</span></button>
-          <p class="setup-note">Credentials are sent only to this loopback origin and cleared from the form immediately after submission.</p>
+        </div>
+        <div id="agents-message" class="workspace-message" aria-live="polite">Open this page to load agents.</div>
+        <div id="provider-list" class="resource-grid compact-resource-grid"></div>
+        <section id="provider-create-panel" class="agent-editor" aria-labelledby="provider-create-title" hidden>
+          <div class="workspace-heading">
+            <div>
+              <span class="stage-kicker">NEW MODEL CONNECTION</span>
+              <h3 id="provider-create-title">Create provider</h3>
+              <p>The endpoint and exact model are live-probed before an OS-backed credential reference can be committed.</p>
+            </div>
+            <button id="provider-create-close" class="secondary-action" type="button">Close</button>
+          </div>
+          <div id="provider-create-message" class="workspace-message" aria-live="polite"></div>
+          <form id="provider-create-form" class="setup-form" autocomplete="off">
+            <div class="form-row">
+              <label>Provider name<input id="provider-create-name" maxlength="128" placeholder="secondary" required></label>
+              <label>Provider type<select id="provider-create-type">
+                <option value="openai-compatible">OpenAI compatible</option>
+                <option value="vllm">vLLM</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+              </select></label>
+            </div>
+            <label>Endpoint<input id="provider-create-endpoint" type="url" maxlength="2048" placeholder="http://127.0.0.1:8000/v1" required></label>
+            <div class="form-row">
+              <label>Model<input id="provider-create-model" maxlength="256" placeholder="qwen3.8" required></label>
+              <label>API key <span class="optional">optional for private local endpoints</span><input id="provider-create-credential" type="password" maxlength="8192" autocomplete="new-password"></label>
+            </div>
+            <div class="stage-actions">
+              <button class="setup-submit" type="submit">Verify and preview</button>
+            </div>
+          </form>
+          <div id="provider-create-review" class="agent-edit-review" hidden>
+            <div>
+              <span class="stage-kicker">EXACT CREATION PREVIEW</span>
+              <h3>Review provider</h3>
+              <p id="provider-create-warning"></p>
+            </div>
+            <div id="provider-create-changes" class="review-grid"></div>
+            <p id="provider-create-preview-hash" class="resource-subtitle"></p>
+            <p id="provider-create-credential-help" class="setup-note"></p>
+            <div class="stage-actions">
+              <button id="provider-create-discard" class="secondary-action" type="button">Discard preview</button>
+              <button id="provider-create-apply" class="setup-submit" type="button">Create exact provider</button>
+            </div>
+          </div>
+        </section>
+        <div id="agent-list" class="resource-grid"></div>
+        <section id="agent-editor" class="agent-editor" aria-labelledby="agent-editor-title" hidden>
+          <div class="workspace-heading">
+            <div>
+              <span class="stage-kicker">VERSIONED CONFIGURATION</span>
+              <h3 id="agent-editor-title">Edit agent</h3>
+              <p id="agent-editor-context">Preview and verify every change before it reaches durable state.</p>
+            </div>
+            <button id="agent-editor-close" class="secondary-action" type="button">Close editor</button>
+          </div>
+          <div id="agent-editor-message" class="workspace-message" aria-live="polite"></div>
+          <div class="agent-editor-grid">
+            <form id="agent-profile-form" class="setup-form" autocomplete="off">
+              <div class="stage-heading">
+                <span class="stage-kicker">PRIMARY AGENT</span>
+                <h3>Profile and capabilities</h3>
+                <p>Start with the choices that change how the agent behaves. Technical policy values remain available under Advanced.</p>
+              </div>
+              <div class="form-row">
+                <label>Name<input id="agent-edit-name" maxlength="80" required></label>
+                <label>Expertise <span class="optional">optional</span><input id="agent-edit-expertise" maxlength="240"></label>
+              </div>
+              <label>Mission <span class="optional">optional</span><textarea id="agent-edit-mission" maxlength="1000" rows="3"></textarea></label>
+              <div class="form-row">
+                <label>Preferred language<input id="agent-edit-language" maxlength="32" required></label>
+                <label>Time zone<input id="agent-edit-timezone" maxlength="128" required></label>
+              </div>
+              <div class="form-row">
+                <label>Response style<input id="agent-edit-style" maxlength="240" required></label>
+                <label>Default workspace <span class="optional">optional</span><input id="agent-edit-workspace" maxlength="1024"></label>
+              </div>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-capabilities-title">
+                <div class="stage-heading compact-heading">
+                  <span class="stage-kicker">WHAT THIS AGENT CAN DO</span>
+                  <h3 id="agent-capabilities-title">Capabilities</h3>
+                </div>
+                <label class="capability-choice">
+                  <input id="agent-edit-search" type="checkbox">
+                  <span><strong>Search the web with Brave</strong><small>The agent may propose a query. Every exact search still waits for your approval; the API key stays hidden.</small></span>
+                </label>
+                <label class="capability-choice">
+                  <input id="agent-edit-http-api" type="checkbox">
+                  <span><strong>Read configured APIs for active skills</strong><small>Generated skills may propose bounded GET requests. Every exact profile, path, query, and endpoint still waits for approval.</small></span>
+                </label>
+                <label class="capability-choice">
+                  <input id="agent-edit-workspace-read" type="checkbox">
+                  <span><strong>Read approved workspace files</strong><small>Grants catalog access only. Every exact path and file read still needs approval.</small></span>
+                </label>
+                <div class="form-row">
+                  <label>Maximum tool requests per run<input id="agent-edit-max-tools" type="number" min="0" max="32" required></label>
+                  <label>Active skill grants <span class="optional">one skill ID per line</span><textarea id="agent-edit-skill-grants" rows="3" placeholder="skill:csharp.review"></textarea></label>
+                </div>
+              </section>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-context-title">
+                <div class="stage-heading compact-heading">
+                  <span class="stage-kicker">LONG CONVERSATIONS</span>
+                  <h3 id="agent-context-title">Context and response size</h3>
+                </div>
+                <div class="context-capacity-summary">
+                  <span>Endpoint-discovered context</span>
+                  <strong id="agent-edit-context-discovered">Not discovered</strong>
+                  <small id="agent-edit-context-effective">Effective fallback: run input budget</small>
+                </div>
+                <div class="form-row">
+                  <label>Maximum response tokens<input id="agent-edit-max-output" type="number" min="256" max="262144" required></label>
+                  <label>Lower context limit <span class="optional">optional</span><input id="agent-edit-context-override" type="number" min="1" max="100000000" placeholder="Use discovered capacity"></label>
+                </div>
+                <div class="form-row">
+                  <label class="inline-check"><input id="agent-edit-context-compression" type="checkbox"> Compress older active context automatically</label>
+                  <label>Start compression at %<input id="agent-edit-context-threshold" type="number" min="50" max="95" required></label>
+                </div>
+                <p class="field-note">The full transcript remains durable. Only the active model context is compressed when it reaches your threshold.</p>
+              </section>
+
+              <section class="friendly-policy-section" aria-labelledby="agent-memory-title">
+                <div class="stage-heading compact-heading"><span class="stage-kicker">MEMORY &amp; LEARNING</span><h3 id="agent-memory-title">Retention and improvement</h3></div>
+                <div class="form-row">
+                  <label>Memory scope<select id="agent-edit-memory-scope"><option value="Task">Current task only</option><option value="Agent">This agent</option><option value="Operator">Operator</option></select></label>
+                  <label>Retention days<input id="agent-edit-retention" type="number" min="0" max="3650" step="1" required></label>
+                </div>
+                <div class="form-row">
+                  <label>Learning mode<select id="agent-edit-learning"><option value="Off">Off</option><option value="Observe">Observe only</option><option value="Propose">Propose improvements</option><option value="ScopedAuto">Scoped automatic canaries</option></select></label>
+                  <label>Mutable skill scope<select id="agent-edit-mutable-scope"><option value="None">None</option><option value="ProposalWorkspaceOnly">Proposal workspace only</option><option value="ApprovedSkillClasses">Approved skill classes</option></select></label>
+                </div>
+              </section>
+
+              <details class="policy-editor-group advanced-policy-group">
+                <summary>Advanced policy and budgets</summary>
+                <p class="field-note">These values are version-bound safety controls. The common capability switches above keep the raw grants synchronized.</p>
+                <div class="form-row three-column-row">
+                  <label>Max turns<input id="agent-edit-max-turns" type="number" min="1" max="1000" required></label>
+                  <label>Wall clock seconds<input id="agent-edit-max-wall" type="number" min="1" max="86400" required></label>
+                  <label>Input-token budget<input id="agent-edit-max-input" type="number" min="1" max="100000000" required></label>
+                </div>
+                <div class="form-row">
+                  <label>Primary provider<select id="agent-edit-provider" required></select></label>
+                  <label>Data locality<select id="agent-edit-locality"><option value="LocalOnly">Local only</option><option value="CloudAllowed">Cloud allowed</option></select></label>
+                </div>
+                <label class="inline-check"><input id="agent-edit-fallback" type="checkbox"> Allow model fallback</label>
+                <div class="form-row">
+                  <label>Network boundary<select id="agent-edit-network"><option value="Denied">No tool network</option><option value="LoopbackOnly">Loopback tools only</option><option value="ApprovedEndpointsOnly">Fixed approved endpoints</option></select></label>
+                  <label>Protect recent turns<input id="agent-edit-context-recent-turns" type="number" min="1" max="32" required></label>
+                </div>
+                <div class="form-row"><label>Compression target %<input id="agent-edit-context-target" type="number" min="10" max="75" required></label><label>Raw tool grants <span class="optional">one capability ID per line</span><textarea id="agent-edit-tool-grants" rows="3"></textarea></label></div>
+                <div class="form-row four-column-row">
+                  <label>Child depth<input id="agent-edit-child-depth" type="number" min="0" max="16" required></label>
+                  <label>Children<input id="agent-edit-children" type="number" min="0" max="100" required></label>
+                  <label>Concurrency<input id="agent-edit-child-concurrency" type="number" min="0" max="32" required></label>
+                  <label>Child tokens<input id="agent-edit-child-tokens" type="number" min="0" required></label>
+                </div>
+              </details>
+              <div class="stage-actions">
+                <button id="agent-profile-submit" class="setup-submit" type="submit">Review and save changes</button>
+              </div>
+            </form>
+
+            <form id="agent-model-form" class="setup-form agent-model-compact" autocomplete="off">
+              <details class="policy-editor-group">
+                <summary>Change pinned model</summary>
+                <p>The endpoint and credential stay unchanged. AgentForge discovers models and runs a bounded verification before saving.</p>
+                <div id="agent-provider-summary" class="policy-preview"></div>
+                <label>Available model<select id="agent-edit-model" required></select></label>
+                <div class="stage-actions">
+                  <button id="agent-discover-models" class="secondary-action" type="button">Refresh model list</button>
+                  <button class="setup-submit" type="submit">Review model change</button>
+                </div>
+              </details>
+            </form>
+          </div>
+          <div id="agent-edit-review" class="agent-edit-review" hidden>
+            <div>
+              <span class="stage-kicker">EXACT CHANGE PREVIEW</span>
+              <h3 id="agent-edit-review-title">Review changes</h3>
+              <p id="agent-edit-review-warning"></p>
+            </div>
+            <div id="agent-edit-changes" class="review-grid"></div>
+            <p id="agent-edit-preview-hash" class="resource-subtitle"></p>
+            <div class="stage-actions">
+              <button id="agent-edit-cancel" class="secondary-action" type="button">Discard preview</button>
+              <button id="agent-edit-apply" class="setup-submit" type="button">Apply exact preview</button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section id="runs" class="workspace-panel app-view" aria-labelledby="runs-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">DURABLE ORCHESTRATION</span>
+            <h2 id="runs-title">Runs</h2>
+            <p>Configure a bounded agent run, inspect its live answer, and manage durable receipts without turning history into an endless feed.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="runs">Reload runs</button>
+        </div>
+        <form id="run-form" class="run-composer" autocomplete="off">
+          <div class="run-primary-grid">
+            <label>Run title<input id="run-name" maxlength="120" placeholder="PowerShell script draft"></label>
+            <label>Agent<select id="run-agent" required></select></label>
+            <label>Response depth<select id="run-depth">
+              <option value="concise">Concise</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="detailed">Detailed</option>
+              <option value="extended">Extended</option>
+              <option value="maximum">Maximum</option>
+            </select></label>
+            <label>Output token limit<input id="run-token-limit" type="number" min="1" max="262144" step="1" value="2048" required></label>
+          </div>
+          <label class="run-prompt-label">Objective<textarea id="run-prompt" required maxlength="16384" rows="4" placeholder="Describe the result you want from this run."></textarea></label>
+          <details class="run-context" open>
+            <summary>System context, skills &amp; runtime boundaries</summary>
+            <div class="run-context-grid">
+              <label>Run-level guidance<textarea id="run-instructions" maxlength="2048" rows="4" placeholder="Optional tone, format, or constraints for this run."></textarea></label>
+              <div class="system-preview">
+                <span>Base agent system instruction</span>
+                <p id="run-system-preview">Choose an agent to inspect its immutable system context.</p>
+              </div>
+            </div>
+            <div class="run-options-row">
+              <fieldset class="skill-picker">
+                <legend>Approved skills</legend>
+                <div id="run-skills" class="skill-options"><span class="option-empty">Loading governed skill options…</span></div>
+              </fieldset>
+              <div class="runtime-boundaries">
+                <span>Runtime boundaries</span>
+                <p id="run-model-summary" class="run-model-summary">Loading the pinned model route…</p>
+                <div id="run-restrictions" class="boundary-grid"></div>
+              </div>
+            </div>
+            <div class="run-context-grid attached-context-grid">
+              <label>Memory retrieval <span class="field-note">Optional query against this agent's configured durable scope.</span><input id="run-memory-query" maxlength="256" placeholder="e.g. deployment preferences"></label>
+              <label>Approved research receipt <span class="field-note">Created in Context; citations are attached as untrusted data.</span><select id="run-research-receipt"><option value="">No research attached</option></select></label>
+            </div>
+          </details>
+          <div class="composer-actions">
+            <p>Prompts and responses are redacted, content-addressed, and stored as a durable conversation. Pinned system and skill context is hash-bound for restart safety.</p>
+            <button class="setup-submit" type="submit">Start run</button>
+          </div>
+        </form>
+        <div class="scope-notice"><strong>Governed local run</strong><span>Only the pinned model and granted skills enter the run context. Granted tools may propose exact actions, but AgentForge pauses before any network, file, or external effect until you approve it.</span></div>
+        <article id="run-output" class="interaction-output" aria-live="polite" hidden>
+          <div class="resource-title">
+            <h3>Agent response</h3>
+            <span id="run-output-state" class="state-chip running">Running</span>
+          </div>
+          <pre id="run-output-text"></pre>
+          <p id="run-output-meta" class="resource-subtitle"></p>
+          <div id="run-context-meter" class="context-meter" hidden>
+            <div><strong id="run-context-label">Context</strong><span id="run-context-value"></span></div>
+            <progress id="run-context-progress" max="100" value="0"></progress>
+            <small id="run-context-note"></small>
+          </div>
+          <section id="run-search-approval" class="run-search-approval" hidden>
+            <div class="resource-title">
+              <div><span class="stage-kicker">EXACT NETWORK APPROVAL</span><h3 id="run-tool-approval-title">Agent requests an external read</h3></div>
+              <span class="state-chip warning">Waiting</span>
+            </div>
+            <p id="run-search-query" class="search-request-query"></p>
+            <div id="run-search-preview" class="review-grid" hidden></div>
+            <code id="run-search-preview-hash" class="preview-hash" hidden></code>
+            <p id="run-search-warning" class="field-note">No network request has been made. Review the exact operation before deciding.</p>
+            <div class="resource-actions">
+              <button id="run-search-deny" class="secondary-action danger-action" type="button">Review denial</button>
+              <button id="run-search-approve" class="setup-submit" type="button">Review approval</button>
+              <button id="run-search-apply" class="setup-submit" type="button" hidden>Apply exact decision</button>
+            </div>
+          </section>
+          <div class="resource-actions">
+            <button id="cancel-interaction" class="secondary-action danger-action" type="button" hidden>Cancel interaction</button>
+          </div>
+        </article>
+        <section id="run-details" class="conversation-details" aria-labelledby="run-details-title" hidden>
+          <div class="resource-title">
+            <div>
+              <span class="stage-kicker">DURABLE CONVERSATION</span>
+              <h3 id="run-details-title">Run details</h3>
+            </div>
+            <button id="close-run-details" class="secondary-action" type="button">Close details</button>
+          </div>
+          <div id="run-details-meta" class="metadata-grid"></div>
+          <div id="run-transcript" class="run-transcript"></div>
+          <form id="run-continue-form" class="run-composer conversation-composer" autocomplete="off">
+            <label>Follow-up objective<textarea id="run-follow-up" maxlength="16384" rows="3" placeholder="Continue this conversation using its exact pinned context."></textarea></label>
+            <div class="run-primary-grid">
+              <label>Response depth<select id="run-follow-up-depth">
+                <option value="concise">Concise</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="detailed">Detailed</option>
+                <option value="extended">Extended</option>
+                <option value="maximum">Maximum</option>
+              </select></label>
+              <label>Output token limit<input id="run-follow-up-tokens" type="number" min="1" max="262144" step="1" value="2048" required></label>
+            </div>
+            <div class="composer-actions">
+              <p id="run-continue-help">A follow-up creates a new durable task and supplies bounded prior turns to the pinned model.</p>
+              <div class="resource-actions">
+                <button id="resume-run-turn" class="secondary-action" type="button" hidden>Resume interrupted turn</button>
+                <button id="continue-run" class="setup-submit" type="submit">Send follow-up</button>
+              </div>
+            </div>
+          </form>
+        </section>
+        <section class="run-history" aria-labelledby="run-history-title">
+          <div class="history-heading">
+            <div><span class="stage-kicker">DURABLE RECEIPTS</span><h3 id="run-history-title">Run history</h3></div>
+            <span id="run-history-count" class="history-count">0 runs</span>
+          </div>
+          <div class="history-toolbar">
+            <label>Search<input id="run-search" type="search" placeholder="Title, agent, or run ID"></label>
+            <label>Status<select id="run-state-filter">
+              <option value="all">All states</option>
+              <option value="active">Active only</option>
+              <option value="Completed">Completed</option>
+              <option value="Canceled">Canceled</option>
+              <option value="Failed">Failed</option>
+              <option value="NeedsResume">Needs resume</option>
+              <option value="Planned">Planned</option>
+            </select></label>
+            <label>Per page<select id="run-page-size">
+              <option value="5">5</option>
+              <option value="8" selected>8</option>
+              <option value="12">12</option>
+            </select></label>
+          </div>
+          <div id="runs-message" class="workspace-message" aria-live="polite">Open this page to load runs.</div>
+          <div id="run-list" class="resource-list run-history-list"></div>
+          <div class="pagination-bar">
+            <button id="run-page-previous" class="secondary-action" type="button">Previous</button>
+            <span id="run-page-summary">Page 1 of 1</span>
+            <button id="run-page-next" class="secondary-action" type="button">Next</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="schedules" class="workspace-panel app-view" aria-labelledby="schedules-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">DURABLE AUTOMATION</span>
+            <h2 id="schedules-title">Schedules</h2>
+            <p>Create an exact immutable run template, preview its recurrence, and execute it through the same pinned local-model lifecycle as an interactive run.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="schedules">Reload schedules</button>
+        </div>
+        <form id="schedule-form" class="run-composer" autocomplete="off">
+          <div class="run-primary-grid">
+            <label>Agent<select id="schedule-agent" required></select></label>
+            <label>Schedule name<input id="schedule-name" maxlength="120" required placeholder="Daily local review"></label>
+            <label>Response depth<select id="schedule-depth"><option value="concise">Concise</option><option value="balanced" selected>Balanced</option><option value="detailed">Detailed</option><option value="extended">Extended</option><option value="maximum">Maximum</option></select></label>
+            <label>Output token limit<input id="schedule-token-limit" type="number" min="1" max="262144" value="2048" required></label>
+          </div>
+          <label>Objective<textarea id="schedule-prompt" maxlength="16384" rows="4" required placeholder="Describe what the scheduled agent should produce."></textarea></label>
+          <label>Run-level guidance<textarea id="schedule-instructions" maxlength="2048" rows="3" placeholder="Optional output and verification constraints."></textarea></label>
+          <div class="run-primary-grid">
+            <label>Trigger<select id="schedule-trigger"><option value="Interval">Interval</option><option value="OneShot">One shot</option><option value="Cron">Cron</option><option value="Calendar">Calendar</option></select></label>
+            <label>Interval seconds<input id="schedule-interval" type="number" min="1" max="31536000" value="3600"></label>
+            <label>One-shot time<input id="schedule-one-shot" type="datetime-local"></label>
+            <label>Cron expression<input id="schedule-cron" maxlength="128" placeholder="0 9 * * 1-5"></label>
+            <label>Calendar hour<input id="schedule-hour" type="number" min="0" max="23" value="9"></label>
+            <label>Calendar minute<input id="schedule-minute" type="number" min="0" max="59" value="0"></label>
+            <label>Time zone<input id="schedule-timezone" maxlength="128" value="UTC" required></label>
+            <label>Overlap<select id="schedule-overlap"><option value="Skip">Skip</option><option value="Queue">Queue</option><option value="Parallel">Parallel</option></select></label>
+          </div>
+          <details class="run-context">
+            <summary>Failure, misfire &amp; expiration controls</summary>
+            <div class="run-primary-grid">
+              <label>Misfire<select id="schedule-misfire"><option value="Skip">Skip</option><option value="RunOnce">Run once</option><option value="CatchUp">Bounded catch-up</option></select></label>
+              <label>Grace seconds<input id="schedule-grace" type="number" min="0" max="31536000" value="60"></label>
+              <label>Maximum catch-up<input id="schedule-catchup" type="number" min="1" max="100" value="1"></label>
+              <label>Parallel runs<input id="schedule-parallel" type="number" min="1" max="32" value="1"></label>
+              <label>Jitter seconds<input id="schedule-jitter" type="number" min="0" max="86400" value="0"></label>
+              <label>Attempts<input id="schedule-attempts" type="number" min="1" max="100" value="2"></label>
+              <label>Retry delay seconds<input id="schedule-retry" type="number" min="0" max="86400" value="5"></label>
+              <label>Failure limit<input id="schedule-failure-limit" type="number" min="1" max="1000" value="5"></label>
+            </div>
+          </details>
+          <div class="composer-actions">
+            <p>Agent, provider, policy, budget, skills, prompt, and recurrence are pinned. Later edits never silently alter this schedule.</p>
+            <button class="setup-submit" type="submit">Preview exact schedule</button>
+          </div>
+        </form>
+        <form id="schedule-review" class="run-composer learning-gate-form" hidden>
+          <div class="workspace-subheading compact-heading"><div><span class="stage-kicker">EXACT SCHEDULE PREVIEW</span><h3>Review immutable automation</h3></div><button id="schedule-review-close" class="secondary-action" type="button">Discard</button></div>
+          <div id="schedule-preview-details" class="review-grid"></div>
+          <code id="schedule-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions"><p>The approved hash is single-session and changing any field requires another preview.</p><button id="schedule-apply" class="setup-submit" type="submit">Create schedule</button></div>
+        </form>
+        <div id="schedules-message" class="workspace-message" aria-live="polite">Open this page to load schedules.</div>
+        <div id="schedule-list" class="resource-list"></div>
+      </section>
+
+      <section id="context" class="workspace-panel app-view" aria-labelledby="context-title" hidden>
+        <div class="workspace-heading">
+          <div><span class="stage-kicker">SCOPED KNOWLEDGE</span><h2 id="context-title">Memory &amp; research</h2><p>Curate durable scoped memory and acquire cited research through an exact operator approval before attaching either to a run.</p></div>
+          <button class="secondary-action" type="button" data-reload="context">Reload context</button>
+        </div>
+        <div class="context-columns">
+          <section class="context-card" aria-labelledby="memory-title">
+            <span class="stage-kicker">DURABLE MEMORY</span><h3 id="memory-title">Agent memory</h3>
+            <form id="memory-search-form" class="run-composer compact-composer">
+              <label>Agent<select id="memory-agent" required></select></label>
+              <label>Search scoped memory<input id="memory-query" maxlength="256" required placeholder="Search facts or procedures"></label>
+              <button class="secondary-action" type="submit">Search memory</button>
+            </form>
+            <form id="memory-create-form" class="run-composer compact-composer">
+              <div class="run-primary-grid"><label>Kind<select id="memory-kind"><option value="User">User fact</option><option value="Procedural">Procedure</option></select></label><label>Retention days<input id="memory-retention" type="number" min="1" max="3650" value="30"></label></div>
+              <label class="gate-check"><input id="memory-correction" type="checkbox"> This corrects prior behavior or knowledge</label>
+              <label>Content<textarea id="memory-content" maxlength="65536" rows="4" required placeholder="A durable fact or bounded procedure."></textarea></label>
+              <button class="setup-submit" type="submit">Save scoped memory</button>
+            </form>
+            <div id="memory-message" class="workspace-message" aria-live="polite">Choose an agent and search its configured scope.</div>
+            <div id="memory-list" class="resource-list"></div>
+          </section>
+          <section class="context-card" aria-labelledby="research-title">
+            <span class="stage-kicker">CITED RESEARCH</span><h3 id="research-title">Approved search</h3>
+            <article class="integration-config" aria-labelledby="brave-config-title">
+              <div class="resource-title">
+                <div><span class="stage-kicker">CORE RESEARCH SKILL</span><h4 id="brave-config-title">Brave Search API</h4></div>
+                <span id="brave-config-state" class="state-chip">NOT CONFIGURED</span>
+              </div>
+              <p id="brave-config-summary" class="resource-description">Add a write-only API key to enable cited web research.</p>
+              <form id="brave-config-form" class="run-composer compact-composer integration-form" autocomplete="off">
+                <label class="gate-check integration-toggle"><input id="brave-config-enabled" type="checkbox" checked><span><strong>Enable Brave Search</strong><small>Make this provider available for explicitly approved research.</small></span></label>
+                <label>API key <span class="field-note">Required initially; leave blank to retain the protected current key.</span><input id="brave-config-key" type="password" maxlength="512" autocomplete="new-password" placeholder="Write-only Brave subscription token"></label>
+                <div class="form-row integration-settings-grid">
+                  <label>Safe search<select id="brave-config-safe"><option value="Moderate">Moderate</option><option value="Strict">Strict</option><option value="Off">Off</option></select></label>
+                  <label>Country <span class="field-note">Optional two-letter ISO code</span><input id="brave-config-country" maxlength="2" placeholder="US"></label>
+                </div>
+                <label>Search language <span class="field-note">Language code used to rank results</span><input id="brave-config-language" maxlength="16" value="en" required></label>
+                <div class="composer-actions integration-actions">
+                  <p>The endpoint and supplied credential will be verified before an exact configuration preview is created.</p>
+                  <button id="brave-config-preview" class="setup-submit" type="submit">Verify and preview</button>
+                </div>
+              </form>
+              <form id="brave-config-review" class="run-composer compact-composer integration-form" hidden>
+                <div id="brave-config-details" class="review-grid"></div>
+                <code id="brave-config-preview-hash" class="preview-hash"></code>
+                <div class="resource-actions"><button id="brave-config-discard" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Apply Brave configuration</button></div>
+              </form>
+              <div id="brave-config-message" class="workspace-message" aria-live="polite">The API key is stored only through the operating-system secret adapter.</div>
+            </article>
+            <form id="research-form" class="run-composer compact-composer">
+              <label>Agent<select id="research-agent" required></select></label>
+              <label>Query<input id="research-query" maxlength="512" required placeholder="What should the configured providers research?"></label>
+              <label>Maximum results<input id="research-limit" type="number" min="1" max="20" value="5"></label>
+              <fieldset class="skill-picker"><legend>Available providers</legend><div id="research-providers" class="skill-options"><span class="option-empty">Loading providers…</span></div></fieldset>
+              <button class="setup-submit" type="submit">Preview exact research</button>
+            </form>
+            <form id="research-review" class="run-composer compact-composer" hidden>
+              <div id="research-preview-details" class="review-grid"></div>
+              <code id="research-preview-hash" class="preview-hash"></code>
+              <div class="resource-actions"><button id="research-review-close" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Run approved search</button></div>
+            </form>
+            <div id="research-message" class="workspace-message" aria-live="polite">No research has run in this session.</div>
+            <div id="research-results" class="resource-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="skills" class="workspace-panel app-view" aria-labelledby="skills-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">GOVERNED CAPABILITIES</span>
+            <h2 id="skills-title">Skills</h2>
+            <p>Install immutable packages, run the governed activation lifecycle, and grant exact active skills to individual agents.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="skills">Reload skills</button>
+        </div>
+        <div class="skill-starter-grid">
+          <div class="skill-starter">
+            <div><strong>C# review starter</strong><span>Portable SKILL.md package · immutable hash · declared repository-read authority</span></div>
+            <button id="install-seed-skill" class="setup-submit" type="button">Install starter skill</button>
+          </div>
+          <div class="skill-starter">
+            <div><strong>Build an API skill with your agent</strong><span>Classify a missing capability, let the pinned local model author it, then evaluate and promote it here.</span></div>
+            <a class="setup-submit" href="#learning">Open AI skill builder</a>
+          </div>
+        </div>
+        <article class="integration-config" aria-labelledby="http-api-config-title">
+          <div class="resource-title">
+            <div><span class="stage-kicker">GENERATED-SKILL CONNECTION</span><h3 id="http-api-config-title">Bearer-authenticated HTTP API</h3></div>
+            <span id="http-api-config-state" class="state-chip">NOT CONFIGURED</span>
+          </div>
+          <p id="http-api-config-summary" class="resource-description">Create a named HTTPS profile for an AI-generated skill. The bearer token is write-only and never enters model or skill context.</p>
+          <form id="http-api-config-form" class="run-composer compact-composer integration-form" autocomplete="off">
+            <label class="gate-check integration-toggle"><input id="http-api-config-enabled" type="checkbox" checked><span><strong>Enable this API profile</strong><small>Availability still requires an active generated skill, agent tool grant, and exact per-call approval.</small></span></label>
+            <div class="form-row">
+              <label>Profile ID<input id="http-api-profile-id" maxlength="64" value="microsoft-partner-center" required></label>
+              <label>Display name<input id="http-api-display-name" maxlength="128" value="Microsoft Partner Center" required></label>
+            </div>
+            <label>HTTPS base endpoint<input id="http-api-base-endpoint" type="url" maxlength="2048" value="https://api.partnercenter.microsoft.com/v1/" required></label>
+            <label>Verification path <span class="field-note">One relative GET used only during preview/apply.</span><input id="http-api-probe-path" maxlength="2048" value="customers?size=1" required></label>
+            <label>Static request headers <span class="field-note">One non-secret <code>Name: value</code> per line. Use <code>{correlationId}</code> and <code>{requestId}</code> for per-call IDs. Authorization and transport headers are rejected.</span><textarea id="http-api-static-headers" rows="4" maxlength="8192">MS-CorrelationId: {correlationId}
+MS-RequestId: {requestId}</textarea></label>
+            <label>Bearer token <span class="field-note">Required initially; leave blank to retain the protected current token during later edits.</span><input id="http-api-bearer-token" type="password" maxlength="32768" autocomplete="new-password" placeholder="Write-only bearer token"></label>
+            <div class="composer-actions integration-actions"><p>Verification performs one bounded GET before creating an exact, hash-bound profile preview.</p><button class="setup-submit" type="submit">Verify and preview</button></div>
+          </form>
+          <form id="http-api-config-review" class="run-composer compact-composer integration-form" hidden>
+            <div id="http-api-config-details" class="review-grid"></div>
+            <code id="http-api-config-preview-hash" class="preview-hash"></code>
+            <div class="resource-actions"><button id="http-api-config-discard" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Apply API profile</button></div>
+          </form>
+          <div id="http-api-config-message" class="workspace-message" aria-live="polite">Bearer tokens are stored only through the operating-system secret adapter.</div>
+        </article>
+        <div class="scope-notice"><strong>Governed by default</strong><span>Installation validates and records the package. Activation still requires the evaluation, approval, and canary promotion lifecycle.</span></div>
+        <div id="skills-message" class="workspace-message" aria-live="polite">Open this page to load skills.</div>
+        <div id="skill-list" class="resource-list"></div>
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">ACTIVATION GOVERNANCE</span><h3>Promotion queue</h3><p>Evaluation, separate approval, canary, promotion, and rollback remain version-bound and audited.</p></div>
+        </div>
+        <div id="skill-proposal-list" class="resource-list learning-list"></div>
+        <form id="skill-gate-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">ACTIVATION GATE</span><h3 id="skill-gate-title">Review skill</h3><p id="skill-gate-source"></p></div>
+            <button id="skill-gate-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div id="skill-gate-fields"></div>
+          <div class="composer-actions">
+            <p id="skill-gate-explanation">Each transition is bound to the exact candidate, baseline, version, and evidence hash.</p>
+            <button id="submit-skill-gate" class="setup-submit" type="submit">Record gate</button>
+          </div>
+        </form>
+        <form id="skill-grant-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">EXACT AGENT AUTHORITY</span><h3 id="skill-grant-title">Review grant</h3><p id="skill-grant-source"></p></div>
+            <button id="skill-grant-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="skill-grant-changes" class="review-grid"></div>
+          <p id="skill-grant-warning" class="review-warning"></p>
+          <code id="skill-grant-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>Granting a skill authorizes immutable instructions only. It does not grant tools, files, external network, messaging, devices, or credentials.</p>
+            <button id="apply-skill-grant" class="setup-submit" type="submit">Apply exact grant</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="tools" class="workspace-panel app-view" aria-labelledby="tools-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">EXACT CAPABILITIES</span>
+            <h2 id="tools-title">Tools and approvals</h2>
+            <p>Grant catalog visibility to an agent, then review every exact target and parameter set before one bounded execution.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="tools">Reload tools</button>
+        </div>
+        <div class="scope-notice"><strong>No unrestricted shell</strong><span>The initial tools are managed, read-only workspace handlers. They start no process, inherit no environment, use no network, reject links, and persist only hashes and lengths.</span></div>
+        <div id="tools-message" class="workspace-message" aria-live="polite">Open this page to load the authoritative tool catalog.</div>
+        <div id="tool-list" class="resource-list"></div>
+
+        <form id="tool-grant-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">AGENT TOOL POLICY</span><h3 id="tool-grant-title">Review capability grant</h3><p id="tool-grant-source"></p></div>
+            <button id="tool-grant-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="tool-grant-changes" class="review-grid"></div>
+          <p id="tool-grant-warning" class="review-warning"></p>
+          <code id="tool-grant-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>A catalog grant never executes a tool. Invocation approval remains exact, expiring, and single-use.</p>
+            <button id="apply-tool-grant" class="setup-submit" type="submit">Apply exact policy change</button>
+          </div>
+        </form>
+
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">ONE BOUNDED EXECUTION</span><h3>Prepare a tool request</h3><p>The review is bound to the current installation and agent versions, immutable descriptor hash, canonical parameters, target, and workspace.</p></div>
+        </div>
+        <form id="tool-invocation-form" class="run-composer" autocomplete="off">
+          <div class="learning-primary-grid">
+            <label>Agent<select id="tool-agent" required></select></label>
+            <label>Tool<select id="tool-selector" required></select></label>
+            <label>Decision<select id="tool-disposition" required><option value="grant">Approve one execution</option><option value="deny">Record exact denial</option></select></label>
+          </div>
+          <label>Workspace<input id="tool-workspace" maxlength="2048" required placeholder="Absolute workspace directory"></label>
+          <div id="tool-parameter-fields" class="learning-proposal-grid"></div>
+          <div class="composer-actions">
+            <p id="tool-request-summary">Select a granted tool. Exact path containment is verified again immediately before execution.</p>
+            <button id="preview-tool-invocation" class="setup-submit" type="submit">Review exact request</button>
+          </div>
+        </form>
+
+        <form id="tool-approval-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">SINGLE-USE APPROVAL</span><h3 id="tool-approval-title">Review exact execution</h3><p id="tool-approval-source"></p></div>
+            <button id="tool-approval-close" class="secondary-action" type="button">Discard</button>
+          </div>
+          <div id="tool-approval-details" class="review-grid"></div>
+          <p id="tool-approval-warning" class="review-warning"></p>
+          <code id="tool-approval-preview-hash" class="preview-hash"></code>
+          <div class="composer-actions">
+            <p>Changing any displayed value invalidates this preview. An approval is consumed before the handler starts and cannot be replayed.</p>
+            <button id="apply-tool-invocation" class="setup-submit" type="submit">Approve and run once</button>
+          </div>
+        </form>
+        <article id="tool-output" class="run-output" hidden>
+          <div class="resource-title"><h3>Tool result</h3><span id="tool-output-state" class="state-chip"></span></div>
+          <pre id="tool-output-text"></pre>
+          <p id="tool-output-meta" class="resource-subtitle"></p>
+        </article>
+      </section>
+
+      <section id="learning" class="workspace-panel app-view" aria-labelledby="learning-title" hidden>
+        <div class="workspace-heading">
+          <div>
+            <span class="stage-kicker">RECURSIVE LEARNING</span>
+            <h2 id="learning-title">Learning inbox</h2>
+            <p>Capture operator feedback against exact durable run evidence and let the deterministic classifier decide what may proceed.</p>
+          </div>
+          <button class="secondary-action" type="button" data-reload="learning">Reload evidence</button>
+        </div>
+        <form id="learning-form" class="run-composer learning-form" autocomplete="off">
+          <div class="learning-primary-grid">
+            <label>Source run<select id="learning-source-run" required></select></label>
+            <label>Evidence kind<select id="learning-kind" required>
+              <option value="Correction">Correction</option>
+              <option value="SuccessfulProcedure">Successful procedure</option>
+              <option value="Recovery">Recovery</option>
+              <option value="MissingCapability">Missing capability</option>
+            </select></label>
+            <label>Observed occurrences<input id="learning-occurrences" type="number" min="1" max="1000000" value="1" required></label>
+          </div>
+          <label>Redacted evidence summary<textarea id="learning-summary" maxlength="4096" rows="5" required placeholder="Describe the correction, reusable success, recovery, or missing capability. Do not include credentials or private data."></textarea></label>
+          <div class="composer-actions">
+            <p>The source receipt hash, not prompt or model output, becomes immutable evidence. Classification never changes policy or creates a skill by itself.</p>
+            <button id="capture-learning" class="setup-submit" type="submit">Classify evidence</button>
+          </div>
+        </form>
+        <div class="scope-notice"><strong>Evidence before authority</strong><span>Corrections without exact skill-usage authority become memory. New-skill classifications still require an isolated proposal workspace, five separated roles, evaluation, critique, approval, canary, and rollback evidence.</span></div>
+        <div id="learning-message" class="workspace-message" aria-live="polite">Open this page to load classified evidence.</div>
+        <div class="workspace-subheading">
+          <div><span class="stage-kicker">CLASSIFIED EVIDENCE</span><h3>Signals</h3></div>
+        </div>
+        <div id="learning-list" class="resource-list learning-list"></div>
+        <form id="learning-proposal-form" class="run-composer learning-proposal-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div>
+              <span class="stage-kicker">LOCAL MODEL · ISOLATED PROPOSAL</span>
+              <h3 id="learning-proposal-title">Generate candidate skill</h3>
+              <p id="learning-proposal-source"></p>
+            </div>
+            <button id="learning-proposal-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div class="learning-proposal-grid">
+            <label>Skill ID<input id="learning-proposal-skill-id" maxlength="256" required placeholder="skill:proposal.example"></label>
+            <label>Candidate version<input id="learning-proposal-version" maxlength="64" value="0.1.0" required></label>
+          </div>
+          <label>Description<textarea id="learning-proposal-description" maxlength="512" rows="3" required></textarea></label>
+          <label>Generation guidance <span class="field-note">Optional instructions from you; source evidence remains untrusted data.</span><textarea id="learning-proposal-guidance" maxlength="2048" rows="4" placeholder="Emphasize the bounded procedure, observable checks, and failure handling."></textarea></label>
+          <label>Declared read-only permissions <span class="field-note">Comma-separated declarations are not grants. Unknown or wider forms fail automatic evaluation.</span><input id="learning-proposal-permissions" maxlength="2048" placeholder="Leave empty, or use a bounded form such as repository:read"></label>
+          <label class="check-field"><input id="learning-proposal-http-api" type="checkbox"><span><strong>Require configured HTTP API reads</strong><small>Adds the generic <code>tool:http-api.get</code> requirement. The model may describe its use, but the skill receives no credential or authority.</small></span></label>
+          <div class="composer-actions">
+            <p>The source run's current agent calls only its pinned private model with zero tools. AgentForge accepts strict generated JSON, stores an immutable provenance receipt, and grants no authority.</p>
+            <button id="create-learning-proposal" class="setup-submit" type="submit">Generate inert candidate</button>
+          </div>
+        </form>
+        <div class="workspace-subheading learning-candidate-heading">
+          <div><span class="stage-kicker">GOVERNED CANDIDATES</span><h3>Proposal queue</h3><p>Immutable candidate packages awaiting independent evidence and approval.</p></div>
+        </div>
+        <div id="learning-candidate-list" class="resource-list learning-list"></div>
+        <form id="learning-gate-form" class="run-composer learning-gate-form" autocomplete="off" hidden>
+          <div class="workspace-subheading compact-heading">
+            <div><span class="stage-kicker">INDEPENDENT GATE</span><h3 id="learning-gate-title">Review candidate</h3><p id="learning-gate-source"></p></div>
+            <button id="learning-gate-close" class="secondary-action" type="button">Cancel</button>
+          </div>
+          <div id="learning-gate-fields"></div>
+          <div class="composer-actions">
+            <p id="learning-gate-explanation">Every transition is version-bound, role-separated, audited, and incapable of silently skipping a gate.</p>
+            <button id="submit-learning-gate" class="setup-submit" type="submit">Record gate</button>
+          </div>
         </form>
       </section>
 

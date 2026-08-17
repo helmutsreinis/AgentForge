@@ -1,4 +1,5 @@
 using AgentForge.Abstractions.Search;
+using AgentForge.Abstractions.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -10,7 +11,11 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton<IResearchCache, InMemoryResearchCache>();
+        services.AddScoped<IBraveSearchConnectivityProbe, BraveSearchConnectivityProbe>();
+        services.AddScoped<IBraveSearchProviderConfigurationService, BraveSearchProviderConfigurationService>();
+        services.AddScoped<ISearchProvider, ManagedBraveSearchProvider>();
         services.AddScoped<IResearchService, ResearchService>();
+        services.AddScoped<IBuiltInToolHandler, BraveSearchBuiltInToolHandler>();
         return services;
     }
 }

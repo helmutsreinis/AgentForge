@@ -41,6 +41,36 @@ public sealed record ProviderEditResult(
     IReadOnlyList<SetupProfileChange> Changes,
     string RequestHash);
 
+public sealed record PreviewProviderCreateRequest(
+    long ExpectedInstallationVersion,
+    ProviderProfileCandidate Candidate,
+    ReadOnlyMemory<char> ProviderCredential,
+    ActorId ActorId,
+    CorrelationId CorrelationId,
+    ReadOnlyMemory<char> AdministratorCredential);
+
+public sealed record ProviderCreatePreview(
+    ProviderProfileCandidate Effective,
+    ProviderCapabilitySummary Capabilities,
+    bool UsesCredential,
+    IReadOnlyList<SetupProfileChange> Changes,
+    string RequestHash);
+
+public sealed record ApplyProviderCreateRequest(
+    long ExpectedInstallationVersion,
+    ProviderProfileCandidate Candidate,
+    ReadOnlyMemory<char> ProviderCredential,
+    string ExpectedRequestHash,
+    ActorId ActorId,
+    CorrelationId CorrelationId,
+    ReadOnlyMemory<char> AdministratorCredential);
+
+public sealed record ProviderCreateResult(
+    InstallationSnapshot Installation,
+    ProviderProfile Provider,
+    IReadOnlyList<SetupProfileChange> Changes,
+    string RequestHash);
+
 public sealed record PreviewAgentEditRequest(
     AgentIdentityId AgentIdentityId,
     long ExpectedInstallationVersion,
@@ -67,6 +97,35 @@ public sealed record ApplyAgentEditRequest(
     ReadOnlyMemory<char> AdministratorCredential);
 
 public sealed record AgentEditResult(
+    InstallationSnapshot Installation,
+    AgentIdentity Agent,
+    EffectiveAgentDefinition Effective,
+    IReadOnlyList<SetupProfileChange> Changes,
+    string RequestHash);
+
+public sealed record PreviewAgentCreateRequest(
+    long ExpectedInstallationVersion,
+    long ExpectedProviderVersion,
+    AgentIdentityCandidate Candidate,
+    ActorId ActorId,
+    CorrelationId CorrelationId,
+    ReadOnlyMemory<char> AdministratorCredential);
+
+public sealed record AgentCreatePreview(
+    EffectiveAgentDefinition Effective,
+    IReadOnlyList<SetupProfileChange> Changes,
+    string RequestHash);
+
+public sealed record ApplyAgentCreateRequest(
+    long ExpectedInstallationVersion,
+    long ExpectedProviderVersion,
+    AgentIdentityCandidate Candidate,
+    string ExpectedRequestHash,
+    ActorId ActorId,
+    CorrelationId CorrelationId,
+    ReadOnlyMemory<char> AdministratorCredential);
+
+public sealed record AgentCreateResult(
     InstallationSnapshot Installation,
     AgentIdentity Agent,
     EffectiveAgentDefinition Effective,

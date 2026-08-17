@@ -64,7 +64,8 @@ public sealed class HostReadinessTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
         Assert.Contains("AgentForge · Local control plane", body, StringComparison.Ordinal);
-        Assert.Contains("Secure first-run setup", body, StringComparison.Ordinal);
+        Assert.Contains("Connect your first agent", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Setup nonce", body, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("<form", body, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("type=\"password\"", body, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());

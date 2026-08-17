@@ -1,6 +1,9 @@
+using AgentForge.Domain.Agents;
 using AgentForge.Domain.Artifacts;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Models;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Providers;
 using AgentForge.Domain.Skills;
 
 namespace AgentForge.Abstractions.Learning;
@@ -16,6 +19,11 @@ public interface ILearningRepository
         LearningSignalId id,
         CancellationToken cancellationToken);
 
+    ValueTask<IReadOnlyList<(LearningSignal Signal, LearningClassification Classification)>> ListSignalsAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken);
+
     ValueTask AppendCandidateAsync(
         LearningCandidate candidate,
         long? expectedVersion,
@@ -23,6 +31,11 @@ public interface ILearningRepository
 
     ValueTask<LearningCandidate?> FindLatestCandidateAsync(
         LearningCandidateId id,
+        CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<LearningCandidate>> ListCandidatesAsync(
+        InstallationId installationId,
+        int maximumResults,
         CancellationToken cancellationToken);
 
     ValueTask AddBundleAsync(SkillBundleDefinition bundle, CancellationToken cancellationToken);
@@ -63,7 +76,86 @@ public sealed record ProposeLearningCandidateRequest(
     SkillId SkillId,
     SkillVersion CandidateVersion,
     ArtifactReference ProposalWorkspace,
-    LearningRoleAssignments Roles);
+    LearningRoleAssignments Roles,
+    SkillCandidateGenerationEvidence? GenerationEvidence = null);
+
+public sealed record ProposeNewSkillFromSignalRequest(
+    LearningCandidateId CandidateId,
+    SkillProposalId SkillProposalId,
+    LearningSignalId SignalId,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    string Description,
+    IReadOnlyList<string> RequestedPermissions,
+    LearningRoleAssignments Roles,
+    string? GeneratedMarkdown = null,
+    SkillCandidateGenerationEvidence? GenerationEvidence = null,
+    IReadOnlyList<string>? RequiredTools = null);
+
+public sealed record SkillCandidateGenerationEvidence(
+    int SchemaVersion,
+    LearningCandidateId CandidateId,
+    LearningSignalId SignalId,
+    string SignalHash,
+    string SourceEvidenceHash,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    AgentIdentityId AgentId,
+    long AgentVersion,
+    ProviderProfileId ProviderId,
+    long ProviderVersion,
+    string Model,
+    ModelRequestId ModelRequestId,
+    string ModelEvidenceHash,
+    string RawResponseHash,
+    string SelectedMarkdownHash,
+    string GenerationRequestHash,
+    int ContextRedactionCount,
+    string FinishReason,
+    IReadOnlyList<string>? RequiredTools = null);
+
+public sealed record GenerateNewSkillFromSignalRequest(
+    LearningCandidateId CandidateId,
+    SkillProposalId SkillProposalId,
+    LearningSignalId SignalId,
+    SkillId SkillId,
+    SkillVersion CandidateVersion,
+    string Description,
+    IReadOnlyList<string> RequestedPermissions,
+    LearningRoleAssignments Roles,
+    AgentIdentityId AgentId,
+    string? OperatorGuidance,
+    IReadOnlyList<string>? RequiredTools = null);
+
+public sealed record GenerateNewSkillFromSignalResult(
+    LearningCandidate Candidate,
+    SkillCandidateGenerationEvidence Evidence,
+    bool WasReplay);
+
+public sealed record ProposeNewSkillFromSignalResult(
+    LearningCandidate Candidate,
+    bool WasReplay);
+
+public sealed record LearningEvaluationCheck(
+    string Code,
+    bool Passed,
+    string Summary);
+
+public sealed record AutomatedLearningEvaluationReceipt(
+    LearningCandidateId CandidateId,
+    long CandidateVersion,
+    string CandidateSnapshotHash,
+    string CandidatePackageHash,
+    string ProposalWorkspaceHash,
+    string Evaluator,
+    IReadOnlyList<LearningEvaluationCheck> Checks,
+    LearningCandidateEvaluation Evaluation,
+    ArtifactReference Evidence);
+
+public sealed record AutomatedLearningEvaluationResult(
+    LearningCandidate Candidate,
+    AutomatedLearningEvaluationReceipt Receipt,
+    bool WasReplay);
 
 public sealed record SynthesizeSkillBundleRequest(
     SkillBundleProposalId ProposalId,
@@ -160,5 +252,27 @@ public interface ILearningGovernanceService
         SkillBundleProposalId id,
         long expectedVersion,
         ActorId governor,
+        CancellationToken cancellationToken);
+}
+
+public interface ILearningCandidateProposalService
+{
+    Task<DomainResult<ProposeNewSkillFromSignalResult>> ProposeNewSkillAsync(
+        ProposeNewSkillFromSignalRequest request,
+        CancellationToken cancellationToken);
+}
+
+public interface ILearningCandidateEvaluator
+{
+    Task<DomainResult<AutomatedLearningEvaluationResult>> EvaluateAsync(
+        LearningCandidateId candidateId,
+        long expectedVersion,
+        CancellationToken cancellationToken);
+}
+
+public interface ILocalModelSkillCandidateGenerator
+{
+    Task<DomainResult<GenerateNewSkillFromSignalResult>> GenerateAsync(
+        GenerateNewSkillFromSignalRequest request,
         CancellationToken cancellationToken);
 }

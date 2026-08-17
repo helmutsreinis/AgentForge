@@ -12,6 +12,7 @@ using AgentForge.Environment;
 using AgentForge.Host.Health;
 using AgentForge.Host.Http;
 using AgentForge.Host.Setup;
+using AgentForge.HttpApi;
 using AgentForge.Learning;
 using AgentForge.Mcp;
 using AgentForge.Memory;
@@ -26,6 +27,7 @@ using AgentForge.Setup;
 using AgentForge.Skills;
 using AgentForge.Tools;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
@@ -44,6 +46,15 @@ builder.WebHost.UseUrls(string.IsNullOrWhiteSpace(configuredUrls)
     : configuredUrls);
 
 builder.Services.AddProblemDetails();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(System.Net.IPAddress.Loopback);
+    options.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+});
 builder.Services.AddSingleton<IValidateOptions<HostSecurityOptions>, HostSecurityOptionsValidator>();
 builder.Services.AddOptions<HostSecurityOptions>()
     .Bind(builder.Configuration.GetSection(HostSecurityOptions.SectionName))
@@ -78,6 +89,7 @@ builder.Services.AddAgentForgeCoding();
 builder.Services.AddAgentForgeChannels();
 builder.Services.AddAgentForgeDevices();
 builder.Services.AddAgentForgeEnvironment(builder.Configuration);
+builder.Services.AddAgentForgeHttpApi();
 builder.Services.AddAgentForgeTools(builder.Configuration);
 builder.Services.AddAgentForgeModels();
 builder.Services.AddAgentForgeMemory();
@@ -89,6 +101,8 @@ builder.Services.AddAgentForgeSearch();
 builder.Services.AddSingleton<CorrelationContext>();
 builder.Services.AddSingleton<ICorrelationContext>(services => services.GetRequiredService<CorrelationContext>());
 builder.Services.AddSingleton<WebSetupSessionManager>();
+builder.Services.AddSingleton<ReadyAdminSessionManager>();
+builder.Services.AddSingleton<ReadyActiveInteractionRegistry>();
 builder.Services.AddHealthChecks()
     .AddCheck<InstallationReadinessHealthCheck>("installation", tags: ["ready"]);
 
@@ -100,6 +114,7 @@ await using (var initializationScope = app.Services.CreateAsyncScope())
     await databaseInitializer.InitializeAsync(CancellationToken.None);
 }
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RemoteAccessMiddleware>();
@@ -246,6 +261,7 @@ app.MapGet("/api/v1/runtime/ping", async (
 });
 
 app.MapAgentForgeWebSetup();
+app.MapReadyAdminApi();
 app.MapProductionApi();
 app.MapMcp("/mcp")
     .RequireCors("mcp-browser")

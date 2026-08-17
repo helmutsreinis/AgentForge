@@ -219,14 +219,26 @@ public sealed class ProductionApiTests : IDisposable
         Assert.Contains("explicit remote mode", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Remote_binding_without_a_bounded_access_code_fails_startup_validation()
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["AgentForge:Installation:DataDirectory"] = Path.Combine(_directory, "remote-no-code"),
+                    ["AgentForge:Host:Urls"] = "https://0.0.0.0:5443",
+                    ["AgentForge:Host:RemoteEnabled"] = "true",
+                    ["AgentForge:Host:AllowedOrigins:0"] = "https://192.168.1.100:5443",
+                    ["AgentForge:Host:RemoteAccessCode"] = "short",
+                })));
+        var exception = Assert.Throws<OptionsValidationException>(() => factory.CreateClient());
+        Assert.Contains("access code", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<(Guid InstallationId, Guid AgentId, string Credential)> CompleteSetupAsync(HttpClient client)
     {
-        using var nonceResponse = await client.GetAsync("/api/v1/setup/web/nonce");
-        using var nonceJson = JsonDocument.Parse(await nonceResponse.Content.ReadAsByteArrayAsync());
-        using var session = await client.PostAsJsonAsync("/api/v1/setup/web/session", new
-        {
-            nonce = nonceJson.RootElement.GetProperty("nonce").GetString(),
-        });
+        using var session = await client.PostAsJsonAsync("/api/v1/setup/web/session", new { });
         using var sessionJson = JsonDocument.Parse(await session.Content.ReadAsByteArrayAsync());
         var csrf = sessionJson.RootElement.GetProperty("csrfToken").GetString()!;
         using var begin = await WebMutationAsync(client, "/api/v1/setup/web/begin", "begin", csrf, new { });

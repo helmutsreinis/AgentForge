@@ -58,6 +58,34 @@ internal sealed class SqliteTaskSnapshotStore(AgentForgeDbContext dbContext) : I
         return entities.Select(Map).ToArray();
     }
 
+    public async ValueTask<IReadOnlyList<OrchestrationTaskSnapshot>> ListLatestAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken)
+    {
+        if (installationId.Value == Guid.Empty || maximumResults is < 1 or > 500)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumResults),
+                "A valid installation and one to 500 latest snapshots are required.");
+        }
+
+        var latestVersions = dbContext.OrchestrationTaskSnapshots.AsNoTracking()
+            .Where(item => item.InstallationId == installationId.Value)
+            .GroupBy(item => item.TaskId)
+            .Select(group => new { TaskId = group.Key, Version = group.Max(item => item.Version) });
+        var entities = await dbContext.OrchestrationTaskSnapshots.AsNoTracking()
+            .Join(
+                latestVersions,
+                item => new { item.TaskId, item.Version },
+                latest => new { latest.TaskId, latest.Version },
+                (item, _) => item)
+            .OrderByDescending(item => item.UpdatedAtUtcTicks)
+            .ThenBy(item => item.TaskId)
+            .Take(maximumResults)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(Map).ToArray();
+    }
+
     private static OrchestrationTaskSnapshotEntity Map(OrchestrationTaskSnapshot snapshot) => new()
     {
         TaskId = snapshot.Definition.Id.Value,

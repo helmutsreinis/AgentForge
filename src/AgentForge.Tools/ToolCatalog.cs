@@ -126,6 +126,9 @@ public sealed class ToolCatalog : IToolCatalog
             !IsBoundedText(definition.Description, 4096) || !IsCatalogId(definition.CapabilityId) ||
             !Enum.IsDefined(definition.RiskClass) || !Enum.IsDefined(definition.TargetKind) ||
             !Enum.IsDefined(definition.OutputSensitivity) || !Enum.IsDefined(definition.OperationKind) ||
+            !Enum.IsDefined(definition.ExecutionKind) ||
+            definition.ExecutionKind is ToolExecutionKind.Process && definition.BuiltInHandlerId is not null ||
+            definition.ExecutionKind is ToolExecutionKind.BuiltIn && !IsCatalogId(definition.BuiltInHandlerId) ||
             (definition.SideEffects & ~KnownSideEffects) != 0 ||
             definition.RiskClass < MinimumRisk(definition.SideEffects) ||
             !ValidateProvenance(definition.Provenance) || definition.Parameters is null ||
@@ -173,10 +176,21 @@ public sealed class ToolCatalog : IToolCatalog
         }
 
         if (definition.OperationKind is ToolOperationKind.AvailabilityProbe &&
-            !ValidateAvailabilityProbe(definition, process.Value))
+            (definition.ExecutionKind is not ToolExecutionKind.Process ||
+            !ValidateAvailabilityProbe(definition, process.Value)))
         {
             return Invalid<ToolDescriptor>(
                 "Availability probes require inventory-only authority and strict isolated bounds.");
+        }
+
+        if (definition.ExecutionKind is ToolExecutionKind.BuiltIn &&
+            (process.Value.RequiredSandbox is not ProcessSandboxKind.BuiltIn ||
+            !ValidBuiltInNetworkBoundary(definition, process.Value) ||
+            definition.Provenance.SourceKind is not ToolCatalogSourceKind.BuiltIn ||
+            definition.Provenance.TrustLevel is not ToolTrustLevel.BuiltIn))
+        {
+            return Invalid<ToolDescriptor>(
+                "Built-in tools require the managed sandbox, an exact network boundary, and built-in provenance.");
         }
 
         var normalized = definition with
@@ -293,6 +307,40 @@ public sealed class ToolCatalog : IToolCatalog
         process.MaximumOutputBytes <= 65_536 &&
         process.RequiredFeatures.HasFlag(ProcessIsolationFeature.NetworkIsolation) &&
         process.FixedArguments.Count + process.ArgumentBindings.Count > 0;
+
+    private static bool ValidBuiltInNetworkBoundary(
+        ToolDescriptorDefinition definition,
+        ToolProcessDefinition process) => process.NetworkPolicy switch
+        {
+            ProcessNetworkPolicy.Denied => true,
+            ProcessNetworkPolicy.FixedEndpointOnly =>
+                definition.TargetKind is AuthorizationTargetKind.Uri &&
+                definition.TargetParameterName is not null &&
+                definition.Parameters.Single(item => item.Name == definition.TargetParameterName) is
+                {
+                    Type: ToolParameterType.Text,
+                    Required: true,
+                } target && (ValidFixedTarget(target) || ValidManagedProfileTarget(definition, target)) &&
+                definition.SideEffects.HasFlag(ToolSideEffectKind.ReadsNetwork) &&
+                !definition.SideEffects.HasFlag(ToolSideEffectKind.ExternalMutation),
+            _ => false,
+        };
+
+    private static bool ValidFixedTarget(ToolParameterDescriptor target) =>
+        target.AllowedValues.Count == 1 &&
+        Uri.TryCreate(target.AllowedValues[0], UriKind.Absolute, out var uri) &&
+        uri.Scheme is "https" && string.IsNullOrEmpty(uri.UserInfo);
+
+    private static bool ValidManagedProfileTarget(
+        ToolDescriptorDefinition definition,
+        ToolParameterDescriptor target) =>
+        target.AllowedValues.Count == 0 &&
+        string.Equals(definition.Id, "tool:http-api.get", StringComparison.Ordinal) &&
+        string.Equals(definition.BuiltInHandlerId, "http-api.get", StringComparison.Ordinal) &&
+        string.Equals(definition.Provenance.SourceId, "agentforge.generated-skill-http-api", StringComparison.Ordinal) &&
+        definition.RiskClass is CapabilityRiskClass.Credential &&
+        definition.SideEffects.HasFlag(ToolSideEffectKind.CredentialAccess) &&
+        definition.OutputSensitivity is ToolOutputSensitivity.PotentiallySensitive;
 
     private static bool ValidateBinding(
         ToolArgumentBinding binding,

@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AgentForge.Abstractions.Agents;
 using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Installations;
@@ -7,7 +9,9 @@ using AgentForge.Abstractions.Persistence;
 using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
+using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
 using AgentForge.Domain.Auditing;
 using AgentForge.Domain.Installations;
@@ -15,6 +19,8 @@ using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Security;
 using AgentForge.Domain.Setup;
+using AgentForge.Domain.Skills;
+using AgentForge.Domain.Tools;
 
 namespace AgentForge.Setup;
 
@@ -22,6 +28,8 @@ internal sealed class SetupProfileEditor(
     IInstallationRepository installations,
     IProviderProfileRepository providers,
     IAgentIdentityRepository agents,
+    ISkillRegistryRepository skills,
+    IToolCatalog tools,
     IProviderProfileDefinitionEvaluator providerDefinitions,
     IProviderProfileValidator providerValidator,
     IAgentDefinitionEvaluator agentDefinitions,
@@ -29,9 +37,141 @@ internal sealed class SetupProfileEditor(
     IAuditRecorder auditRecorder,
     IUnitOfWork unitOfWork,
     IClock clock,
+    ISecretStore secretStore,
+    IIdentifierGenerator identifiers,
     ISensitiveDataRedactor redactor) : ISetupProfileEditor
 {
+    private const long MaximumReadyOutputTokens = 262_144;
     private static readonly JsonSerializerOptions HashSerializerOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions DisplaySerializerOptions = CreateDisplaySerializerOptions();
+
+    public async Task<DomainResult<ProviderCreatePreview>> PreviewProviderCreateAsync(
+        PreviewProviderCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var prepared = await PrepareProviderCreationAsync(
+            request.ExpectedInstallationVersion,
+            request.Candidate,
+            request.ProviderCredential,
+            request.ActorId,
+            request.CorrelationId,
+            request.AdministratorCredential,
+            cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return DomainResult.Fail<ProviderCreatePreview>(prepared.Failure!);
+        }
+
+        try
+        {
+            return DomainResult.Success(new ProviderCreatePreview(
+                prepared.Value.PublicCandidate,
+                prepared.Value.Profile.Capabilities,
+                prepared.Value.UsesCredential,
+                prepared.Value.Changes,
+                prepared.Value.RequestHash));
+        }
+        finally
+        {
+            await DeleteTransientProviderCredentialAsync(prepared.Value, CancellationToken.None);
+        }
+    }
+
+    public async Task<DomainResult<ProviderCreateResult>> CreateProviderAsync(
+        ApplyProviderCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var hashFailure = ValidateHash(request.ExpectedRequestHash);
+        if (hashFailure is not null)
+        {
+            return DomainResult.Fail<ProviderCreateResult>(hashFailure);
+        }
+
+        var prepared = await PrepareProviderCreationAsync(
+            request.ExpectedInstallationVersion,
+            request.Candidate,
+            request.ProviderCredential,
+            request.ActorId,
+            request.CorrelationId,
+            request.AdministratorCredential,
+            cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return DomainResult.Fail<ProviderCreateResult>(prepared.Failure!);
+        }
+
+        var committed = false;
+        try
+        {
+            if (!string.Equals(prepared.Value.RequestHash, request.ExpectedRequestHash, StringComparison.Ordinal))
+            {
+                return DomainResult.Fail<ProviderCreateResult>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    "Provider creation parameters or credential do not match the approved preview hash."));
+            }
+
+            var installationUpdate = RecordConfigurationChange(
+                prepared.Value.Installation,
+                request.ActorId,
+                request.CorrelationId);
+            if (!installationUpdate.IsSuccess)
+            {
+                return DomainResult.Fail<ProviderCreateResult>(installationUpdate.Failure!);
+            }
+
+            await providers.AddAsync(prepared.Value.Profile, cancellationToken);
+            await installations.UpdateAsync(
+                installationUpdate.Value,
+                request.ExpectedInstallationVersion,
+                cancellationToken);
+            await auditRecorder.RecordAsync(new AuditRecordRequest(
+                prepared.Value.Installation.Id,
+                request.ActorId,
+                request.CorrelationId,
+                prepared.Value.Installation.CorrelationId,
+                "setup.provider-created",
+                AuditOutcome.Succeeded,
+                new
+                {
+                    request.ExpectedInstallationVersion,
+                    request.ExpectedRequestHash,
+                    prepared.Value.Profile.Name,
+                    prepared.Value.Profile.ProviderType,
+                    Endpoint = prepared.Value.Profile.Endpoint.AbsoluteUri,
+                    prepared.Value.Profile.Model,
+                    prepared.Value.UsesCredential,
+                },
+                new
+                {
+                    ProviderProfileId = prepared.Value.Profile.Id.ToString(),
+                    InstallationVersion = installationUpdate.Value.Version,
+                    ProviderVersion = prepared.Value.Profile.Version,
+                    prepared.Value.Profile.Capabilities,
+                },
+                null), cancellationToken);
+            var commit = await unitOfWork.CommitAsync(cancellationToken);
+            if (!commit.Succeeded)
+            {
+                return DomainResult.Fail<ProviderCreateResult>(commit.Failure!);
+            }
+
+            committed = true;
+            return DomainResult.Success(new ProviderCreateResult(
+                installationUpdate.Value,
+                prepared.Value.Profile,
+                prepared.Value.Changes,
+                prepared.Value.RequestHash));
+        }
+        finally
+        {
+            if (!committed)
+            {
+                await DeleteTransientProviderCredentialAsync(prepared.Value, CancellationToken.None);
+            }
+        }
+    }
 
     public async Task<DomainResult<ProviderEditPreview>> PreviewProviderAsync(
         PreviewProviderEditRequest request,
@@ -254,6 +394,228 @@ internal sealed class SetupProfileEditor(
             : DomainResult.Fail<AgentEditResult>(commit.Failure!);
     }
 
+    public async Task<DomainResult<AgentCreatePreview>> PreviewAgentCreateAsync(
+        PreviewAgentCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var prepared = await PrepareAgentCreationAsync(
+            request.ExpectedInstallationVersion,
+            request.ExpectedProviderVersion,
+            request.Candidate,
+            request.ActorId,
+            request.CorrelationId,
+            request.AdministratorCredential,
+            cancellationToken);
+        return prepared.IsSuccess
+            ? DomainResult.Success(new AgentCreatePreview(
+                prepared.Value.EffectiveDefinition,
+                prepared.Value.Changes,
+                prepared.Value.RequestHash))
+            : DomainResult.Fail<AgentCreatePreview>(prepared.Failure!);
+    }
+
+    public async Task<DomainResult<AgentCreateResult>> CreateAgentAsync(
+        ApplyAgentCreateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var hashFailure = ValidateHash(request.ExpectedRequestHash);
+        if (hashFailure is not null)
+        {
+            return DomainResult.Fail<AgentCreateResult>(hashFailure);
+        }
+
+        var prepared = await PrepareAgentCreationAsync(
+            request.ExpectedInstallationVersion,
+            request.ExpectedProviderVersion,
+            request.Candidate,
+            request.ActorId,
+            request.CorrelationId,
+            request.AdministratorCredential,
+            cancellationToken);
+        if (!prepared.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreateResult>(prepared.Failure!);
+        }
+        if (!string.Equals(prepared.Value.RequestHash, request.ExpectedRequestHash, StringComparison.Ordinal))
+        {
+            return DomainResult.Fail<AgentCreateResult>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "Agent creation parameters do not match the approved preview hash."));
+        }
+
+        var installationUpdate = RecordConfigurationChange(
+            prepared.Value.Installation,
+            request.ActorId,
+            request.CorrelationId);
+        if (!installationUpdate.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreateResult>(installationUpdate.Failure!);
+        }
+
+        await agents.AddAsync(prepared.Value.Agent, cancellationToken);
+        await installations.UpdateAsync(
+            installationUpdate.Value,
+            request.ExpectedInstallationVersion,
+            cancellationToken);
+        await auditRecorder.RecordAsync(new AuditRecordRequest(
+            prepared.Value.Installation.Id,
+            request.ActorId,
+            request.CorrelationId,
+            prepared.Value.Installation.CorrelationId,
+            "setup.agent-created",
+            AuditOutcome.Succeeded,
+            new
+            {
+                request.ExpectedInstallationVersion,
+                request.ExpectedProviderVersion,
+                request.ExpectedRequestHash,
+                prepared.Value.Agent.Name,
+                ProviderProfileId = prepared.Value.Agent.ModelPolicy.PrimaryProviderProfileId.ToString(),
+                ChangedPaths = prepared.Value.Changes.Select(item => item.Path).ToArray(),
+            },
+            new
+            {
+                AgentIdentityId = prepared.Value.Agent.Id.ToString(),
+                InstallationVersion = installationUpdate.Value.Version,
+                AgentVersion = prepared.Value.Agent.Version,
+                CapabilityDecisions = prepared.Value.EffectiveDefinition.Capabilities
+                    .GroupBy(item => item.Decision)
+                    .ToDictionary(group => group.Key.ToString(), group => group.Count()),
+            },
+            null), cancellationToken);
+        var commit = await unitOfWork.CommitAsync(cancellationToken);
+        return commit.Succeeded
+            ? DomainResult.Success(new AgentCreateResult(
+                installationUpdate.Value,
+                prepared.Value.Agent,
+                prepared.Value.EffectiveDefinition,
+                prepared.Value.Changes,
+                prepared.Value.RequestHash))
+            : DomainResult.Fail<AgentCreateResult>(commit.Failure!);
+    }
+
+    private async Task<DomainResult<ProviderCreationPreparation>> PrepareProviderCreationAsync(
+        long expectedInstallationVersion,
+        ProviderProfileCandidate candidate,
+        ReadOnlyMemory<char> providerCredential,
+        ActorId actorId,
+        CorrelationId correlationId,
+        ReadOnlyMemory<char> administratorCredential,
+        CancellationToken cancellationToken)
+    {
+        if (candidate is null || !candidate.SecretReference.IsNoCredential)
+        {
+            return Invalid<ProviderCreationPreparation>(
+                "Provider creation accepts credential material separately and never accepts a client secret reference.");
+        }
+
+        var normalized = providerDefinitions.NormalizeAndValidate(candidate);
+        if (!normalized.IsSuccess)
+        {
+            return DomainResult.Fail<ProviderCreationPreparation>(normalized.Failure!);
+        }
+        var credentialFailure = ValidateProviderCredential(providerCredential.Span);
+        if (credentialFailure is not null)
+        {
+            return DomainResult.Fail<ProviderCreationPreparation>(credentialFailure);
+        }
+
+        var authorization = await AuthorizeAsync(
+            expectedInstallationVersion,
+            actorId,
+            correlationId,
+            administratorCredential,
+            cancellationToken);
+        if (!authorization.IsSuccess)
+        {
+            return DomainResult.Fail<ProviderCreationPreparation>(authorization.Failure!);
+        }
+
+        var installation = authorization.Value;
+        if (await providers.FindByNameAsync(installation.Id, normalized.Value.Name, cancellationToken) is not null)
+        {
+            return Invalid<ProviderCreationPreparation>("A provider profile with this name already exists.");
+        }
+
+        var usesCredential = !providerCredential.IsEmpty;
+        var secretReference = SecretReference.NoCredential;
+        if (usesCredential)
+        {
+            var stored = await secretStore.StoreAsync(
+                $"provider-{identifiers.NewGuid():N}", providerCredential, cancellationToken);
+            if (!stored.IsSuccess)
+            {
+                return DomainResult.Fail<ProviderCreationPreparation>(stored.Failure!);
+            }
+            secretReference = stored.Value;
+        }
+
+        var effectiveCandidate = normalized.Value with { SecretReference = secretReference };
+        var capabilities = await providerValidator.ValidateAsync(effectiveCandidate, cancellationToken);
+        if (!capabilities.IsSuccess)
+        {
+            if (usesCredential)
+            {
+                _ = await secretStore.DeleteAsync(secretReference, CancellationToken.None);
+            }
+            return DomainResult.Fail<ProviderCreationPreparation>(capabilities.Failure!);
+        }
+
+        var publicCandidate = normalized.Value with { SecretReference = SecretReference.NoCredential };
+        var now = clock.UtcNow;
+        var profile = new ProviderProfile(
+            new ProviderProfileId(identifiers.NewGuid()),
+            installation.Id,
+            effectiveCandidate.Name,
+            effectiveCandidate.ProviderType,
+            effectiveCandidate.Endpoint,
+            effectiveCandidate.Model,
+            effectiveCandidate.SecretReference,
+            capabilities.Value,
+            0,
+            now,
+            now,
+            actorId,
+            correlationId);
+        var changes = new List<SetupProfileChange>
+        {
+            new("provider.name", null, profile.Name),
+            new("provider.type", null, profile.ProviderType),
+            new("provider.endpoint", null, profile.Endpoint.AbsoluteUri),
+            new("provider.model", null, profile.Model),
+            new("provider.authentication", null, usesCredential ? "OS-backed secret" : "No credential"),
+            new("provider.capabilities", null, Serialize(profile.Capabilities)),
+        };
+        var credentialHash = ComputeCredentialHash(providerCredential.Span);
+        var requestHash = ComputeHash(new
+        {
+            Kind = "provider-create-v1",
+            InstallationId = installation.Id.ToString(),
+            expectedInstallationVersion,
+            ActorId = actorId.Value,
+            CorrelationId = correlationId.Value,
+            Candidate = new
+            {
+                publicCandidate.Name,
+                publicCandidate.ProviderType,
+                Endpoint = publicCandidate.Endpoint.AbsoluteUri,
+                publicCandidate.Model,
+            },
+            usesCredential,
+            credentialHash,
+            profile.Capabilities,
+        });
+        return DomainResult.Success(new ProviderCreationPreparation(
+            installation,
+            publicCandidate,
+            profile,
+            usesCredential,
+            changes,
+            requestHash));
+    }
+
     private async Task<DomainResult<ProviderPreparation>> PrepareProviderAsync(
         ProviderProfileId providerProfileId,
         long expectedInstallationVersion,
@@ -324,6 +686,13 @@ internal sealed class SetupProfileEditor(
             CorrelationId = correlationId,
         };
         var changes = BuildProviderChanges(current, effective);
+        if (installation.State is InstallationState.Ready &&
+            changes.Any(change => change.Path is not "provider.model"))
+        {
+            return DomainResult.Fail<ProviderPreparation>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "A Ready provider edit may change only the model on the existing connection."));
+        }
         var requestHash = ComputeHash(new
         {
             Kind = "provider-edit-v1",
@@ -340,6 +709,113 @@ internal sealed class SetupProfileEditor(
             installation,
             current,
             effective,
+            changes,
+            requestHash));
+    }
+
+    private async Task<DomainResult<AgentCreationPreparation>> PrepareAgentCreationAsync(
+        long expectedInstallationVersion,
+        long expectedProviderVersion,
+        AgentIdentityCandidate candidate,
+        ActorId actorId,
+        CorrelationId correlationId,
+        ReadOnlyMemory<char> credential,
+        CancellationToken cancellationToken)
+    {
+        var normalized = agentDefinitions.NormalizeAndValidate(candidate);
+        if (!normalized.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreationPreparation>(normalized.Failure!);
+        }
+
+        var authorization = await AuthorizeAsync(
+            expectedInstallationVersion,
+            actorId,
+            correlationId,
+            credential,
+            cancellationToken);
+        if (!authorization.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreationPreparation>(authorization.Failure!);
+        }
+
+        var installation = authorization.Value;
+        if (await agents.FindByNameAsync(installation.Id, normalized.Value.Name, cancellationToken) is not null)
+        {
+            return Invalid<AgentCreationPreparation>("An agent with this name already exists.");
+        }
+
+        var provider = await providers.FindByIdAsync(
+            normalized.Value.ModelPolicy.PrimaryProviderProfileId,
+            cancellationToken);
+        if (provider is null || provider.InstallationId != installation.Id)
+        {
+            return Invalid<AgentCreationPreparation>("The selected provider profile does not belong to this installation.");
+        }
+        if (provider.Version != expectedProviderVersion)
+        {
+            return Conflict<AgentCreationPreparation>("Provider profile version changed; refresh the creation preview.");
+        }
+
+        var effectiveDefinition = agentDefinitions.Evaluate(normalized.Value, provider);
+        if (!effectiveDefinition.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreationPreparation>(effectiveDefinition.Failure!);
+        }
+        var authority = await ValidateGrantAuthorityAsync(
+            installation.Id,
+            effectiveDefinition.Value.Agent.CapabilityPolicy.SkillGrants,
+            effectiveDefinition.Value.Agent.CapabilityPolicy.ToolGrants,
+            cancellationToken);
+        if (!authority.IsSuccess)
+        {
+            return DomainResult.Fail<AgentCreationPreparation>(authority.Failure!);
+        }
+        var readyBounds = ValidateReadyPolicyBounds(effectiveDefinition.Value.Agent);
+        if (readyBounds is not null)
+        {
+            return DomainResult.Fail<AgentCreationPreparation>(readyBounds);
+        }
+
+        var definition = effectiveDefinition.Value.Agent;
+        var now = clock.UtcNow;
+        var agent = new AgentIdentity(
+            new AgentIdentityId(identifiers.NewGuid()),
+            installation.Id,
+            definition.Name,
+            definition.Expertise,
+            definition.Mission,
+            definition.PreferredLanguage,
+            definition.TimeZone,
+            definition.ResponseStyle,
+            definition.DefaultWorkspace,
+            definition.ModelPolicy,
+            definition.MemoryPolicy,
+            definition.CapabilityPolicy,
+            definition.Budget,
+            definition.ChildLimits,
+            definition.LearningPolicy,
+            0,
+            now,
+            now,
+            actorId,
+            correlationId);
+        var changes = BuildAgentCreationChanges(agent);
+        var requestHash = ComputeHash(new
+        {
+            Kind = "agent-create-v1",
+            InstallationId = installation.Id.ToString(),
+            expectedInstallationVersion,
+            expectedProviderVersion,
+            ActorId = actorId.Value,
+            CorrelationId = correlationId.Value,
+            Candidate = definition,
+            provider.Capabilities,
+        });
+        return DomainResult.Success(new AgentCreationPreparation(
+            installation,
+            agent,
+            effectiveDefinition.Value,
             changes,
             requestHash));
     }
@@ -430,6 +906,27 @@ internal sealed class SetupProfileEditor(
             CorrelationId = correlationId,
         };
         var changes = BuildAgentChanges(current, effectiveAgent);
+        if (installation.State is InstallationState.Ready)
+        {
+            var readyBounds = ValidateReadyPolicyBounds(definition);
+            if (readyBounds is not null)
+            {
+                return DomainResult.Fail<AgentPreparation>(readyBounds);
+            }
+
+            var addedSkills = effectiveAgent.CapabilityPolicy.SkillGrants
+                .Except(current.CapabilityPolicy.SkillGrants, StringComparer.Ordinal)
+                .ToArray();
+            var addedTools = effectiveAgent.CapabilityPolicy.ToolGrants
+                .Except(current.CapabilityPolicy.ToolGrants, StringComparer.Ordinal)
+                .ToArray();
+            var authority = await ValidateGrantAuthorityAsync(
+                installation.Id, addedSkills, addedTools, cancellationToken);
+            if (!authority.IsSuccess)
+            {
+                return DomainResult.Fail<AgentPreparation>(authority.Failure!);
+            }
+        }
         var requestHash = ComputeHash(new
         {
             Kind = "agent-edit-v1",
@@ -489,11 +986,11 @@ internal sealed class SetupProfileEditor(
             return Conflict<InstallationSnapshot>("Installation version changed; refresh the edit preview.");
         }
 
-        if (installation.State is not InstallationState.Configuring)
+        if (installation.State is not (InstallationState.Configuring or InstallationState.Ready))
         {
             return DomainResult.Fail<InstallationSnapshot>(new DomainFailure(
                 FailureCode.InvalidStateTransition,
-                "Setup profiles can be edited only while installation state is Configuring."));
+                "Profiles can be edited only while installation state is Configuring or Ready."));
         }
 
         return DomainResult.Success(installation);
@@ -566,6 +1063,118 @@ internal sealed class SetupProfileEditor(
         return changes;
     }
 
+    private static List<SetupProfileChange> BuildAgentCreationChanges(AgentIdentity agent) =>
+    [
+        new("agent.name", null, agent.Name),
+        new("agent.expertise", null, agent.Expertise),
+        new("agent.mission", null, agent.Mission),
+        new("agent.preferredLanguage", null, agent.PreferredLanguage),
+        new("agent.timeZone", null, agent.TimeZone),
+        new("agent.responseStyle", null, agent.ResponseStyle),
+        new("agent.defaultWorkspace", null, agent.DefaultWorkspace),
+        new("agent.modelPolicy", null, Serialize(agent.ModelPolicy)),
+        new("agent.memoryPolicy", null, Serialize(agent.MemoryPolicy)),
+        new("agent.capabilityPolicy", null, Serialize(agent.CapabilityPolicy)),
+        new("agent.budget", null, Serialize(agent.Budget)),
+        new("agent.childLimits", null, Serialize(agent.ChildLimits)),
+        new("agent.learningPolicy", null, Serialize(agent.LearningPolicy)),
+    ];
+
+    private static DomainFailure? ValidateReadyPolicyBounds(AgentIdentityCandidate candidate)
+    {
+        if (candidate.Budget.MaxOutputTokens is < 256 or > MaximumReadyOutputTokens)
+        {
+            return new DomainFailure(
+                FailureCode.PolicyDenied,
+                $"Ready agent output budgets must remain between 256 and {MaximumReadyOutputTokens:N0} tokens.");
+        }
+        if (candidate.Budget.MaxToolInvocations is < 0 or > 1000 ||
+            candidate.CapabilityPolicy.ToolGrants.Count == 0 && candidate.Budget.MaxToolInvocations != 0 ||
+            candidate.CapabilityPolicy.ToolGrants.Count > 0 && candidate.Budget.MaxToolInvocations == 0)
+        {
+            return new DomainFailure(
+                FailureCode.PolicyDenied,
+                "Ready tool invocation budgets must be zero without grants and between 1 and 1,000 when tools are granted.");
+        }
+
+        return null;
+    }
+
+    private async Task<DomainResult<bool>> ValidateGrantAuthorityAsync(
+        InstallationId installationId,
+        IReadOnlyList<string> skillGrants,
+        IReadOnlyList<string> toolGrants,
+        CancellationToken cancellationToken)
+    {
+        foreach (var skillGrant in skillGrants)
+        {
+            if (await skills.FindActiveAsync(
+                    installationId, new SkillId(skillGrant), cancellationToken) is null)
+            {
+                return DomainResult.Fail<bool>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    $"Skill grant '{skillGrant}' requires an exact promoted Active version."));
+            }
+        }
+
+        foreach (var toolGrant in toolGrants)
+        {
+            var available = await tools.SearchAsync(
+                new ToolSearchRequest(string.Empty, toolGrant, null, 50), cancellationToken);
+            if (!available.IsSuccess || !available.Value.Any(item =>
+                    string.Equals(item.CapabilityId, toolGrant, StringComparison.Ordinal)))
+            {
+                return DomainResult.Fail<bool>(new DomainFailure(
+                    FailureCode.PolicyDenied,
+                    $"Tool grant '{toolGrant}' requires an exact descriptor in the authoritative catalog."));
+            }
+        }
+
+        return DomainResult.Success(true);
+    }
+
+    private static DomainFailure? ValidateProviderCredential(ReadOnlySpan<char> credential)
+    {
+        if (credential.Length > 8192 || credential.ContainsAnyInRange('\0', '\u001f') || credential.Contains('\u007f'))
+        {
+            return new DomainFailure(
+                FailureCode.ValidationFailure,
+                "Provider credentials must contain at most 8,192 printable characters.");
+        }
+
+        return null;
+    }
+
+    private static string ComputeCredentialHash(ReadOnlySpan<char> credential)
+    {
+        if (credential.IsEmpty)
+        {
+            return "none";
+        }
+
+        var characters = credential.ToArray();
+        var bytes = Encoding.UTF8.GetBytes(characters);
+        try
+        {
+            return Convert.ToHexStringLower(SHA256.HashData(bytes));
+        }
+        finally
+        {
+            Array.Clear(characters);
+            CryptographicOperations.ZeroMemory(bytes);
+        }
+    }
+
+    private async Task DeleteTransientProviderCredentialAsync(
+        ProviderCreationPreparation preparation,
+        CancellationToken cancellationToken)
+    {
+        if (preparation.UsesCredential)
+        {
+            _ = await secretStore.DeleteAsync(preparation.Profile.SecretReference, cancellationToken);
+        }
+    }
+
     private static void AddChange(
         List<SetupProfileChange> changes,
         string path,
@@ -582,7 +1191,14 @@ internal sealed class SetupProfileEditor(
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, HashSerializerOptions)))
             .ToLowerInvariant();
 
-    private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, HashSerializerOptions);
+    private static JsonSerializerOptions CreateDisplaySerializerOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter());
+        return options;
+    }
+
+    private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, DisplaySerializerOptions);
 
     private static string Reference(SecretReference value) => $"{value.Store}:{value.Key}";
 
@@ -604,10 +1220,25 @@ internal sealed class SetupProfileEditor(
         IReadOnlyList<SetupProfileChange> Changes,
         string RequestHash);
 
+    private sealed record ProviderCreationPreparation(
+        InstallationSnapshot Installation,
+        ProviderProfileCandidate PublicCandidate,
+        ProviderProfile Profile,
+        bool UsesCredential,
+        IReadOnlyList<SetupProfileChange> Changes,
+        string RequestHash);
+
     private sealed record AgentPreparation(
         InstallationSnapshot Installation,
         AgentIdentity Current,
         AgentIdentity EffectiveAgent,
+        EffectiveAgentDefinition EffectiveDefinition,
+        IReadOnlyList<SetupProfileChange> Changes,
+        string RequestHash);
+
+    private sealed record AgentCreationPreparation(
+        InstallationSnapshot Installation,
+        AgentIdentity Agent,
         EffectiveAgentDefinition EffectiveDefinition,
         IReadOnlyList<SetupProfileChange> Changes,
         string RequestHash);

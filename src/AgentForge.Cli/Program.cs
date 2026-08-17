@@ -26,6 +26,7 @@ using AgentForge.Plugins;
 using AgentForge.Security;
 using AgentForge.Setup;
 using AgentForge.Skills;
+using AgentForge.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -232,6 +233,7 @@ static async Task<int> BeginSetupAsync(string[] arguments)
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgeTools(configuration);
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
@@ -515,6 +517,7 @@ static async Task<int> ConfigureAgentAsync(string[] arguments, bool create)
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgeTools(configuration);
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgePlugins(configuration);
     services.AddAgentForgeSecurity(configuration);
@@ -734,6 +737,7 @@ static async Task<int> CompleteSetupAsync(string[] arguments)
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgeTools(configuration);
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
@@ -1443,6 +1447,7 @@ static ServiceProvider BuildSetupProvider(string dataDirectory)
     var services = new ServiceCollection();
     services.AddLogging();
     services.AddAgentForgeSetup(configuration);
+    services.AddAgentForgeTools(configuration);
     services.AddAgentForgePersistence(configuration);
     services.AddAgentForgeSecurity(configuration);
     services.AddAgentForgeAudit();
@@ -2762,6 +2767,7 @@ static async Task<int> RunMcpStdioAsync(string[] arguments)
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
     builder.Services.AddAgentForgeSetup(builder.Configuration);
+    builder.Services.AddAgentForgeTools(builder.Configuration);
     builder.Services.AddAgentForgePersistence(builder.Configuration);
     builder.Services.AddAgentForgeMcp(builder.Configuration).WithStdioServerTransport();
 

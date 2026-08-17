@@ -7,19 +7,39 @@ feature modules, background workers, health, and the control plane. A separate C
 uses the control plane and may compose setup/recovery services in-process when the
 normal host is unavailable.
 
-The root loopback page is currently a read-only diagnostic adapter over existing
-same-origin health, setup-status, and sandbox-capability GET endpoints. It contains no
-form, secret input, session, or mutation path. This gives operators an early visual
-first-run surface without claiming the Milestone 7 authenticated setup wizard; the full
-wizard must reuse setup application services after its nonce/session/CSRF/idempotency
-gate passes.
+The root loopback page combines read-only health/status evidence with the first-run setup
+adapter. The browser creates or resumes a protected setup session automatically; internal
+bootstrap material is never an operator field. Session-bound CSRF and exact idempotency
+remain required for every mutation. Model discovery and the explicit verification probe
+use the Models module through a harness-owned contract and policy-bound transport. If a
+compatible endpoint has no catalog route, the operator may enter an exact model ID into the
+same session, but it remains unverified and cannot be persisted until the probe succeeds. The
+durable provider/agent creation still calls the same setup application services as CLI.
+
+After Ready, the same loopback origin can open a separate 30-minute operator session. The server
+materializes the current user's OS-protected administrator credential only long enough to validate it,
+then returns an HttpOnly SameSite cookie plus an independent CSRF token. JavaScript never receives the
+administrator credential. The initial workspace reads existing agent and skill repositories, creates and
+cancels durable orchestration definitions through `ITaskOrchestrator`, and installs the packaged seed through
+`ISkillRegistryService`. An explicit interaction adapter can claim one single-node task and invoke only the
+agent's exact credential-free loopback/private compatible provider after context preparation. It rejects tool
+or structured-output events, disables fallback, bounds time/tokens/events/output, and stores only hashed
+completion evidence. It deliberately has no autonomous execution, tool-invocation, or skill-promotion shortcut.
+
+Explicit remote mode uses the same workspace contracts but requires HTTPS, one exact allowed origin, a bounded
+temporary access code for session creation, and the existing protected administrator validation. The code is
+fixed-time checked, never persisted, and cleared from browser memory after the server returns a Secure,
+HttpOnly, SameSite=Strict session cookie. Forwarded scheme/host/client headers are honored only from one known
+loopback reverse proxy hop; direct network peers cannot forge them.
 
 ```mermaid
 flowchart LR
   Operator["Local operator"] --> CLI["agentforge CLI/TUI"]
-  Operator --> Web["Loopback setup UI (M7)"]
+  Operator --> Web["Loopback setup and Ready workspace"]
   CLI --> API["Authenticated /api/v1 + event stream"]
   Web --> API
+  Web --> ModelDiscovery["Bounded model discovery/probe"]
+  ModelDiscovery --> Models["Provider transport policy"]
   API --> Setup["Setup application services"]
   API --> Runtime["Agent runtime"]
   Runtime --> Policy["Policy and approvals"]
@@ -409,6 +429,26 @@ Audit callers submit typed metadata plus raw structured payloads to the Audit mo
 The Security module canonicalizes and redacts those payloads before the Persistence
 journal can receive them. Hash fields are length-prefixed before SHA-256 processing,
 and a separate verifier streams the global chain to identify the first broken event.
+
+## Ready interaction streaming and cancellation
+
+The Ready administrator surface keeps durable orchestration and transient model delivery separate. An
+authenticated, CSRF-protected, idempotent request creates and claims one exact orchestration node before the
+response starts. The local interaction service observes normalized provider `Started`, text-delta, and usage
+events through a harness-owned observer; the host translates only those bounded records into same-session SSE.
+Prompt and response bodies never enter the orchestration definition, snapshot, audit stream, artifact store, or
+idempotency cache.
+
+An in-memory registry contains only active task identity, installation identity, a one-way session hash, and a
+linked cancellation source. The cancel mutation first appends the durable `Canceled` snapshot through the
+orchestrator and then signals the exact registered invocation. Completion after cancellation cannot overwrite
+the terminal snapshot. Client disconnect instead terminates the provider call and records a typed failed run;
+it does not infer operator authorization. A transient stream cannot be replayed because AgentForge deliberately
+does not retain its raw output; callers must use a fresh idempotency key.
+
+Every successful transport stream ends with one `completed`, `failed`, or `canceled` event that reflects durable
+state. The browser treats a connection close without that terminal receipt as a failure, renders text deltas with
+`textContent`, and removes the cancel control after a terminal event.
 
 ## Framework spike decision
 

@@ -58,6 +58,12 @@ public enum ToolOperationKind
     AvailabilityProbe,
 }
 
+public enum ToolExecutionKind
+{
+    Process,
+    BuiltIn,
+}
+
 public sealed record ToolProvenance(
     ToolCatalogSourceKind SourceKind,
     ToolTrustLevel TrustLevel,
@@ -106,7 +112,9 @@ public sealed record ToolDescriptorDefinition(
     IReadOnlyList<ToolParameterDescriptor> Parameters,
     ToolProcessDefinition Process,
     ToolProvenance Provenance,
-    ToolOperationKind OperationKind = ToolOperationKind.Invocation);
+    ToolOperationKind OperationKind = ToolOperationKind.Invocation,
+    ToolExecutionKind ExecutionKind = ToolExecutionKind.Process,
+    string? BuiltInHandlerId = null);
 
 public sealed record ToolDescriptor(
     ToolDescriptorDefinition Definition,

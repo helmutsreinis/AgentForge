@@ -22,7 +22,8 @@ internal sealed class ModelProviderProfileValidator(ISecretStore secretStore) : 
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        if (!string.Equals(candidate.SecretReference.Store, secretStore.StoreName, StringComparison.Ordinal))
+        var credentialless = candidate.SecretReference.IsNoCredential;
+        if (!credentialless && !string.Equals(candidate.SecretReference.Store, secretStore.StoreName, StringComparison.Ordinal))
         {
             return Invalid("Provider secret reference does not match the configured OS secret store.");
         }
@@ -39,6 +40,24 @@ internal sealed class ModelProviderProfileValidator(ISecretStore secretStore) : 
         if (!IsSafeEndpoint(candidate.Endpoint, providerType))
         {
             return Invalid("The provider endpoint does not satisfy its transport and destination policy.");
+        }
+
+
+        if (credentialless)
+        {
+            if (providerType is not ("vllm" or "openai-compatible") ||
+                EndpointDestinationPolicy.Infer(candidate.Endpoint) is not
+                    (ModelProviderDataLocation.Loopback or ModelProviderDataLocation.PrivateNetwork))
+            {
+                return Invalid("Credential-free providers are allowed only for local or private OpenAI-compatible endpoints.");
+            }
+
+            return DomainResult.Success(new ProviderCapabilitySummary(
+                TextGeneration: true,
+                Streaming: true,
+                ToolCalls: false,
+                Images: false,
+                EvidenceSource: $"configured-unprobed-{providerType}-no-auth-v1"));
         }
 
         var materialized = await secretStore.MaterializeAsync(candidate.SecretReference, cancellationToken);

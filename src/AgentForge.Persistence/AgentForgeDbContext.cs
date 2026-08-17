@@ -15,7 +15,13 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<ProviderProfileEntity> ProviderProfiles => Set<ProviderProfileEntity>();
 
+    internal DbSet<SearchProviderProfileEntity> SearchProviderProfiles => Set<SearchProviderProfileEntity>();
+
+    internal DbSet<HttpApiProfileEntity> HttpApiProfiles => Set<HttpApiProfileEntity>();
+
     internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
+
+    internal DbSet<AgentContextPolicyEntity> AgentContextPolicies => Set<AgentContextPolicyEntity>();
 
     internal DbSet<LocalAdministratorEntity> LocalAdministrators => Set<LocalAdministratorEntity>();
 
@@ -38,9 +44,15 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
     internal DbSet<OrchestrationTaskSnapshotEntity> OrchestrationTaskSnapshots =>
         Set<OrchestrationTaskSnapshotEntity>();
 
+    internal DbSet<RunConversationSnapshotEntity> RunConversationSnapshots =>
+        Set<RunConversationSnapshotEntity>();
+
     internal DbSet<DelegationGrantEntity> DelegationGrants => Set<DelegationGrantEntity>();
 
     internal DbSet<ScheduleSnapshotEntity> ScheduleSnapshots => Set<ScheduleSnapshotEntity>();
+
+    internal DbSet<ScheduledAgentRunTemplateEntity> ScheduledAgentRunTemplates =>
+        Set<ScheduledAgentRunTemplateEntity>();
 
     internal DbSet<SkillVersionEntity> SkillVersions => Set<SkillVersionEntity>();
 
@@ -274,6 +286,47 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
         });
 
+        modelBuilder.Entity<SearchProviderProfileEntity>(entity =>
+        {
+            entity.ToTable("search_provider_profiles");
+            entity.HasKey(item => new { item.InstallationId, item.Id });
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.Id).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.Kind).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Endpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.SafeSearch).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.CountryCode).HasMaxLength(2).IsRequired();
+            entity.Property(item => item.SearchLanguage).HasMaxLength(16).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<HttpApiProfileEntity>(entity =>
+        {
+            entity.ToTable("http_api_profiles");
+            entity.HasKey(item => new { item.InstallationId, item.ProfileId });
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.ProfileId).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.DisplayName).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.BaseEndpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.ProbeRelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.StaticHeadersJson).HasMaxLength(32768).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
         modelBuilder.Entity<AgentIdentityEntity>(entity =>
         {
             entity.ToTable("agent_identities");
@@ -306,6 +359,17 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<AgentContextPolicyEntity>(entity =>
+        {
+            entity.ToTable("agent_context_policies");
+            entity.HasKey(item => item.AgentId);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithOne()
+                .HasForeignKey<AgentContextPolicyEntity>(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(item => item.DiscoveredContextModel).HasMaxLength(256);
         });
 
         modelBuilder.Entity<LocalAdministratorEntity>(entity =>
@@ -587,6 +651,28 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.CausationId).HasMaxLength(128);
         });
 
+        modelBuilder.Entity<RunConversationSnapshotEntity>(entity =>
+        {
+            entity.ToTable("run_conversation_snapshots");
+            entity.HasKey(item => new { item.ConversationId, item.Version });
+            entity.HasOne<InstallationEntity>().WithMany().HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>().WithMany().HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>().WithMany().HasForeignKey(item => item.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.IdempotencyKey, item.Version }).IsUnique();
+            entity.HasIndex(item => new { item.InstallationId, item.AgentId, item.UpdatedAtUtcTicks });
+            entity.Property(item => item.State).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.PreviousSnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.SnapshotJson).IsRequired();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
         modelBuilder.Entity<DelegationGrantEntity>(entity =>
         {
             entity.ToTable("delegation_grants");
@@ -633,6 +719,37 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.IdempotencyKey).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
             entity.Property(item => item.CausationId).HasMaxLength(128);
+        });
+
+        modelBuilder.Entity<ScheduledAgentRunTemplateEntity>(entity =>
+        {
+            entity.ToTable("scheduled_agent_run_templates");
+            entity.HasKey(item => item.ScheduleId);
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<AgentIdentityEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.AgentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProviderProfileEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.ProviderId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.SystemInstructionArtifactHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ArtifactEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.PromptArtifactHash)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(item => new { item.InstallationId, item.CreatedAtUtcTicks });
+            entity.Property(item => item.SystemInstructionArtifactHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.PromptArtifactHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.TemplateHash).HasMaxLength(71).IsRequired();
+            entity.Property(item => item.TemplateJson).IsRequired();
         });
 
         modelBuilder.Entity<SkillVersionEntity>(entity =>

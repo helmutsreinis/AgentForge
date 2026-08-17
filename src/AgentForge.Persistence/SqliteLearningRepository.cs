@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Domain.Learning;
+using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Skills;
 using AgentForge.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -38,7 +39,28 @@ internal sealed class SqliteLearningRepository(AgentForgeDbContext dbContext) : 
     {
         var entity = await dbContext.LearningSignals.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Id == id.Value, cancellationToken);
-        if (entity is null) return null;
+        return entity is null ? null : MapSignal(entity);
+    }
+
+    public async ValueTask<IReadOnlyList<(LearningSignal Signal, LearningClassification Classification)>> ListSignalsAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken)
+    {
+        if (installationId.Value == Guid.Empty || maximumResults is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(maximumResults));
+        var entities = await dbContext.LearningSignals.AsNoTracking()
+            .Where(item => item.InstallationId == installationId.Value)
+            .OrderByDescending(item => item.CapturedAtUtcTicks)
+            .ThenBy(item => item.Id)
+            .Take(maximumResults)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(MapSignal).ToArray();
+    }
+
+    private static (LearningSignal Signal, LearningClassification Classification) MapSignal(
+        LearningSignalEntity entity)
+    {
         var signal = JsonSerializer.Deserialize<LearningSignal>(entity.SignalJson, JsonOptions)
             ?? throw new InvalidDataException("Persisted learning signal is empty.");
         var classification = JsonSerializer.Deserialize<LearningClassification>(entity.ClassificationJson, JsonOptions)
@@ -86,7 +108,30 @@ internal sealed class SqliteLearningRepository(AgentForgeDbContext dbContext) : 
         var entity = await dbContext.LearningCandidateSnapshots.AsNoTracking()
             .Where(item => item.Id == id.Value).OrderByDescending(item => item.Version)
             .FirstOrDefaultAsync(cancellationToken);
-        if (entity is null) return null;
+        return entity is null ? null : MapCandidate(entity);
+    }
+
+    public async ValueTask<IReadOnlyList<LearningCandidate>> ListCandidatesAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken)
+    {
+        if (installationId.Value == Guid.Empty || maximumResults is < 1 or > 500)
+            throw new ArgumentOutOfRangeException(nameof(maximumResults));
+        var entities = await dbContext.LearningCandidateSnapshots.AsNoTracking()
+            .Where(item => item.InstallationId == installationId.Value &&
+                item.Version == dbContext.LearningCandidateSnapshots
+                    .Where(other => other.Id == item.Id)
+                    .Max(other => other.Version))
+            .OrderByDescending(item => item.UpdatedAtUtcTicks)
+            .ThenBy(item => item.Id)
+            .Take(maximumResults)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(MapCandidate).ToArray();
+    }
+
+    private static LearningCandidate MapCandidate(LearningCandidateSnapshotEntity entity)
+    {
         var candidate = JsonSerializer.Deserialize<LearningCandidate>(entity.SnapshotJson, JsonOptions)
             ?? throw new InvalidDataException("Persisted learning candidate is empty.");
         return LearningCandidateStateMachine.IsConsistent(candidate) && candidate.Id.Value == entity.Id &&

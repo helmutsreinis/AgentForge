@@ -127,7 +127,8 @@ the protected file for the exact plaintext fixture.
 
 Agent candidates are normalized and structurally validated before durable state is
 read. A selected provider must belong to the same installation and carry observed
-text capability. `LocalOnly` requires a loopback endpoint and forbids fallback.
+text capability. `LocalOnly` permits only in-process, loopback, or explicitly private-network
+provider transport and forbids cloud fallback.
 Child depth, count, concurrency, and token allocation are jointly bounded and cannot
 exceed the parent bootstrap token budget. Learning mode and mutable-skill scope must
 match; bootstrap never grants direct credential access, external messaging, device
@@ -736,23 +737,73 @@ Credentials are invocation-scoped. Telegram's protocol requires its token in the
 adapter uses a private direct `HttpClient`, emits no URI/error body evidence, and never registers live
 accounts by default. Remote-mode webhook exposure remains disabled until Milestone 10 hardening.
 
-## M7 loopback web-setup update
+## M7 and post-R1 loopback web-setup update
 
-Browser origins, cookies, nonces, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
+Browser origins, cookies, internal bootstrap grants, CSRF tokens, idempotency keys, JSON fields, credential bytes, and repeated
 requests are untrusted. Every web-setup endpoint verifies loopback remote address and, when present, exact
-same-origin scheme/authority. A random 256-bit nonce is consumed atomically into a 20-minute HttpOnly,
-SameSite=Strict cookie session with an independent CSRF token. Mutation keys bind operation and request hash;
+same-origin scheme/authority. A random 256-bit one-time grant is consumed internally into a 30-minute HttpOnly,
+SameSite=Strict cookie session with an independent CSRF token; bootstrap material is never returned or accepted
+as operator input. The same cookie resumes a live session after refresh, while a second browser is denied until
+the active session completes or expires. Mutation keys bind operation and request hash;
 conflicting reuse denies and exact success replays do not repeat durable work.
 
 Provider metadata is staged before a separate bounded `text/plain` credential body. Strict UTF-8 decoding
 targets a clearable character array, the existing setup service stores only its OS-secret reference, and the
 buffers are cleared in all outcomes. The browser necessarily owns its input string until submission and
 clears the field immediately. CSP, anti-frame, no-sniff, no-referrer, permissions policy, and no-store headers
-remain active. Completion makes the session exact-replay-only; the nonce cannot create another session.
+remain active. Completion makes the session exact-replay-only; another setup session cannot reopen Ready state.
+
+Provider base endpoints, model-catalog JSON, model identifiers, and probe responses are untrusted. Discovery is
+limited to installed compatible provider types, rejects user-info/query/fragment endpoints, permits plaintext only
+for loopback/private destinations, resolves and connects through the existing destination policy, disables redirect,
+cookie and proxy inheritance, and bounds time, headers, body, JSON, model count and identifier length. A selected
+model must come from the current catalog or an explicit session-bound manual entry before one mandatory bounded
+chat probe; manual entry never marks the model tested. Credentials use a clearable buffer
+and are never included in response evidence. Credential-free profiles use a typed sentinel only for loopback/private
+vLLM or generic-compatible endpoints; hosted construction rechecks that restriction before omitting Authorization.
 
 The wizard constructs the same conservative defaults as omitted CLI options and calls the same preview,
 provider, agent, and completion services. It exposes no runtime/model/tool/channel/device mutation. Remote
 wizard use is denied even if the host is explicitly rebound; hardened remote administration is Milestone 10.
+
+## Post-R1 Ready operator workspace
+
+The Ready browser workspace treats local pages, origins, cookies, CSRF input, request identifiers, agent/run
+labels, and packaged skill content as untrusted. It is loopback-only and exact-origin checked. To avoid placing
+the random administrator bearer credential in JavaScript or browser storage, the server materializes the
+current OS user's secret reference, authenticates it against the verifier, clears the lease, and issues a
+separate random 30-minute HttpOnly SameSite=Strict cookie. Only one live session is retained for the
+installation. State changes additionally require an independent fixed-time-checked CSRF token and a bounded
+idempotency key; all responses remain `no-store` and rate limited.
+
+The session is bound to the exact Ready installation and becomes stale when installation state or identity
+changes. Agent reads are installation-scoped. Run creation selects an existing exact agent/version and pins
+policy, budget, child, and skill-grant hashes before calling the durable orchestrator; cancellation uses the
+latest concurrency version. Only the explicit interactive prompt endpoint may claim a node. It requires a
+local-only/no-fallback/zero-tool agent and its exact credential-free loopback/private compatible profile,
+prepares and redacts the two-message context, rejects any tool or structured-output event, applies hard
+token/event/time/character bounds, and persists only a response evidence hash. The raw prompt exists in the
+browser/request and the raw response exists only in the response plus a bounded in-memory idempotency cache;
+neither is written to the durable orchestration record. Seed installation resolves only the packaged fixed
+directory and calls the same package validator, artifact store, audit, and registry service as other
+provenance. Installation never activates a skill. Autonomous execution, tool calls, promotion, external
+messaging, and device writes remain unavailable from this workspace.
+
+Same-user OS-account compromise remains outside the local single-operator boundary: that user can already
+materialize the protected credential and access AgentForge files. Cross-origin browser requests, non-loopback
+clients, missing/stale cookies, missing CSRF, changed installation scope, unknown agents, and missing seed
+packages fail closed. Deterministic end-to-end tests cover hostile origin, secret non-disclosure, missing CSRF,
+durable create/list/cancel, exact/conflicting prompt replay, hostile emitted tool calls, durable prompt
+completion evidence, and validated seed install/list.
+
+Explicit LAN mode adds the remote client, TLS certificate, exact origin, host firewall, and temporary access
+code as trust boundaries. It is disabled by default. Enabling it requires HTTPS plus a 20-256 character code
+and at least one exact HTTPS origin; missing/incorrect codes cannot mint a session. Subsequent requests require
+the Secure/HttpOnly/SameSite cookie and normal CSRF controls. Safe same-origin GET/HEAD navigation may omit an
+`Origin` header, while remote mutations require the configured exact origin. Forwarded headers are consumed
+only from loopback with a one-hop limit. Operators must constrain the firewall to the private interface/local
+subnet and must not expose the listener through router forwarding. A self-signed certificate is acceptable
+only for an operator-controlled test; production requires a trusted managed certificate.
 
 ## M8 passive serial discovery boundary
 
@@ -792,6 +843,28 @@ claims, and role identities are untrusted. Accepted summaries are bounded, rejec
 and persist beside source, signal, classification, workspace, package, and snapshot hashes. Raw model context,
 tool output, secrets, and candidate source are not relational learning fields. A signal classification is data
 only and cannot alter policy or become executable instructions.
+
+The Ready learning-intake endpoint accepts only a task in a terminal state from the authenticated session's exact
+installation. It binds the signal to the durable task snapshot hash and run causation ID, normalizes the operator's
+redacted summary to one bounded line, rejects credential-shaped material through the domain classifier, and applies
+the same CSRF, exact-origin, serialized mutation, and idempotency boundary as other Ready administration. Listing is
+installation scoped and bounded. Intake deliberately supplies no usage receipt, revision authorization, or repeated
+skill chain, so hostile browser input cannot claim revision or bundle authority and a `NewSkill` result remains data.
+
+The Ready candidate endpoint accepts only an existing installation-scoped `NewSkill` signal and derives candidate and
+proposal IDs from the installation plus idempotency identity. It writes only two server-generated filenames beneath an
+exact candidate directory, rejects links, unexpected prior content, invalid UTF-8/package metadata, conflicting immutable
+versions, and a second candidate for the same signal. Registry installation uses `AgentProposal` provenance and remains
+`Installed`; the content-addressed PAX workspace and candidate snapshot grant no execution authority.
+
+Candidate transitions accept no source content, package replacement, role identity, permission expansion, provider, tool,
+or policy fields. They resolve the five installation-scoped role actors server-side, require current snapshot versions,
+accept only hash-shaped receipts for evidence-bearing gates, and delegate every change to the existing learning and skill
+state machines. Browser evidence notes are hashed locally and never cross the trust boundary. This protects secrets and
+limits stored content, but it does not prove the stated suite actually ran; R1 post-production UI receipts are explicit
+operator attestations until the isolated automated evaluator replaces those booleans. Promotion changes only the skill
+registry pointer, and agent-level grants remain independently required. Rollback quarantines the candidate and restores
+only an exact hash-bound baseline.
 
 Existing-skill revisions require an exact successful usage receipt or unexpired explicit operator authorization
 for the current skill version and package hash. A candidate must be an immutable agent-proposed package and carry
@@ -872,6 +945,256 @@ LocalSystem, root, or a detached account is not the supplied topology. Backups i
 protected secret files, and auxiliary state, verify every hash, and restore only into a separate empty target. PostgreSQL
 also requires a target connection variable distinct from the configured source. A destructive down migration is never
 used as rollback.
+
+## Ready streamed-interaction boundary
+
+Provider stream content, timing, and termination are untrusted. The public Ready stream accepts only the exact
+installation-owned local-only agent and pinned credential-free loopback/private compatible profile, with no
+fallback, tools, structured output, files, messages, devices, or other capability. The existing provider socket
+policy still binds the actual destination. Prompt, output, and remote error bodies remain transient, bounded,
+context-redacted, and excluded from persistence and replay caches.
+
+Cancellation authority is not represented by knowledge of a task ID. The protected mutation must resolve the
+same installation and Ready session, append durable cancellation with optimistic concurrency, and only then may
+signal the matching in-memory invocation. Cross-installation, stale-session, and unknown-task attempts cannot
+reach the cancellation source. A provider racing completion loses to the already committed terminal state and
+cannot replace Canceled with Completed.
+
+The SSE response is authenticated by the short-lived HttpOnly session, mutation CSRF/origin checks, and a fresh
+idempotency key. Buffering is disabled, caching is forbidden, event names are fixed, JSON serialization is
+server-owned, output/event/token/time limits remain enforced, and browser rendering uses text-only DOM APIs. A
+reused key is rejected instead of regenerating raw output. Client disconnect cancels the invocation but is not
+treated as an operator cancellation; failure evidence is persisted when the lease still permits it.
+
+## Ready profile-administration boundary
+
+Ready configuration input, model catalogs, model probe output, raw credentials, grant identifiers, browser state, and
+previously issued previews are untrusted. Every operation requires the protected operator session, exact
+same-origin/HTTPS-remote checks, session CSRF, and a bounded idempotency key. It scopes every entity to the session
+installation and authenticates the same local administrator again through an invocation-scoped OS-secret lease before
+the setup profile editor evaluates or commits a candidate.
+
+Existing-provider model edits preserve the current type, endpoint, and secret reference. New providers accept their
+complete topology, but the selected model must produce visible bounded text through a thinking-disabled probe both
+before preview and immediately before apply. A submitted credential is bounded, briefly placed behind a transient
+OS-backed secret reference for each probe, then deleted; the preview retains only its SHA-256 fingerprint. Apply must
+receive the same credential, and any probe, fingerprint, validation, transaction, or cancellation failure attempts to
+delete the transient or uncommitted final secret. The HTTP request binder necessarily holds its immutable credential
+string until garbage collection, but browser code clears the field immediately and the server never places that value
+in session state, logs, audit, configuration, relational state, artifacts, or responses.
+
+Agent creation and editing use a complete candidate rather than a sequence of partial grants. Every provider binding,
+locality/fallback choice, memory setting, network posture, exact tool/skill grant, run budget, child limit, and learning
+permission passes the same conservative policy evaluator. Newly added tool grants must exist in the current immutable
+catalog and skill grants must reference current Active skills. Ready-state bounds additionally limit generated output
+to 256–262,144 tokens and tool invocations to 0–1,000, with zero invocations when no tool is granted. Missing or
+unknown authority is denied.
+
+Preview hashes bind installation/provider/agent versions, normalized complete candidate, actor, correlation, and
+credential fingerprint where applicable. Previews are short-lived in-memory session objects; apply requires the exact
+hash and repeats external validation under optimistic concurrency. A committed create/edit increments the installation
+while preserving Ready state and transactionally appends a redacted create/edit audit event. The response reports that
+authority-version changes invalidate continuation: old immutable run snapshots remain evidence, but an existing
+conversation cannot silently adopt the new agent/provider policy. A crash, stale preview, substituted credential, or
+changed grant catalog cannot partially apply or widen authority.
+
+Run response presets and browser numeric bounds are convenience controls, not policy evidence. The authenticated
+stream endpoint independently clamps the effective agent ceiling to the 262,144-token hard cap and rejects an explicit
+limit below one or above that ceiling before task admission. The exact accepted value is bound into the run snapshot,
+event configuration, idempotency request hash, and provider request. A larger output allowance does not expand tool,
+network, skill, file, message, device, credential, or fallback authority; interactive wall-clock time remains capped at
+270 seconds and the corresponding node lease never exceeds five minutes.
+
+## Ready tool-approval boundary
+
+Tool catalog data, browser parameters, filesystem paths, previously issued previews, and handler output are untrusted.
+The Ready surface lists only immutable authoritative descriptors and reconstructs every grant candidate from the current
+agent. A grant may change one exact tool capability and only the per-run tool-invocation ceiling; network posture,
+skills, every other budget member, and all other agent authority must compare unchanged. The existing administrator
+secret, CSRF/origin/session checks, optimistic installation/agent versions, preview hash, audit, and transaction remain
+mandatory. Catalog visibility alone never authorizes execution.
+
+Invocation preview and execution share one canonical planner. It fixes capability, risk, target kind, side effects,
+sandbox, network policy, timeout, output limit, and handler from the exact tool/version/descriptor hash; the caller can
+provide typed descriptor parameters and an absolute workspace only. Authorization binds canonical parameters,
+normalized target/workspace, actor, agent policy version, installation version, expiry, correlation, and request hash.
+Missing grants deny, grant/deny decisions are exact and expiring, a grant is consumed before execution, and a consumed
+preview cannot be reused. Raw output is returned only to the authenticated response and is never placed in relational
+state, audit, or idempotent durable replay; only hashes, lengths, exit state, and approval evidence persist.
+
+The initial managed workspace handlers are not a weak process sandbox. They start no process, receive no environment,
+and have no networking primitive. Preview and execution independently require an existing absolute target contained by
+an existing absolute workspace, reject UNC workspace roots on Windows and every traversed link/reparse point, enumerate
+only direct children without following links, cap entry/output counts, and read only bounded strict-UTF8 files. Unknown
+handlers, detected traversal/link paths, binary input, oversized files/output, cancellation, and I/O errors fail typed.
+A same-user filesystem replacement race between validation and managed read remains possible under the documented
+single-operator OS-account boundary; the initial catalog is therefore read-only and grants no credential access.
+Process-backed tools still pass through their declared sandbox and cannot degrade to this built-in execution kind.
+
+## Automated learning-evaluator boundary
+
+Proposal workspace archives, artifact metadata, installed package records, skill Markdown, manifests, declared
+permissions, hostile candidate instructions, and browser requests are untrusted. The Ready endpoint accepts only a
+candidate ID and current version behind the existing authenticated session, same-origin/HTTPS-remote, CSRF,
+idempotency, rate-limit, and installation-scope controls. Verifier pass flags, scores, evidence hashes, content, and
+permission changes are not accepted. The assigned verifier identity remains server-derived from immutable candidate
+state.
+
+Each evaluation opens the exact content-addressed workspace and independently recomputes its length and SHA-256 hash.
+It extracts into a unique AgentForge-data-directory sandbox using regular files only, rejects traversal, rooted paths,
+links, duplicates, unexpected names, file-count and byte-bound violations, then loads the package twice through the
+ordinary strict portable loader. Both canonical loads must match each other, the installed AgentProposal descriptor,
+candidate ID/version/package hash, and exact sorted permission declarations. No process, environment materialization,
+network primitive, provider, tool, or active skill authority is available in this managed evaluator.
+
+The hostile corpus rejects instructions that request policy/approval bypass, secret disclosure, exfiltration, system
+prompt access, or self-granted authority. Automatic permission evaluation permits only exact declarations ending in
+the read-only `:read`, `.read`, `:metadata`, or `.metadata` forms. Every unknown or wider declaration is rejected rather
+than escalated to an implicit approval. Passing evaluation does not activate or
+grant the skill: separate critic, governor, canary, active-version, and per-agent grant gates remain mandatory.
+
+The receipt contains only immutable identifiers/hashes, evaluator version, bounded check codes/summaries, and computed
+scores. It is deterministic JSON in the content-addressed artifact store, and only its hash enters candidate and audit
+state. Sandbox cleanup failure can leave bounded non-secret proposal material under the AgentForge data directory but
+cannot write outside it. Candidate-authored executable behavioral tests are not run by this managed evaluator; adding
+them requires the digest-pinned container isolation boundary and a separately gated test contract.
+
+## Local-model skill-generation boundary
+
+Classified summaries, source-run metadata, optional operator guidance, model output, and browser candidate fields are
+untrusted. The Ready endpoint scopes the signal to the authenticated installation, derives its source task from the
+immutable causation ID, requires the latest terminal task snapshot hash to equal the signal's source-evidence hash, and
+derives the agent ID from that task. The browser cannot select a generation agent, provider, model, evidence hash,
+generation receipt, or generated body.
+
+Generation reloads the current agent and exact pinned provider. Agent policy must be `LocalOnly`, forbid fallback,
+permit `Propose` or `ScopedAuto` learning, and restrict mutation to a proposal workspace/approved class. The provider
+must be a credential-free vLLM/OpenAI-compatible text profile; the model adapter separately restricts its endpoint to
+loopback or a literal private network. The request supplies zero tools, no skill bodies, no environment, no process,
+no credential, and no external fallback. The fixed system instruction treats every user-message field as reference
+data, but authorization never relies on model obedience.
+
+AgentForge preflights all generation input through the sensitive-data redactor and vetoes any detected secret rather
+than silently persisting it. Model output remains transient until it parses as one exact JSON object with only a
+bounded `markdown` string, six exact procedure headings, no package-internal markers/frontmatter, no active script tag,
+and no sensitive-data match. A non-Stop/truncated response, malformed JSON, duplicate/extra field, missing heading, or
+policy failure creates no package or candidate. No raw prompt or complete raw response is persisted.
+
+The accepted Markdown is wrapped between AgentForge-owned markers. `generation.harness.json` binds signal and source
+hashes, candidate/skill/version, agent/provider/model versions, stable model request, provider evidence, raw-response
+hash, selected-body hash, generation-request hash, redaction count, and finish reason. Both files enter the ordinary
+portable package hash and the content-addressed proposal workspace. A durable replay verifies that exact receipt before
+returning and never calls the model again for a matching candidate ID. The automated evaluator rehashes the marked body
+and checks the receipt before `Verified`; independent critic, governor, canary, activation, and per-agent grant gates
+remain mandatory because well-formed model output may still be substantively wrong.
+
+## AI-generated HTTP API skill boundary
+
+API documentation, missing-capability evidence, operator guidance, generated skill Markdown, profile labels, relative
+paths, scalar query values, external response JSON, and model tool calls are untrusted. A generated package may name
+only exact catalog tool IDs supplied to generation. Required IDs are request-hashed, provenance-bound, manifest-hashed,
+replay-compared, and independently checked against the evaluator's read-only allowlist. Declaring
+`tool:http-api.get` does not configure a profile, activate the package, grant it to an agent, change network posture,
+create an approval, or materialize a credential.
+
+Named API profiles accept exactly one HTTPS base origin, a contained relative probe path, bounded non-secret headers,
+an enabled flag, and a write-only bearer token. Authorization, cookie, proxy, host, transport, API-key, token, secret,
+credential, and subscription-key header names are rejected; unknown brace templates are rejected. Only server-owned
+`{correlationId}` and `{requestId}` expansion is allowed. Configuration input is redaction-scanned, live-probed on
+preview and apply, versioned optimistically, fingerprint-bound in session memory, audited without the token, and stored
+with an OS-secret reference. Rotation deletes the old reference only after the new profile transaction commits.
+
+The run loop exposes the generic model contract only when the selected immutable skill is Active and agent-granted,
+its current package requires the generic tool, the agent separately grants `tool:http-api.read`, network posture is
+`ApprovedEndpointsOnly`, tool budget remains, the profile is enabled, and model transport is compatible. The browser
+cannot choose an unconfigured endpoint: model profile/path/query arguments are schema-checked, resolved from durable
+profile state, and rebound as the invocation target. Approval covers the exact descriptor/version, canonical arguments,
+resolved endpoint, agent/policy/workspace scope, expiry, and request hash. The built-in handler resolves the profile
+again, compares endpoint and target byte-for-byte, materializes the bearer once, performs a no-redirect/no-cookie/no-
+proxy bounded GET, accepts strict UTF-8 only, and returns a hash-bearing bounded result. Dot segments (including encoded
+forms), absolute/network paths, cross-origin redirects, non-scalar query values, output flooding, stale profile state,
+and duplicate approvals fail closed.
+
+Residual risks are substantive API semantics in otherwise safe generated instructions, a bearer whose server-side
+scope is wider than AgentForge intends, and sensitive data legitimately returned by the approved endpoint. Operator
+review, least-privilege/short-lived bearer issuance, exact per-call approval, bounded output, deterministic holdout
+fixtures, canary, and rollback remain required. Candidate-authored behavioral assertions are not trusted until the
+future digest-pinned container evaluator executes them independently.
+
+## Durable conversation boundary
+
+Conversation prompts, run guidance, prior assistant text, model streams, artifact files, browser-selected run IDs,
+idempotency keys, and interrupted task state are untrusted. Initial and follow-up mutations require the existing
+authenticated Ready session, origin/CSRF controls, rate limits, installation scope, and fresh exact idempotency. The
+server derives conversation, turn, and task identities from the installation and mutation key. A conversation pins the
+exact agent/provider versions, model ID, policy, budget, system instruction, and immutable skill snapshot; continuation
+or resume fails if current authority no longer matches. The browser cannot replace stored context or resume an older
+turn.
+
+Before persistence and model use, system, user, and assistant text pass through the sensitive-data redactor.
+Credential-shaped strings become `[REDACTED]`. Accepted text is stored only as bounded UTF-8 content-addressed
+artifacts; append-only conversation snapshots contain hashes and metadata. Every details/history read verifies media
+type, length, strict UTF-8, and SHA-256 before returning text. Audit contains artifact/request/response/evidence hashes,
+never conversation bodies. Redaction reduces accidental secret retention but is not a general data-loss-prevention
+guarantee; the single operator must still avoid supplying unrecognized secrets.
+
+Every turn owns a distinct durable orchestration task, random hash-only lease, bounded retry/tool ceilings, and existing
+output/event/wall-clock limits. A tool-capable provider receives only descriptors intersected by the exact current
+agent grant and network posture; today that model-facing set is either empty or the single bounded `search_web`
+contract. At most 20 completed turns and 100,000 characters are reconstructed
+as alternating user/assistant messages; only those roles and single bounded text contents are accepted. A conversation
+holds at most 64 turns. Completed turns cannot resume or replay. A retryable provider/browser interruption becomes
+`NeedsResume`; a crash-orphaned lease can be reclaimed only after expiry. Resume uses the same stored prompt and task
+authority, while an active unexpired lease conflicts. Explicit cancellation durably cancels both the task and current
+conversation turn before signaling the live provider call.
+
+An accepted model tool call is not authority to execute. AgentForge validates the exact tool name and JSON schema,
+stores the canonical call in the conversation hash chain, moves both task and turn to `ApprovalRequired`, and exposes
+only an authenticated approval preview. Grant and denial bind the official endpoint, query/result count, descriptor,
+agent/installation versions, actor, expiry, correlation, and request hash. A grant is consumed once before the managed
+handler runs; a denial performs no network request. The bounded JSON result is hash-chained and supplied as a typed
+tool-result continuation. Unknown tools, changed policy, malformed arguments, stale previews, missing credentials,
+exhausted budgets, or unresolved calls fail closed and cannot silently become text-only execution claims.
+
+## Scheduled execution and attached-context boundary
+
+Schedule forms, recurrence fields, prompts, run guidance, memory text, search queries, provider results, citations,
+receipt hashes, and browser-selected identities are untrusted. Every mutation requires the authenticated Ready
+session, exact origin/CSRF, bounded idempotency, installation scope, and optimistic versions. Schedule creation uses
+a write-free recurrence/authority preview and then revalidates the exact agent, provider, Active granted skills, and
+installation versions. The immutable template stores only redacted content-addressed prompt/system artifacts plus
+exact policy, capability, budget, skill, agent, provider, and model pins. Editing any pinned agent/provider authority
+requires a replacement schedule; it never silently changes existing automation.
+
+The dispatcher only creates due occurrences. A separate bounded worker claims an exact hash-only occurrence lease and
+derives one deterministic task, conversation, and turn identity from that occurrence hash. A crash after model
+completion reopens the durable Ready conversation and completes the occurrence without invoking the model again. An
+expired retryable task lease can resume the same incomplete turn; terminal failed/canceled conversations never rerun.
+Legacy schedules without an immutable run template remain inert to this worker. Unsupported or changed authority fails
+typed rather than degrading.
+
+Memory operations derive the effective Agent or Operator scope from the current agent policy; Task-scoped memory is
+not attachable before a new task identity exists. Entries retain exact source kind/evidence hash, redaction count,
+expiry, and deletion tuple. Research executes only after an exact operator preview binds agent version, query,
+provider set, and result limit. Provider credentials remain invocation-scoped inside adapters. The resulting bounded
+citation receipt is session-held and must be attached explicitly to the same agent.
+
+The Ready Brave configuration surface accepts credential material only in an authenticated CSRF/idempotency-bound
+mutation. Preview and apply independently probe the fixed official HTTPS endpoint; the session retains a SHA-256
+fingerprint and sanitized policy only. Apply writes an opaque OS-secret reference and the provider profile plus audit
+event in one database commit, then removes the superseded reference. Secret material is never returned to the browser,
+placed in configuration JSON, audit, cache identity, citation evidence, or model context. The versioned profile evidence
+hash includes the opaque reference identity, so rotation, enablement, safe-search, country, or language changes invalidate
+stale research approvals and cache keys. A managed Brave invocation fails closed unless the request carries that exact
+evidence hash.
+
+Memory, citations, and runtime search results are enclosed in an explicit untrusted-reference boundary before model
+use. Embedded instructions cannot change policy, grants, tools, or system text. Context evidence identities enter the
+policy and budget snapshot hashes; the complete redacted system context is additionally content-addressed for
+continuation and restart. The local model never receives a network client or credential: when all policy intersections
+pass it receives only the `search_web` schema, and AgentForge performs the eventual approved request through the fixed
+managed Brave adapter. Missing or changed search configuration/credentials returns typed failure; deterministic
+providers and restart fixtures cover the approval and continuation boundary.
 
 ## R1 final disposition
 

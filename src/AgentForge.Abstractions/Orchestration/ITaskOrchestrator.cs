@@ -27,6 +27,11 @@ public interface ITaskSnapshotStore
     ValueTask<IReadOnlyList<OrchestrationTaskSnapshot>> ListAsync(
         OrchestrationTaskId taskId,
         CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<OrchestrationTaskSnapshot>> ListLatestAsync(
+        InstallationId installationId,
+        int maximumResults,
+        CancellationToken cancellationToken);
 }
 
 public interface ITaskOrchestrator

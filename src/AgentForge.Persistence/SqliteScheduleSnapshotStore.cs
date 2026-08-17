@@ -106,6 +106,75 @@ internal sealed class SqliteScheduleSnapshotStore(AgentForgeDbContext dbContext)
         return due;
     }
 
+    public async ValueTask<IReadOnlyList<ScheduleSnapshot>> ListLatestAsync(
+        InstallationId installationId,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        if (installationId.Value == Guid.Empty || maximumCount is < 1 or > 256)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        var latestVersions = dbContext.ScheduleSnapshots
+            .Where(item => item.InstallationId == installationId.Value)
+            .GroupBy(item => item.ScheduleId)
+            .Select(group => new { ScheduleId = group.Key, Version = group.Max(item => item.Version) });
+        var entities = await dbContext.ScheduleSnapshots.AsNoTracking()
+            .Join(
+                latestVersions,
+                snapshot => new { snapshot.ScheduleId, snapshot.Version },
+                latest => new { latest.ScheduleId, latest.Version },
+                (snapshot, _) => snapshot)
+            .OrderByDescending(item => item.UpdatedAtUtcTicks)
+            .ThenBy(item => item.ScheduleId)
+            .Take(maximumCount)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(Map).ToArray();
+    }
+
+    public async ValueTask<IReadOnlyList<RunnableScheduleOccurrence>> ListRunnableAsync(
+        DateTimeOffset now,
+        int maximumCount,
+        CancellationToken cancellationToken)
+    {
+        if (maximumCount is < 1 or > 256)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumCount));
+        }
+
+        var latestVersions = dbContext.ScheduleSnapshots
+            .GroupBy(item => item.ScheduleId)
+            .Select(group => new { ScheduleId = group.Key, Version = group.Max(item => item.Version) });
+        var entities = await dbContext.ScheduleSnapshots.AsNoTracking()
+            .Join(
+                latestVersions,
+                snapshot => new { snapshot.ScheduleId, snapshot.Version },
+                latest => new { latest.ScheduleId, latest.Version },
+                (snapshot, _) => snapshot)
+            .Where(item => item.State == nameof(ScheduleState.Active))
+            .OrderBy(item => item.UpdatedAtUtcTicks)
+            .Take(512)
+            .ToArrayAsync(cancellationToken);
+        return entities.Select(Map)
+            .SelectMany(snapshot => snapshot.Occurrences
+                .Where(occurrence =>
+                    occurrence.State is ScheduleOccurrenceState.Queued && occurrence.DueAt <= now &&
+                        (occurrence.RetryNotBefore is null || occurrence.RetryNotBefore <= now) ||
+                    occurrence.State is ScheduleOccurrenceState.Running &&
+                        occurrence.Lease is { ExpiresAt: var expiresAt } && expiresAt <= now)
+                .Select(occurrence => new RunnableScheduleOccurrence(
+                    snapshot.Definition.Id,
+                    snapshot.Version,
+                    occurrence.IdempotencyKeyHash,
+                    occurrence.DueAt,
+                    occurrence.State is ScheduleOccurrenceState.Running)))
+            .OrderBy(item => item.DueAt)
+            .ThenBy(item => item.ScheduleId.Value)
+            .Take(maximumCount)
+            .ToArray();
+    }
+
     private static ScheduleSnapshot Map(ScheduleSnapshotEntity entity)
     {
         var snapshot = JsonSerializer.Deserialize<ScheduleSnapshot>(entity.SnapshotJson, SerializerOptions)
