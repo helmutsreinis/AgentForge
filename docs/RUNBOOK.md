@@ -796,7 +796,7 @@ Use this workflow when AgentForge should build an integration procedure instead 
 adapter. First open **Skills → Bearer-authenticated HTTP API** and create a named profile. For Microsoft Partner
 Center use profile ID `microsoft-partner-center`, base endpoint
 `https://api.partnercenter.microsoft.com/v1/`, probe path `customers?size=1`, and the non-secret headers
-`MS-Contract-Version: v1`, `MS-CorrelationId: {correlationId}`, and `MS-RequestId: {requestId}`. Paste the bearer
+`MS-CorrelationId: {correlationId}` and `MS-RequestId: {requestId}`. Paste the bearer
 token only into the write-only token field. Preview performs one bounded live GET; apply repeats it and persists only
 the OS-backed reference. Later rotation uses the same form and deletes the prior reference only after commit.
 

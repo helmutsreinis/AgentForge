@@ -24,7 +24,6 @@ public sealed class GeneratedHttpApiLiveIntegrationTests
             "customers?size=1",
             new Dictionary<string, string>
             {
-                ["MS-Contract-Version"] = "v1",
                 ["MS-CorrelationId"] = "{correlationId}",
                 ["MS-RequestId"] = "{requestId}",
             },

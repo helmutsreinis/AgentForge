@@ -774,8 +774,7 @@
             </div>
             <label>HTTPS base endpoint<input id="http-api-base-endpoint" type="url" maxlength="2048" value="https://api.partnercenter.microsoft.com/v1/" required></label>
             <label>Verification path <span class="field-note">One relative GET used only during preview/apply.</span><input id="http-api-probe-path" maxlength="2048" value="customers?size=1" required></label>
-            <label>Static request headers <span class="field-note">One non-secret <code>Name: value</code> per line. Use <code>{correlationId}</code> and <code>{requestId}</code> for per-call IDs. Authorization and transport headers are rejected.</span><textarea id="http-api-static-headers" rows="4" maxlength="8192">MS-Contract-Version: v1
-MS-CorrelationId: {correlationId}
+            <label>Static request headers <span class="field-note">One non-secret <code>Name: value</code> per line. Use <code>{correlationId}</code> and <code>{requestId}</code> for per-call IDs. Authorization and transport headers are rejected.</span><textarea id="http-api-static-headers" rows="4" maxlength="8192">MS-CorrelationId: {correlationId}
 MS-RequestId: {requestId}</textarea></label>
             <label>Bearer token <span class="field-note">Required initially; leave blank to retain the protected current token during later edits.</span><input id="http-api-bearer-token" type="password" maxlength="32768" autocomplete="new-password" placeholder="Write-only bearer token"></label>
             <div class="composer-actions integration-actions"><p>Verification performs one bounded GET before creating an exact, hash-bound profile preview.</p><button class="setup-submit" type="submit">Verify and preview</button></div>
