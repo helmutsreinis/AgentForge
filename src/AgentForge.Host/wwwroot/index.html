@@ -364,6 +364,10 @@
                   <span><strong>Search the web with Brave</strong><small>The agent may propose a query. Every exact search still waits for your approval; the API key stays hidden.</small></span>
                 </label>
                 <label class="capability-choice">
+                  <input id="agent-edit-http-api" type="checkbox">
+                  <span><strong>Read configured APIs for active skills</strong><small>Generated skills may propose bounded GET requests. Every exact profile, path, query, and endpoint still waits for approval.</small></span>
+                </label>
+                <label class="capability-choice">
                   <input id="agent-edit-workspace-read" type="checkbox">
                   <span><strong>Read approved workspace files</strong><small>Grants catalog access only. Every exact path and file read still needs approval.</small></span>
                 </label>
@@ -533,13 +537,13 @@
           </div>
           <section id="run-search-approval" class="run-search-approval" hidden>
             <div class="resource-title">
-              <div><span class="stage-kicker">EXACT NETWORK APPROVAL</span><h3>Agent requests Brave Search</h3></div>
+              <div><span class="stage-kicker">EXACT NETWORK APPROVAL</span><h3 id="run-tool-approval-title">Agent requests an external read</h3></div>
               <span class="state-chip warning">Waiting</span>
             </div>
             <p id="run-search-query" class="search-request-query"></p>
             <div id="run-search-preview" class="review-grid" hidden></div>
             <code id="run-search-preview-hash" class="preview-hash" hidden></code>
-            <p id="run-search-warning" class="field-note">No network request has been made. Review the exact query before deciding.</p>
+            <p id="run-search-warning" class="field-note">No network request has been made. Review the exact operation before deciding.</p>
             <div class="resource-actions">
               <button id="run-search-deny" class="secondary-action danger-action" type="button">Review denial</button>
               <button id="run-search-approve" class="setup-submit" type="button">Review approval</button>
@@ -746,10 +750,43 @@
           </div>
           <button class="secondary-action" type="button" data-reload="skills">Reload skills</button>
         </div>
-        <div class="skill-starter">
-          <div><strong>C# review starter</strong><span>Portable SKILL.md package · immutable hash · declared repository-read authority</span></div>
-          <button id="install-seed-skill" class="setup-submit" type="button">Install starter skill</button>
+        <div class="skill-starter-grid">
+          <div class="skill-starter">
+            <div><strong>C# review starter</strong><span>Portable SKILL.md package · immutable hash · declared repository-read authority</span></div>
+            <button id="install-seed-skill" class="setup-submit" type="button">Install starter skill</button>
+          </div>
+          <div class="skill-starter">
+            <div><strong>Build an API skill with your agent</strong><span>Classify a missing capability, let the pinned local model author it, then evaluate and promote it here.</span></div>
+            <a class="setup-submit" href="#learning">Open AI skill builder</a>
+          </div>
         </div>
+        <article class="integration-config" aria-labelledby="http-api-config-title">
+          <div class="resource-title">
+            <div><span class="stage-kicker">GENERATED-SKILL CONNECTION</span><h3 id="http-api-config-title">Bearer-authenticated HTTP API</h3></div>
+            <span id="http-api-config-state" class="state-chip">NOT CONFIGURED</span>
+          </div>
+          <p id="http-api-config-summary" class="resource-description">Create a named HTTPS profile for an AI-generated skill. The bearer token is write-only and never enters model or skill context.</p>
+          <form id="http-api-config-form" class="run-composer compact-composer integration-form" autocomplete="off">
+            <label class="gate-check integration-toggle"><input id="http-api-config-enabled" type="checkbox" checked><span><strong>Enable this API profile</strong><small>Availability still requires an active generated skill, agent tool grant, and exact per-call approval.</small></span></label>
+            <div class="form-row">
+              <label>Profile ID<input id="http-api-profile-id" maxlength="64" value="microsoft-partner-center" required></label>
+              <label>Display name<input id="http-api-display-name" maxlength="128" value="Microsoft Partner Center" required></label>
+            </div>
+            <label>HTTPS base endpoint<input id="http-api-base-endpoint" type="url" maxlength="2048" value="https://api.partnercenter.microsoft.com/v1/" required></label>
+            <label>Verification path <span class="field-note">One relative GET used only during preview/apply.</span><input id="http-api-probe-path" maxlength="2048" value="customers?size=1" required></label>
+            <label>Static request headers <span class="field-note">One non-secret <code>Name: value</code> per line. Use <code>{correlationId}</code> and <code>{requestId}</code> for per-call IDs. Authorization and transport headers are rejected.</span><textarea id="http-api-static-headers" rows="4" maxlength="8192">MS-Contract-Version: v1
+MS-CorrelationId: {correlationId}
+MS-RequestId: {requestId}</textarea></label>
+            <label>Bearer token <span class="field-note">Required initially; leave blank to retain the protected current token during later edits.</span><input id="http-api-bearer-token" type="password" maxlength="32768" autocomplete="new-password" placeholder="Write-only bearer token"></label>
+            <div class="composer-actions integration-actions"><p>Verification performs one bounded GET before creating an exact, hash-bound profile preview.</p><button class="setup-submit" type="submit">Verify and preview</button></div>
+          </form>
+          <form id="http-api-config-review" class="run-composer compact-composer integration-form" hidden>
+            <div id="http-api-config-details" class="review-grid"></div>
+            <code id="http-api-config-preview-hash" class="preview-hash"></code>
+            <div class="resource-actions"><button id="http-api-config-discard" class="secondary-action" type="button">Discard</button><button class="setup-submit" type="submit">Apply API profile</button></div>
+          </form>
+          <div id="http-api-config-message" class="workspace-message" aria-live="polite">Bearer tokens are stored only through the operating-system secret adapter.</div>
+        </article>
         <div class="scope-notice"><strong>Governed by default</strong><span>Installation validates and records the package. Activation still requires the evaluation, approval, and canary promotion lifecycle.</span></div>
         <div id="skills-message" class="workspace-message" aria-live="polite">Open this page to load skills.</div>
         <div id="skill-list" class="resource-list"></div>
@@ -895,6 +932,7 @@
           <label>Description<textarea id="learning-proposal-description" maxlength="512" rows="3" required></textarea></label>
           <label>Generation guidance <span class="field-note">Optional instructions from you; source evidence remains untrusted data.</span><textarea id="learning-proposal-guidance" maxlength="2048" rows="4" placeholder="Emphasize the bounded procedure, observable checks, and failure handling."></textarea></label>
           <label>Declared read-only permissions <span class="field-note">Comma-separated declarations are not grants. Unknown or wider forms fail automatic evaluation.</span><input id="learning-proposal-permissions" maxlength="2048" placeholder="Leave empty, or use a bounded form such as repository:read"></label>
+          <label class="check-field"><input id="learning-proposal-http-api" type="checkbox"><span><strong>Require configured HTTP API reads</strong><small>Adds the generic <code>tool:http-api.get</code> requirement. The model may describe its use, but the skill receives no credential or authority.</small></span></label>
           <div class="composer-actions">
             <p>The source run's current agent calls only its pinned private model with zero tools. AgentForge accepts strict generated JSON, stores an immutable provenance receipt, and grants no authority.</p>
             <button id="create-learning-proposal" class="setup-submit" type="submit">Generate inert candidate</button>

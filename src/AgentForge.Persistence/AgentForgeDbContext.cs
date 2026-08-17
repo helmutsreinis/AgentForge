@@ -17,6 +17,8 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
 
     internal DbSet<SearchProviderProfileEntity> SearchProviderProfiles => Set<SearchProviderProfileEntity>();
 
+    internal DbSet<HttpApiProfileEntity> HttpApiProfiles => Set<HttpApiProfileEntity>();
+
     internal DbSet<AgentIdentityEntity> AgentIdentities => Set<AgentIdentityEntity>();
 
     internal DbSet<AgentContextPolicyEntity> AgentContextPolicies => Set<AgentContextPolicyEntity>();
@@ -300,6 +302,26 @@ public sealed class AgentForgeDbContext(DbContextOptions<AgentForgeDbContext> op
             entity.Property(item => item.SafeSearch).HasMaxLength(32).IsRequired();
             entity.Property(item => item.CountryCode).HasMaxLength(2).IsRequired();
             entity.Property(item => item.SearchLanguage).HasMaxLength(16).IsRequired();
+            entity.Property(item => item.Version).IsConcurrencyToken();
+            entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
+            entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();
+        });
+
+        modelBuilder.Entity<HttpApiProfileEntity>(entity =>
+        {
+            entity.ToTable("http_api_profiles");
+            entity.HasKey(item => new { item.InstallationId, item.ProfileId });
+            entity.HasOne<InstallationEntity>()
+                .WithMany()
+                .HasForeignKey(item => item.InstallationId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(item => item.ProfileId).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.DisplayName).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.BaseEndpoint).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.ProbeRelativePath).HasMaxLength(2048).IsRequired();
+            entity.Property(item => item.StaticHeadersJson).HasMaxLength(32768).IsRequired();
+            entity.Property(item => item.SecretStore).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.SecretKey).HasMaxLength(512).IsRequired();
             entity.Property(item => item.Version).IsConcurrencyToken();
             entity.Property(item => item.ActorId).HasMaxLength(256).IsRequired();
             entity.Property(item => item.CorrelationId).HasMaxLength(128).IsRequired();

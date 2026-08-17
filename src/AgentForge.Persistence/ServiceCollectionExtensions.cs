@@ -4,6 +4,7 @@ using AgentForge.Abstractions.Auditing;
 using AgentForge.Abstractions.Channels;
 using AgentForge.Abstractions.Coding;
 using AgentForge.Abstractions.Devices;
+using AgentForge.Abstractions.HttpApi;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Memory;
@@ -83,6 +84,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IArtifactStore, FileSystemArtifactStore>();
         services.AddScoped<IProviderProfileRepository, SqliteProviderProfileRepository>();
         services.AddScoped<ISearchProviderProfileRepository, SqliteSearchProviderProfileRepository>();
+        services.AddScoped<IHttpApiProfileRepository, SqliteHttpApiProfileRepository>();
         services.AddScoped<IAgentIdentityRepository, SqliteAgentIdentityRepository>();
         services.AddScoped<IModelRouteAuthoritySnapshotReader, SqliteModelRouteAuthoritySnapshotReader>();
         services.AddScoped<IModelRunRepository, SqliteModelRunRepository>();

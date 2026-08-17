@@ -533,6 +533,7 @@ main {
 .scope-notice strong { flex: none; color: #aae7e4; }
 .scope-notice span { color: var(--muted); }
 .skill-starter { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px; border: 1px solid rgba(142, 115, 255, 0.22); border-radius: 13px; background: rgba(142, 115, 255, 0.055); }
+.skill-starter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .skill-starter div { display: grid; gap: 4px; }
 .skill-starter strong { font-size: 13px; }
 .skill-starter span { color: var(--muted); font-size: 10px; }
@@ -707,6 +708,7 @@ noscript { position: fixed; bottom: 12px; right: 12px; padding: 10px; background
   .stage-actions { align-items: stretch; flex-direction: column-reverse; }
   .workspace-panel { padding: 25px 20px; }
   .workspace-heading, .skill-starter { align-items: stretch; flex-direction: column; }
+  .skill-starter-grid { grid-template-columns: minmax(0, 1fr); }
   .run-primary-grid, .history-toolbar { grid-template-columns: 1fr; }
   .learning-primary-grid { grid-template-columns: 1fr; }
   .learning-primary-grid label:first-child { grid-column: auto; }

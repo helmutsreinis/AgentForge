@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.HttpApi;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Runtime;
@@ -37,6 +38,8 @@ internal sealed record ReadyAdminSession(
     public ConcurrentDictionary<string, ReadyResearchReceipt> ResearchReceipts { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, BraveSearchConfigurationPreview> BraveSearchPreviews { get; } = new(StringComparer.Ordinal);
+
+    public ConcurrentDictionary<string, HttpApiConfigurationPreview> HttpApiPreviews { get; } = new(StringComparer.Ordinal);
 
     public ConcurrentDictionary<string, ReadyAgentSkillGrantPreview> SkillGrantPreviews { get; } = new(StringComparer.Ordinal);
 

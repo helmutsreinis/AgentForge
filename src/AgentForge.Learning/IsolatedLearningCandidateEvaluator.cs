@@ -42,7 +42,8 @@ internal sealed class IsolatedLearningCandidateEvaluator(
         "reveal secret",
         "exfiltrate",
         "grant yourself",
-        "system prompt",
+        "reveal system prompt",
+        "print system prompt",
     ];
 
     public async Task<DomainResult<AutomatedLearningEvaluationResult>> EvaluateAsync(
@@ -147,8 +148,8 @@ internal sealed class IsolatedLearningCandidateEvaluator(
             checks.Add(new LearningEvaluationCheck(
                 "permissions.exact-readonly-diff", permissionPassed,
                 permissionPassed
-                    ? "Declared permissions exactly match the candidate and use only automatically allowed read-only forms."
-                    : "The permission diff is mismatched or requires explicit high-risk authorization that this evaluator cannot grant."));
+                    ? "Declared permissions and tool requirements exactly match the candidate and use only automatically allowed read-only forms."
+                    : "The permission/tool diff is mismatched or requires high-risk authority that this evaluator cannot approve."));
 
             var targetPassed = checks.Where(check => check.Code is
                     "workspace.integrity" or "target.package-contract" or "provenance.local-model-generation")
@@ -326,13 +327,47 @@ internal sealed class IsolatedLearningCandidateEvaluator(
     {
         var corpus = string.Join('\n', new[] { package.Description, package.Markdown }
             .Concat(package.Permissions)).ToLowerInvariant();
-        return ProhibitedAuthorityFragments.Any(corpus.Contains);
+        foreach (var fragment in ProhibitedAuthorityFragments)
+        {
+            var start = 0;
+            while ((start = corpus.IndexOf(fragment, start, StringComparison.Ordinal)) >= 0)
+            {
+                var clauseStart = corpus.LastIndexOfAny(['\n', '.', '!', '?', ';', ':'], start);
+                var prefix = corpus[(clauseStart + 1)..start];
+                if (!IsExplicitlyProhibited(prefix)) return true;
+                start += fragment.Length;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsExplicitlyProhibited(string prefix)
+    {
+        var bounded = prefix.Length > 128 ? prefix[^128..] : prefix;
+        var markers = new[]
+        {
+            "do not ", "don't ", "never ", "must not ", "must never ", "cannot ", "can't ",
+            "forbid ", "forbids ", "forbidden ", "prohibit ", "prohibits ", "denied ", "deny ",
+        };
+        var marker = markers.Select(value => bounded.LastIndexOf(value, StringComparison.Ordinal))
+            .Max();
+        if (marker < 0) return false;
+        var scope = bounded[marker..];
+        return !scope.Contains(" but ", StringComparison.Ordinal) &&
+            !scope.Contains(" however ", StringComparison.Ordinal) &&
+            !scope.Contains(" instead ", StringComparison.Ordinal) &&
+            !scope.Contains(" except ", StringComparison.Ordinal) &&
+            !scope.Contains(" unless ", StringComparison.Ordinal);
     }
 
     private static bool PermissionDiffIsBounded(LearningCandidate candidate, SkillPackage package) =>
         package.Permissions.Order(StringComparer.Ordinal).SequenceEqual(
             candidate.RequestedPermissions, StringComparer.Ordinal) &&
-        package.Permissions.All(IsAutomaticallyAllowedReadOnlyPermission);
+        package.Permissions.All(IsAutomaticallyAllowedReadOnlyPermission) &&
+        package.Requirements.ToolIds.All(IsAutomaticallyAllowedReadOnlyTool);
+
+    private static bool IsAutomaticallyAllowedReadOnlyTool(string toolId) => toolId is
+        "tool:workspace.list" or "tool:workspace.read-text" or "tool:search.brave" or "tool:http-api.get";
 
     private static bool IsAutomaticallyAllowedReadOnlyPermission(string permission)
     {
@@ -384,6 +419,8 @@ internal sealed class IsolatedLearningCandidateEvaluator(
                 SkillPackageValidator.IsHash(evidence.RawResponseHash) &&
                 SkillPackageValidator.IsHash(evidence.GenerationRequestHash) &&
                 evidence.ContextRedactionCount >= 0 && evidence.FinishReason == nameof(ModelFinishReason.Stop) &&
+                (evidence.RequiredTools ?? []).SequenceEqual(
+                    package.Requirements.ToolIds.Order(StringComparer.Ordinal), StringComparer.Ordinal) &&
                 string.Equals(evidence.SelectedMarkdownHash, HashText(generatedMarkdown), StringComparison.Ordinal) &&
                 SkillCandidateDraftParser.Parse(JsonSerializer.Serialize(new { markdown = generatedMarkdown })).IsSuccess;
         }

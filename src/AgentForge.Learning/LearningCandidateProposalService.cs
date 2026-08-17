@@ -122,13 +122,18 @@ internal sealed class LearningCandidateProposalService(
         var permissions = (request.RequestedPermissions ?? [])
             .Select(value => NormalizeLine(value, 256))
             .ToArray();
+        var requiredTools = (request.RequiredTools ?? [])
+            .Select(value => NormalizeLine(value, 256))
+            .ToArray();
         var packageShape = new SkillPackage(
             request.SkillId,
             request.CandidateVersion,
             description ?? string.Empty,
             "proposal",
             [],
-            new SkillRequirements(["windows", "linux"], ["text-generation"], []),
+            new SkillRequirements(["windows", "linux"], ["text-generation"],
+                requiredTools.Where(value => value is not null).Select(value => value!)
+                    .Order(StringComparer.Ordinal).ToArray()),
             permissions.Where(value => value is not null).Select(value => value!).Order(StringComparer.Ordinal).ToArray(),
             new Dictionary<string, string>
             {
@@ -145,6 +150,7 @@ internal sealed class LearningCandidateProposalService(
         var generationValid = ValidGenerationEvidence(request, generatedMarkdown, generation);
         if (request.CandidateId.Value == Guid.Empty || request.SkillProposalId.Value == Guid.Empty ||
             description is null || permissions.Any(value => value is null) ||
+            requiredTools.Any(value => value is null) ||
             packageShape.Permissions.Count != permissions.Length || !request.Roles.IsSeparated() ||
             !validation.IsSuccess || !generationValid)
         {
@@ -158,6 +164,7 @@ internal sealed class LearningCandidateProposalService(
             request.CandidateVersion,
             description!,
             packageShape.Permissions,
+            packageShape.Requirements.ToolIds,
             generatedMarkdown,
             generation));
     }
@@ -182,6 +189,8 @@ internal sealed class LearningCandidateProposalService(
             SkillPackageValidator.IsHash(generation.SelectedMarkdownHash) &&
             SkillPackageValidator.IsHash(generation.GenerationRequestHash) &&
             generation.ContextRedactionCount >= 0 && generation.FinishReason == nameof(ModelFinishReason.Stop) &&
+            (generation.RequiredTools ?? []).SequenceEqual(
+                (request.RequiredTools ?? []).Order(StringComparer.Ordinal), StringComparer.Ordinal) &&
             string.Equals(generation.SelectedMarkdownHash, Hash(generatedMarkdown), StringComparison.Ordinal);
     }
 
@@ -235,7 +244,7 @@ the generated procedure is untrusted until the independent evaluation, critique,
             {
                 operatingSystems = SupportedOperatingSystems,
                 modelCapabilities = TextGenerationCapabilities,
-                tools = Array.Empty<string>(),
+                tools = proposal.RequiredTools,
             },
             permissions = proposal.Permissions,
             signature = (object?)null,
@@ -262,7 +271,9 @@ the generated procedure is untrusted until the independent evaluation, critique,
         string.Equals(proposal.GenerationEvidence.SignalHash, signal.SignalHash, StringComparison.Ordinal) &&
         string.Equals(proposal.GenerationEvidence.SourceEvidenceHash, signal.SourceEvidenceHash, StringComparison.Ordinal) &&
         proposal.GenerationEvidence.SkillId == proposal.SkillId &&
-        proposal.GenerationEvidence.CandidateVersion == proposal.Version;
+        proposal.GenerationEvidence.CandidateVersion == proposal.Version &&
+        (proposal.GenerationEvidence.RequiredTools ?? []).SequenceEqual(
+            proposal.RequiredTools, StringComparer.Ordinal);
 
     private DomainResult<string> PrepareWorkspaceDirectory(LearningCandidateId candidateId)
     {
@@ -370,7 +381,9 @@ the generated procedure is untrusted until the independent evaluation, critique,
         existing.SkillId == normalized.SkillId && existing.CandidateVersion == normalized.Version &&
         existing.RequestedPermissions.SequenceEqual(
             normalized.Permissions, StringComparer.Ordinal) &&
-        existing.Roles == request.Roles;
+        existing.Roles == request.Roles &&
+        (request.RequiredTools ?? []).Order(StringComparer.Ordinal).SequenceEqual(
+            normalized.RequiredTools, StringComparer.Ordinal);
 
     private static string? NormalizeLine(string? value, int maximum)
     {
@@ -411,6 +424,7 @@ the generated procedure is untrusted until the independent evaluation, critique,
         SkillVersion Version,
         string Description,
         IReadOnlyList<string> Permissions,
+        IReadOnlyList<string> RequiredTools,
         string? GeneratedMarkdown,
         SkillCandidateGenerationEvidence? GenerationEvidence);
 }

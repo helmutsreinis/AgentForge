@@ -178,6 +178,56 @@ public static class ServiceCollectionExtensions
                     Hash("AgentForge managed Brave Search tool v1")),
                 ExecutionKind: ToolExecutionKind.BuiltIn,
                 BuiltInHandlerId: "search.brave"),
+            new ToolDescriptorDefinition(
+                "tool:http-api.get",
+                "1.0.0",
+                "Read a configured HTTP API",
+                "Issue one bounded GET through an operator-configured HTTPS API profile for an active generated skill.",
+                "The bearer token stays OS-backed. Profile, path, query, byte limit, and exact final endpoint are bound to a single-use approval.",
+                "tool:http-api.read",
+                CapabilityRiskClass.Credential,
+                AuthorizationTargetKind.Uri,
+                "endpoint",
+                ToolSideEffectKind.ReadsNetwork | ToolSideEffectKind.CredentialAccess,
+                ToolOutputSensitivity.PotentiallySensitive,
+                [
+                    new ToolParameterDescriptor(
+                        "profileId", ToolParameterType.Text, true, 64, null, null, [],
+                        "Configured bearer-authenticated HTTP API profile ID."),
+                    new ToolParameterDescriptor(
+                        "relativePath", ToolParameterType.Text, true, 2048, null, null, [],
+                        "Relative path contained by the configured base endpoint."),
+                    new ToolParameterDescriptor(
+                        "queryJson", ToolParameterType.Text, true, 8192, null, null, [],
+                        "Canonical bounded JSON object containing scalar query values."),
+                    new ToolParameterDescriptor(
+                        "maximumResponseBytes", ToolParameterType.WholeNumber, true, 0, 1, 1_048_576, [],
+                        "Maximum UTF-8 response bytes accepted from the endpoint."),
+                    new ToolParameterDescriptor(
+                        "endpoint", ToolParameterType.Text, true, 2048, null, null, [],
+                        "Server-resolved exact endpoint derived from the configured profile."),
+                ],
+                new ToolProcessDefinition(
+                    executable, [],
+                    [
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "profileId", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "relativePath", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "queryJson", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "maximumResponseBytes", null),
+                        new ToolArgumentBinding(ToolArgumentBindingKind.Positional, "endpoint", null),
+                    ],
+                    [], ProcessSandboxKind.BuiltIn,
+                    ProcessNetworkPolicy.FixedEndpointOnly,
+                    ProcessIsolationFeature.BoundedOutput | ProcessIsolationFeature.NetworkIsolation,
+                    30, 1_048_576),
+                new ToolProvenance(
+                    ToolCatalogSourceKind.BuiltIn,
+                    ToolTrustLevel.BuiltIn,
+                    "agentforge.generated-skill-http-api",
+                    "1.0.0",
+                    Hash("AgentForge managed generated-skill HTTP API GET v1")),
+                ExecutionKind: ToolExecutionKind.BuiltIn,
+                BuiltInHandlerId: "http-api.get"),
         ];
     }
 

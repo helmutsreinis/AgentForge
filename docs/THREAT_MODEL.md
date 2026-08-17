@@ -1088,6 +1088,39 @@ returning and never calls the model again for a matching candidate ID. The autom
 and checks the receipt before `Verified`; independent critic, governor, canary, activation, and per-agent grant gates
 remain mandatory because well-formed model output may still be substantively wrong.
 
+## AI-generated HTTP API skill boundary
+
+API documentation, missing-capability evidence, operator guidance, generated skill Markdown, profile labels, relative
+paths, scalar query values, external response JSON, and model tool calls are untrusted. A generated package may name
+only exact catalog tool IDs supplied to generation. Required IDs are request-hashed, provenance-bound, manifest-hashed,
+replay-compared, and independently checked against the evaluator's read-only allowlist. Declaring
+`tool:http-api.get` does not configure a profile, activate the package, grant it to an agent, change network posture,
+create an approval, or materialize a credential.
+
+Named API profiles accept exactly one HTTPS base origin, a contained relative probe path, bounded non-secret headers,
+an enabled flag, and a write-only bearer token. Authorization, cookie, proxy, host, transport, API-key, token, secret,
+credential, and subscription-key header names are rejected; unknown brace templates are rejected. Only server-owned
+`{correlationId}` and `{requestId}` expansion is allowed. Configuration input is redaction-scanned, live-probed on
+preview and apply, versioned optimistically, fingerprint-bound in session memory, audited without the token, and stored
+with an OS-secret reference. Rotation deletes the old reference only after the new profile transaction commits.
+
+The run loop exposes the generic model contract only when the selected immutable skill is Active and agent-granted,
+its current package requires the generic tool, the agent separately grants `tool:http-api.read`, network posture is
+`ApprovedEndpointsOnly`, tool budget remains, the profile is enabled, and model transport is compatible. The browser
+cannot choose an unconfigured endpoint: model profile/path/query arguments are schema-checked, resolved from durable
+profile state, and rebound as the invocation target. Approval covers the exact descriptor/version, canonical arguments,
+resolved endpoint, agent/policy/workspace scope, expiry, and request hash. The built-in handler resolves the profile
+again, compares endpoint and target byte-for-byte, materializes the bearer once, performs a no-redirect/no-cookie/no-
+proxy bounded GET, accepts strict UTF-8 only, and returns a hash-bearing bounded result. Dot segments (including encoded
+forms), absolute/network paths, cross-origin redirects, non-scalar query values, output flooding, stale profile state,
+and duplicate approvals fail closed.
+
+Residual risks are substantive API semantics in otherwise safe generated instructions, a bearer whose server-side
+scope is wider than AgentForge intends, and sensitive data legitimately returned by the approved endpoint. Operator
+review, least-privilege/short-lived bearer issuance, exact per-call approval, bounded output, deterministic holdout
+fixtures, canary, and rollback remain required. Candidate-authored behavioral assertions are not trusted until the
+future digest-pinned container evaluator executes them independently.
+
 ## Durable conversation boundary
 
 Conversation prompts, run guidance, prior assistant text, model streams, artifact files, browser-selected run IDs,

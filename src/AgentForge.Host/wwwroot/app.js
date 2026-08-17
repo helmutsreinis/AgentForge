@@ -82,6 +82,7 @@ const elements = {
   agentEditRetention: document.querySelector("#agent-edit-retention"),
   agentEditNetwork: document.querySelector("#agent-edit-network"),
   agentEditSearch: document.querySelector("#agent-edit-search"),
+  agentEditHttpApi: document.querySelector("#agent-edit-http-api"),
   agentEditWorkspaceRead: document.querySelector("#agent-edit-workspace-read"),
   agentEditToolGrants: document.querySelector("#agent-edit-tool-grants"),
   agentEditSkillGrants: document.querySelector("#agent-edit-skill-grants"),
@@ -133,6 +134,7 @@ const elements = {
   runContextNote: document.querySelector("#run-context-note"),
   cancelInteraction: document.querySelector("#cancel-interaction"),
   runSearchApproval: document.querySelector("#run-search-approval"),
+  runToolApprovalTitle: document.querySelector("#run-tool-approval-title"),
   runSearchQuery: document.querySelector("#run-search-query"),
   runSearchPreview: document.querySelector("#run-search-preview"),
   runSearchPreviewHash: document.querySelector("#run-search-preview-hash"),
@@ -228,6 +230,21 @@ const elements = {
   skillsMessage: document.querySelector("#skills-message"),
   skillList: document.querySelector("#skill-list"),
   installSeedSkill: document.querySelector("#install-seed-skill"),
+  httpApiConfigState: document.querySelector("#http-api-config-state"),
+  httpApiConfigSummary: document.querySelector("#http-api-config-summary"),
+  httpApiConfigForm: document.querySelector("#http-api-config-form"),
+  httpApiConfigEnabled: document.querySelector("#http-api-config-enabled"),
+  httpApiProfileId: document.querySelector("#http-api-profile-id"),
+  httpApiDisplayName: document.querySelector("#http-api-display-name"),
+  httpApiBaseEndpoint: document.querySelector("#http-api-base-endpoint"),
+  httpApiProbePath: document.querySelector("#http-api-probe-path"),
+  httpApiStaticHeaders: document.querySelector("#http-api-static-headers"),
+  httpApiBearerToken: document.querySelector("#http-api-bearer-token"),
+  httpApiConfigReview: document.querySelector("#http-api-config-review"),
+  httpApiConfigDetails: document.querySelector("#http-api-config-details"),
+  httpApiConfigPreviewHash: document.querySelector("#http-api-config-preview-hash"),
+  httpApiConfigDiscard: document.querySelector("#http-api-config-discard"),
+  httpApiConfigMessage: document.querySelector("#http-api-config-message"),
   skillProposalList: document.querySelector("#skill-proposal-list"),
   skillGateForm: document.querySelector("#skill-gate-form"),
   skillGateTitle: document.querySelector("#skill-gate-title"),
@@ -290,6 +307,7 @@ const elements = {
   learningProposalDescription: document.querySelector("#learning-proposal-description"),
   learningProposalGuidance: document.querySelector("#learning-proposal-guidance"),
   learningProposalPermissions: document.querySelector("#learning-proposal-permissions"),
+  learningProposalHttpApi: document.querySelector("#learning-proposal-http-api"),
   learningProposalClose: document.querySelector("#learning-proposal-close"),
   createLearningProposal: document.querySelector("#create-learning-proposal"),
   learningCandidateList: document.querySelector("#learning-candidate-list"),
@@ -346,6 +364,8 @@ const admin = {
   researchReceipt: null,
   braveConfiguration: null,
   braveConfigurationPreview: null,
+  httpApiProfiles: [],
+  httpApiConfigurationPreview: null,
   pendingSearchApproval: null,
 };
 const isLoopbackBrowser = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(window.location.hostname);
@@ -832,15 +852,19 @@ function setAgentGrant(capabilityId, enabled) {
 function syncFriendlyCapabilitiesFromPolicy() {
   const grants = readGrantList(elements.agentEditToolGrants);
   elements.agentEditSearch.checked = grants.includes("tool:search.web");
+  elements.agentEditHttpApi.checked = grants.includes("tool:http-api.read");
   elements.agentEditWorkspaceRead.checked = grants.includes("tool:workspace.read");
 }
 
 function updateFriendlyCapability(capabilityId, enabled) {
   setAgentGrant(capabilityId, enabled);
   const grants = readGrantList(elements.agentEditToolGrants);
-  if (capabilityId === "tool:search.web") {
+  if (capabilityId === "tool:search.web" || capabilityId === "tool:http-api.read") {
     if (enabled) elements.agentEditNetwork.value = "ApprovedEndpointsOnly";
-    else if (elements.agentEditNetwork.value === "ApprovedEndpointsOnly") elements.agentEditNetwork.value = "Denied";
+    else if (elements.agentEditNetwork.value === "ApprovedEndpointsOnly" &&
+      !grants.includes("tool:search.web") && !grants.includes("tool:http-api.read")) {
+      elements.agentEditNetwork.value = "Denied";
+    }
   }
   if (grants.length === 0) elements.agentEditMaxTools.value = 0;
   else if (Number(elements.agentEditMaxTools.value) === 0) elements.agentEditMaxTools.value = 5;
@@ -1335,7 +1359,7 @@ async function openRunDetails(conversationId) {
     elements.resumeRunTurn.hidden = !payload.run.resumable || Boolean(pendingSearch);
     elements.resumeRunTurn.dataset.turnId = latest.id;
     elements.runContinueHelp.textContent = pendingSearch
-      ? "This turn is safely paused. Review the exact Brave query above before the model can continue."
+      ? "This turn is safely paused. Review the exact external read above before the model can continue."
       : payload.run.resumable
       ? "This turn has durable input but no final assistant artifact. Resume will reclaim only an expired or ready retry lease."
       : payload.run.canContinue
@@ -1377,20 +1401,28 @@ function showRunSearchApproval(conversationId, turnId, toolCall) {
     conversationId,
     turnId,
     toolCallId: toolCall.toolCallId,
-    query: args.query || "",
-    maximumResults: Number(args.maximumResults || 5),
+    toolName: toolCall.toolName,
+    arguments: args,
     previewHash: null,
     disposition: null,
   };
   elements.runSearchApproval.hidden = false;
-  elements.runSearchQuery.textContent = `“${admin.pendingSearchApproval.query}” · up to ${admin.pendingSearchApproval.maximumResults} cited result${admin.pendingSearchApproval.maximumResults === 1 ? "" : "s"}`;
+  if (toolCall.toolName === "search_web") {
+    const maximum = Number(args.maximumResults || 5);
+    elements.runToolApprovalTitle.textContent = "Agent requests Brave Search";
+    elements.runSearchQuery.textContent = `“${args.query || ""}” · up to ${maximum} cited result${maximum === 1 ? "" : "s"}`;
+  } else {
+    const query = args.query && typeof args.query === "object" ? JSON.stringify(args.query) : "{}";
+    elements.runToolApprovalTitle.textContent = "Agent requests configured API data";
+    elements.runSearchQuery.textContent = `${args.profileId || "unknown profile"} · GET ${args.relativePath || "invalid path"} · ${query}`;
+  }
   elements.runSearchPreview.replaceChildren();
   elements.runSearchPreview.hidden = true;
   elements.runSearchPreviewHash.hidden = true;
   elements.runSearchApply.hidden = true;
   elements.runSearchApprove.hidden = false;
   elements.runSearchDeny.hidden = false;
-  elements.runSearchWarning.textContent = "No network request has been made. Review the exact query before deciding.";
+  elements.runSearchWarning.textContent = "No network request has been made. Review the exact operation before deciding.";
 }
 
 async function previewRunSearch(disposition) {
@@ -1399,14 +1431,13 @@ async function previewRunSearch(disposition) {
   setBusy(elements.runSearchApproval, true);
   try {
     const preview = await adminMutation(
-      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/search/preview`,
+      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/tool/preview`,
       { disposition, approvalSeconds: 300 });
     pending.previewHash = preview.previewHash;
     pending.disposition = disposition;
     elements.runSearchPreview.replaceChildren();
-    addMeta(elements.runSearchPreview, "Decision", disposition === "deny" ? "Deny; no network request" : "Approve one search");
-    addMeta(elements.runSearchPreview, "Exact query", preview.query);
-    addMeta(elements.runSearchPreview, "Result limit", String(preview.maximumResults));
+    addMeta(elements.runSearchPreview, "Decision", disposition === "deny" ? "Deny; no network request" : `Approve once · ${preview.operation}`);
+    for (const [label, value] of Object.entries(preview.parameters || {})) addMeta(elements.runSearchPreview, label, String(value));
     addMeta(elements.runSearchPreview, "Destination", preview.endpoint);
     addMeta(elements.runSearchPreview, "Credential", "OS-backed; never sent to the model");
     addMeta(elements.runSearchPreview, "Expires", new Date(preview.expiresAt).toLocaleTimeString());
@@ -1419,7 +1450,7 @@ async function previewRunSearch(disposition) {
     elements.runSearchApply.hidden = false;
     elements.runSearchApply.textContent = disposition === "deny" ? "Confirm denial" : "Approve and continue";
   } catch (error) {
-    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The exact search decision could not be previewed.", "error");
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The exact tool decision could not be previewed.", "error");
   } finally {
     setBusy(elements.runSearchApproval, false);
   }
@@ -1431,17 +1462,17 @@ async function applyRunSearch() {
   setBusy(elements.runSearchApproval, true);
   try {
     const result = await adminMutation(
-      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/search/apply`,
+      `/api/v1/admin/runs/${pending.conversationId}/turns/${pending.turnId}/tool/apply`,
       { previewHash: pending.previewHash });
     workspaceStatus(elements.runsMessage,
-      result.denied ? "Search denied. Returning the decision to the agent…" : "Approved Brave results attached with citations. Resuming the agent…",
+      result.denied ? "External read denied. Returning the decision to the agent…" : "Approved result attached with durable evidence. Resuming the agent…",
       "ok");
     const conversationId = pending.conversationId;
     resetRunSearchApproval();
     await openRunDetails(conversationId);
     await resumeRunConversation();
   } catch (error) {
-    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The search decision could not be applied.", "error");
+    workspaceStatus(elements.runsMessage, error instanceof Error ? error.message : "The tool decision could not be applied.", "error");
   } finally {
     setBusy(elements.runSearchApproval, false);
   }
@@ -2108,11 +2139,124 @@ async function applyResearch(event) {
   }
 }
 
+function parseHttpApiHeaders() {
+  const headers = {};
+  for (const rawLine of elements.httpApiStaticHeaders.value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const separator = line.indexOf(":");
+    if (separator < 1 || !line.slice(separator + 1).trim()) {
+      throw new Error("Static headers must use one Name: value pair per line.");
+    }
+    const name = line.slice(0, separator).trim();
+    if (Object.hasOwn(headers, name)) throw new Error(`Duplicate static header: ${name}`);
+    headers[name] = line.slice(separator + 1).trim();
+  }
+  return headers;
+}
+
+function renderHttpApiProfiles(payload) {
+  admin.httpApiProfiles = payload.profiles || [];
+  const current = admin.httpApiProfiles.find(profile => profile.profileId === elements.httpApiProfileId.value)
+    || admin.httpApiProfiles[0] || null;
+  elements.httpApiConfigState.textContent = current ? (current.isEnabled ? "READY" : "DISABLED") : "NOT CONFIGURED";
+  elements.httpApiConfigState.className = `state-chip ${current?.isEnabled ? "completed" : ""}`;
+  elements.httpApiConfigSummary.textContent = current
+    ? `${current.displayName} · ${current.baseEndpoint} · OS-backed bearer token`
+    : "Create a named HTTPS profile for an AI-generated skill. The bearer token never enters skill or model context.";
+  if (current) {
+    elements.httpApiProfileId.value = current.profileId;
+    elements.httpApiDisplayName.value = current.displayName;
+    elements.httpApiBaseEndpoint.value = current.baseEndpoint;
+    elements.httpApiProbePath.value = current.probeRelativePath;
+    elements.httpApiStaticHeaders.value = Object.entries(current.staticHeaders)
+      .map(([name, value]) => `${name}: ${value}`).join("\n");
+    elements.httpApiConfigEnabled.checked = current.isEnabled;
+  }
+  elements.httpApiBearerToken.value = "";
+}
+
+function discardHttpApiConfigurationPreview() {
+  admin.httpApiConfigurationPreview = null;
+  elements.httpApiConfigReview.hidden = true;
+  elements.httpApiConfigForm.hidden = false;
+  elements.httpApiConfigDetails.replaceChildren();
+  elements.httpApiConfigPreviewHash.textContent = "";
+}
+
+async function previewHttpApiConfiguration(event) {
+  event.preventDefault();
+  setBusy(elements.httpApiConfigForm, true);
+  try {
+    const profileId = elements.httpApiProfileId.value.trim();
+    const current = admin.httpApiProfiles.find(profile => profile.profileId === profileId);
+    const preview = await adminMutation("/api/v1/admin/http-api/profiles/preview", {
+      expectedVersion: current?.version ?? null,
+      profileId,
+      displayName: elements.httpApiDisplayName.value.trim(),
+      baseEndpoint: elements.httpApiBaseEndpoint.value.trim(),
+      probeRelativePath: elements.httpApiProbePath.value.trim(),
+      staticHeaders: parseHttpApiHeaders(),
+      isEnabled: elements.httpApiConfigEnabled.checked,
+      bearerToken: elements.httpApiBearerToken.value || null,
+    });
+    admin.httpApiConfigurationPreview = preview;
+    elements.httpApiConfigDetails.replaceChildren();
+    const verification = preview.verification
+      ? `${preview.verification.statusCode} · ${preview.verification.responseBytes.toLocaleString()} bytes · ${Math.round(preview.verification.durationMilliseconds)} ms`
+      : "Disabled configuration; no request";
+    for (const [label, value] of [
+      ["Profile", `${preview.profileId} · ${preview.displayName}`],
+      ["State", preview.isEnabled ? "Enabled" : "Disabled"],
+      ["Base endpoint", preview.baseEndpoint],
+      ["Verification path", preview.probeRelativePath],
+      ["Static headers", Object.keys(preview.staticHeaders).join(", ") || "None"],
+      ["Credential", preview.credentialAction],
+      ["Live verification", verification],
+    ]) addMeta(elements.httpApiConfigDetails, label, String(value));
+    elements.httpApiConfigPreviewHash.textContent = `Bound preview ${preview.previewHash}`;
+    elements.httpApiConfigForm.hidden = true;
+    elements.httpApiConfigReview.hidden = false;
+    workspaceStatus(elements.httpApiConfigMessage, preview.warning, "ok");
+  } catch (error) {
+    workspaceStatus(elements.httpApiConfigMessage,
+      error instanceof Error ? error.message : "HTTP API profile verification failed.", "error");
+  } finally {
+    setBusy(elements.httpApiConfigForm, false);
+  }
+}
+
+async function applyHttpApiConfiguration(event) {
+  event.preventDefault();
+  if (!admin.httpApiConfigurationPreview) return;
+  setBusy(elements.httpApiConfigReview, true);
+  try {
+    await adminMutation("/api/v1/admin/http-api/profiles/apply", {
+      previewHash: admin.httpApiConfigurationPreview.previewHash,
+      bearerToken: elements.httpApiBearerToken.value || null,
+    });
+    elements.httpApiBearerToken.value = "";
+    discardHttpApiConfigurationPreview();
+    await loadSkills();
+    workspaceStatus(elements.httpApiConfigMessage,
+      "HTTP API profile applied. The write-only bearer field was cleared.", "ok");
+  } catch (error) {
+    workspaceStatus(elements.httpApiConfigMessage,
+      error instanceof Error ? error.message : "HTTP API profile update failed.", "error");
+  } finally {
+    setBusy(elements.httpApiConfigReview, false);
+  }
+}
+
 async function loadSkills(message = "Loading immutable skill packages…") {
   workspaceStatus(elements.skillsMessage, message);
   try {
-    const payload = await adminRead("/api/v1/admin/skills");
+    const [payload, httpApiProfiles] = await Promise.all([
+      adminRead("/api/v1/admin/skills"),
+      adminRead("/api/v1/admin/http-api/profiles"),
+    ]);
     admin.skillRegistry = payload;
+    renderHttpApiProfiles(httpApiProfiles);
     elements.skillList.replaceChildren();
     for (const skill of payload.skills) {
       const card = makeElement("article", "resource-card");
@@ -2738,6 +2882,7 @@ function openLearningProposal(signal) {
   elements.learningProposalVersion.value = "0.1.0";
   elements.learningProposalDescription.value = signal.summary.slice(0, 512);
   elements.learningProposalPermissions.value = "";
+  elements.learningProposalHttpApi.checked = false;
   elements.learningProposalGuidance.value = "";
   elements.learningProposalForm.hidden = false;
   elements.learningProposalSkillId.focus();
@@ -3016,6 +3161,7 @@ async function createLearningProposal(event) {
       description: elements.learningProposalDescription.value.trim(),
       requestedPermissions: [...new Set(permissions)].sort(),
       generationGuidance: elements.learningProposalGuidance.value.trim() || null,
+      requiredTools: elements.learningProposalHttpApi.checked ? ["tool:http-api.get"] : [],
     });
     admin.lastLearningGeneration = { ...result.generation, candidateId: result.id };
     closeLearningProposal();
@@ -3504,6 +3650,9 @@ elements.skillGateClose.addEventListener("click", closeSkillGate);
 elements.skillGrantForm.addEventListener("submit", applySkillGrant);
 elements.skillGrantClose.addEventListener("click", closeSkillGrant);
 elements.installSeedSkill.addEventListener("click", installSeedSkill);
+elements.httpApiConfigForm.addEventListener("submit", previewHttpApiConfiguration);
+elements.httpApiConfigReview.addEventListener("submit", applyHttpApiConfiguration);
+elements.httpApiConfigDiscard.addEventListener("click", discardHttpApiConfigurationPreview);
 elements.toolGrantForm.addEventListener("submit", applyToolGrant);
 elements.toolGrantClose.addEventListener("click", closeToolGrant);
 elements.toolInvocationForm.addEventListener("submit", previewToolInvocation);
@@ -3543,6 +3692,8 @@ elements.agentEditToolGrants.addEventListener("input", () => {
 });
 elements.agentEditSearch.addEventListener("change", () =>
   updateFriendlyCapability("tool:search.web", elements.agentEditSearch.checked));
+elements.agentEditHttpApi.addEventListener("change", () =>
+  updateFriendlyCapability("tool:http-api.read", elements.agentEditHttpApi.checked));
 elements.agentEditWorkspaceRead.addEventListener("change", () =>
   updateFriendlyCapability("tool:workspace.read", elements.agentEditWorkspaceRead.checked));
 elements.runSearchApprove.addEventListener("click", () => previewRunSearch("grant"));

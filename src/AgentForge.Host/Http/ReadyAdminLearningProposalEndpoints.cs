@@ -2,10 +2,13 @@ using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Orchestration;
 using AgentForge.Abstractions.Time;
+using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Learning;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
+using AgentForge.Domain.Security;
 using AgentForge.Domain.Skills;
+using AgentForge.Domain.Tools;
 
 namespace AgentForge.Host.Http;
 
@@ -14,7 +17,8 @@ internal sealed record ProposeLearningCandidateWebRequest(
     string Version,
     string Description,
     IReadOnlyList<string>? RequestedPermissions,
-    string? GenerationGuidance);
+    string? GenerationGuidance,
+    IReadOnlyList<string>? RequiredTools);
 
 internal sealed record TransitionLearningCandidateWebRequest(
     string Action,
@@ -61,6 +65,7 @@ internal static partial class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         ILearningRepository repository,
         ITaskSnapshotStore tasks,
+        IToolCatalog toolCatalog,
         ILocalModelSkillCandidateGenerator generator,
         IClock clock,
         CancellationToken cancellationToken)
@@ -82,16 +87,36 @@ internal static partial class ReadyAdminEndpoints
             .Select(value => value?.Trim() ?? string.Empty)
             .Order(StringComparer.Ordinal)
             .ToArray();
+        var requiredTools = (request.RequiredTools ?? [])
+            .Select(value => value?.Trim() ?? string.Empty)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
         if (signalId == Guid.Empty || !SkillVersion.TryParse(versionText, out var version) ||
             !Text(skillId, 256) || !skillId.StartsWith("skill:", StringComparison.Ordinal) ||
             !Text(description, 512) || permissions.Length > 32 ||
+            requiredTools.Length > 32 ||
             generationGuidance is not null && !PromptText(generationGuidance, 2_048) ||
             permissions.Any(value => !Text(value, 256)) ||
-            permissions.Distinct(StringComparer.Ordinal).Count() != permissions.Length)
+            permissions.Distinct(StringComparer.Ordinal).Count() != permissions.Length ||
+            requiredTools.Any(value => !Text(value, 256) || !value.StartsWith("tool:", StringComparison.Ordinal)) ||
+            requiredTools.Distinct(StringComparer.Ordinal).Count() != requiredTools.Length)
         {
             return Problem(context, 400, "Invalid proposal",
                 "Provide a valid skill ID, semantic version, bounded description, and unique declared permissions.",
                 "validation-failure");
+        }
+        foreach (var requiredTool in requiredTools)
+        {
+            var described = await toolCatalog.DescribeAsync(requiredTool, "1.0.0", cancellationToken);
+            if (!described.IsSuccess || described.Value.Definition.RiskClass is not (
+                    CapabilityRiskClass.Read or CapabilityRiskClass.Credential) ||
+                described.Value.Definition.SideEffects.HasFlag(ToolSideEffectKind.WritesFileSystem) ||
+                described.Value.Definition.SideEffects.HasFlag(ToolSideEffectKind.ExternalMutation))
+            {
+                return Problem(context, 403, "Generated-skill tool is not eligible",
+                    "Candidate generation accepts only installed, read-only AgentForge tools; authority remains separately governed.",
+                    "policy-denied");
+            }
         }
 
         var session = acquired.Session!;
@@ -104,6 +129,7 @@ internal static partial class ReadyAdminEndpoints
             version = version!.Value,
             description,
             permissions,
+            requiredTools,
             generationGuidance,
         });
         await session.MutationGate.WaitAsync(cancellationToken);
@@ -161,7 +187,8 @@ internal static partial class ReadyAdminEndpoints
                 permissions,
                 roles,
                 sourceTask.Definition.AgentId,
-                generationGuidance), cancellationToken);
+                generationGuidance,
+                requiredTools), cancellationToken);
             if (!proposed.IsSuccess)
             {
                 return DomainProblem(context, proposed.Failure!, "Learning proposal failed");
@@ -443,6 +470,7 @@ internal static partial class ReadyAdminEndpoints
                 generation.GenerationRequestHash,
                 generation.ContextRedactionCount,
                 generation.FinishReason,
+                requiredTools = generation.RequiredTools ?? [],
             },
             activeAuthority = candidate.State is LearningCandidateState.Promoted,
             nextGate = candidate.State switch

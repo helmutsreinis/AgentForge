@@ -1311,10 +1311,11 @@ public sealed class WebSetupWizardTests : IDisposable
         var initialToolIds = initialToolsDocument.RootElement.GetProperty("tools").EnumerateArray()
             .Select(item => item.GetProperty("id").GetString())
             .ToArray();
-        Assert.Equal(3, initialToolIds.Length);
+        Assert.Equal(4, initialToolIds.Length);
         Assert.Contains("tool:workspace.list", initialToolIds);
         Assert.Contains("tool:workspace.read-text", initialToolIds);
         Assert.Contains("tool:search.brave", initialToolIds);
+        Assert.Contains("tool:http-api.get", initialToolIds);
         var toolInstallationVersion = initialToolsDocument.RootElement.GetProperty("installationVersion").GetInt64();
         var toolAgentVersion = initialToolsDocument.RootElement.GetProperty("agents")[0].GetProperty("version").GetInt64();
 

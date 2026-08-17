@@ -402,6 +402,36 @@ public sealed class ToolCatalogTests
         Assert.All(invalid, item => Assert.False(ToolCatalog.Create([item]).IsSuccess));
     }
 
+    [Fact]
+    public void Generated_skill_http_tool_allows_only_the_exact_managed_dynamic_target_contract()
+    {
+        var fixedTool = FixedEndpointDefinition();
+        var valid = fixedTool with
+        {
+            Id = "tool:http-api.get",
+            Name = "Read configured API",
+            Summary = "Reads one operator-configured HTTPS API profile.",
+            Description = "Resolves and revalidates one exact profile endpoint inside the built-in handler.",
+            CapabilityId = "tool:http-api.read",
+            OutputSensitivity = ToolOutputSensitivity.PotentiallySensitive,
+            Parameters = [fixedTool.Parameters[0] with { AllowedValues = [] }],
+            Provenance = fixedTool.Provenance with { SourceId = "agentforge.generated-skill-http-api" },
+            BuiltInHandlerId = "http-api.get",
+        };
+
+        Assert.True(ToolCatalog.Create([valid]).IsSuccess);
+        Assert.False(ToolCatalog.Create([valid with { Id = "tool:http-api.other" }]).IsSuccess);
+        Assert.False(ToolCatalog.Create([valid with
+        {
+            Provenance = valid.Provenance with { SourceId = "untrusted.dynamic-target" },
+        }]).IsSuccess);
+        Assert.False(ToolCatalog.Create([valid with
+        {
+            SideEffects = ToolSideEffectKind.ReadsNetwork,
+            RiskClass = CapabilityRiskClass.Read,
+        }]).IsSuccess);
+    }
+
     private static ToolDescriptorDefinition ValidDefinition() => new(
         "tool:file.write",
         "1.0.0",

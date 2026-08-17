@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.HttpApi;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Learning;
 using AgentForge.Abstractions.Memory;
@@ -18,6 +19,7 @@ using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.HttpApi;
 using AgentForge.Domain.Learning;
 using AgentForge.Domain.Memory;
 using AgentForge.Domain.Models;
@@ -88,6 +90,8 @@ internal static partial class ReadyAdminEndpoints
         group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/resume-stream", ResumeRunConversationAsync);
         group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/search/preview", PreviewConversationSearchAsync);
         group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/search/apply", ApplyConversationSearchAsync);
+        group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/tool/preview", PreviewConversationSearchAsync);
+        group.MapPost("/runs/{conversationId:guid}/turns/{turnId:guid}/tool/apply", ApplyConversationSearchAsync);
         group.MapGet("/schedules", ListSchedulesAsync);
         group.MapPost("/schedules/preview", PreviewScheduleCreateAsync);
         group.MapPost("/schedules/apply", ApplyScheduleCreateAsync);
@@ -101,6 +105,9 @@ internal static partial class ReadyAdminEndpoints
         group.MapGet("/research/providers/brave/configuration", GetBraveSearchConfigurationAsync);
         group.MapPost("/research/providers/brave/configuration/preview", PreviewBraveSearchConfigurationAsync);
         group.MapPost("/research/providers/brave/configuration/apply", ApplyBraveSearchConfigurationAsync);
+        group.MapGet("/http-api/profiles", ListHttpApiProfilesAsync);
+        group.MapPost("/http-api/profiles/preview", PreviewHttpApiProfileAsync);
+        group.MapPost("/http-api/profiles/apply", ApplyHttpApiProfileAsync);
         group.MapPost("/research/preview", PreviewResearchAsync);
         group.MapPost("/research/apply", ApplyResearchAsync);
         group.MapPost("/agents/{agentId:guid}/test-chat", TestAgentChatAsync);
@@ -1155,7 +1162,7 @@ internal static partial class ReadyAdminEndpoints
             var searchTools = SearchToolEnabled(agent!, provider!)
                 ? new[] { BraveSearchModelTool() }
                 : [];
-            var interactionProvider = SearchToolCallProfile(provider, searchTools.Length > 0);
+            var interactionProvider = ToolCallProfile(provider, searchTools.Length > 0);
             var interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
                 new ModelRequestId(taskId.Value),
                 interactionProvider,

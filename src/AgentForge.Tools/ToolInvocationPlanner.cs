@@ -116,6 +116,8 @@ internal sealed class ToolInvocationPlanner(
                     authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!, requireDirectory: false),
                 "search.brave" => DomainResult.Success(new ContainedWorkspaceTarget(
                     authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!)),
+                "http-api.get" => DomainResult.Success(new ContainedWorkspaceTarget(
+                    authorization.Value.NormalizedWorkspace!, authorization.Value.NormalizedTarget!)),
                 _ => DomainResult.Fail<ContainedWorkspaceTarget>(new DomainFailure(
                     FailureCode.UnsupportedCapability,
                     "The built-in tool handler is not available.")),

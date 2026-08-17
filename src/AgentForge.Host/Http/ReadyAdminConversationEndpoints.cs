@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using AgentForge.Abstractions.Agents;
+using AgentForge.Abstractions.HttpApi;
 using AgentForge.Abstractions.Installations;
 using AgentForge.Abstractions.Models;
 using AgentForge.Abstractions.Orchestration;
@@ -8,15 +9,18 @@ using AgentForge.Abstractions.Providers;
 using AgentForge.Abstractions.Runtime;
 using AgentForge.Abstractions.Security;
 using AgentForge.Abstractions.Setup;
+using AgentForge.Abstractions.Skills;
 using AgentForge.Abstractions.Time;
 using AgentForge.Abstractions.Tools;
 using AgentForge.Domain.Agents;
+using AgentForge.Domain.HttpApi;
 using AgentForge.Domain.Models;
 using AgentForge.Domain.Orchestration;
 using AgentForge.Domain.Primitives;
 using AgentForge.Domain.Providers;
 using AgentForge.Domain.Runtime;
 using AgentForge.Domain.Security;
+using AgentForge.Domain.Skills;
 using AgentForge.Domain.Tools;
 
 namespace AgentForge.Host.Http;
@@ -42,6 +46,15 @@ internal sealed record PreparedConversationContext(
     int CompressedTurnCount,
     int ProtectedTurnCount);
 
+internal sealed record PreparedConversationToolRequest(
+    string ToolId,
+    string ToolVersion,
+    IReadOnlyDictionary<string, ToolParameterValue> Parameters,
+    string Operation,
+    IReadOnlyDictionary<string, string> DisplayParameters,
+    string Endpoint,
+    string Risk);
+
 internal static partial class ReadyAdminEndpoints
 {
     private const string ConversationStreamOwner = "ready-ui:durable-conversation";
@@ -54,6 +67,7 @@ internal static partial class ReadyAdminEndpoints
         HttpContext context,
         ReadyAdminSessionManager sessions,
         IInstallationStateReader stateReader,
+        IHttpApiRequestResolver httpApiResolver,
         IToolInvocationPlanner planner,
         ICapabilityApprovalService approvalService,
         ILocalAdministratorRepository administrators,
@@ -67,8 +81,8 @@ internal static partial class ReadyAdminEndpoints
         if (!string.Equals(request.Disposition, "grant", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(request.Disposition, "deny", StringComparison.OrdinalIgnoreCase))
         {
-            return Problem(context, 400, "Invalid search decision",
-                "Choose either grant or deny for this exact search request.", "validation-failure");
+            return Problem(context, 400, "Invalid tool decision",
+                "Choose either grant or deny for this exact external read request.", "validation-failure");
         }
         var disposition = string.Equals(request.Disposition, "deny", StringComparison.OrdinalIgnoreCase)
             ? CapabilityApprovalDisposition.Deny
@@ -83,38 +97,39 @@ internal static partial class ReadyAdminEndpoints
         var details = await conversations.GetDetailsAsync(new RunConversationId(conversationId), cancellationToken);
         if (!details.IsSuccess || details.Value.Snapshot.InstallationId != session.InstallationId)
         {
-            return Problem(context, 404, "Search request not found",
-                "No matching durable agent search request exists.", "not-found");
+            return Problem(context, 404, "Tool request not found",
+                "No matching durable agent tool request exists.", "not-found");
         }
         var pending = details.Value.Snapshot.ToolCalls.SingleOrDefault(item =>
             item.TurnId.Value == turnId && item.State is RunConversationToolCallState.AwaitingApproval);
-        if (pending is null || !string.Equals(pending.ToolName, "search_web", StringComparison.Ordinal))
+        if (pending is null)
         {
-            return Problem(context, 409, "Search approval is not pending",
-                "Reload the run; its current turn has no search request awaiting approval.", "concurrency-conflict");
+            return Problem(context, 409, "Tool approval is not pending",
+                "Reload the run; its current turn has no external read awaiting approval.", "concurrency-conflict");
         }
-        var parameters = ConversationSearchParameters(pending.ArgumentsJson);
-        if (!parameters.IsSuccess) return DomainProblem(context, parameters.Failure!, "Search request is invalid");
+        var prepared = await ConversationToolRequestAsync(
+            pending, session.InstallationId, httpApiResolver, cancellationToken);
+        if (!prepared.IsSuccess) return DomainProblem(context, prepared.Failure!, "Tool request is invalid");
 
         var installation = await stateReader.ReadAsync(cancellationToken);
-        var correlation = new CorrelationId($"run-search:{conversationId:D}:{turnId:D}");
+        var correlation = new CorrelationId($"run-tool:{conversationId:D}:{turnId:D}");
         var workspace = Path.GetFullPath(AppContext.BaseDirectory);
         var planned = await planner.PlanAsync(new ToolInvocationPlanRequest(
             installation.Version,
             details.Value.Snapshot.AgentId,
             details.Value.Snapshot.AgentVersion,
             session.ActorId,
-            "tool:search.brave",
-            "1.0.0",
-            parameters.Value,
+            prepared.Value.ToolId,
+            prepared.Value.ToolVersion,
+            prepared.Value.Parameters,
             workspace,
             correlation,
             details.Value.Snapshot.CorrelationId), cancellationToken);
-        if (!planned.IsSuccess) return DomainProblem(context, planned.Failure!, "Search request denied");
+        if (!planned.IsSuccess) return DomainProblem(context, planned.Failure!, "Tool request denied");
 
         var credential = await MaterializeAdministratorCredentialAsync(
             session.InstallationId, administrators, secretStore, cancellationToken);
-        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Search approval preview failed");
+        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Tool approval preview failed");
         var expiresAt = clock.UtcNow.AddSeconds(request.ApprovalSeconds);
         DomainResult<CapabilityApprovalPreview> preview;
         await using (var lease = credential.Value)
@@ -127,7 +142,7 @@ internal static partial class ReadyAdminEndpoints
                 correlation,
                 lease.Value), cancellationToken);
         }
-        if (!preview.IsSuccess) return DomainProblem(context, preview.Failure!, "Search approval preview failed");
+        if (!preview.IsSuccess) return DomainProblem(context, preview.Failure!, "Tool approval preview failed");
 
         RetainBoundedPreviews(session.ConversationToolPreviews, 7);
         session.ConversationToolPreviews[preview.Value.PreviewHash] = new ReadyConversationToolPreview(
@@ -135,19 +150,20 @@ internal static partial class ReadyAdminEndpoints
             pending.TurnId,
             pending.ToolCallId,
             new ReadyToolInvocationPreview(
-                planned.Value, parameters.Value, disposition, expiresAt, correlation, preview.Value.PreviewHash));
+                planned.Value, prepared.Value.Parameters, disposition, expiresAt, correlation, preview.Value.PreviewHash));
         return Results.Ok(new
         {
             previewHash = preview.Value.PreviewHash,
             requestHash = preview.Value.RequestHash,
             disposition = disposition.ToString(),
             expiresAt,
-            query = parameters.Value["query"].Text,
-            maximumResults = parameters.Value["maximumResults"].WholeNumber,
-            endpoint = BraveSearchEndpoint,
-            risk = "Credential-isolated read from one fixed endpoint",
+            toolName = pending.ToolName,
+            prepared.Value.Operation,
+            parameters = prepared.Value.DisplayParameters,
+            prepared.Value.Endpoint,
+            prepared.Value.Risk,
             warning = disposition is CapabilityApprovalDisposition.Grant
-                ? "This exact query is approved once. The credential remains OS-backed and hidden from the model."
+                ? "This exact external read is approved once. Credentials remain OS-backed and hidden from the model."
                 : "The model receives a denial result and no network request is made.",
         });
     }
@@ -175,8 +191,8 @@ internal static partial class ReadyAdminEndpoints
             stored.ConversationId.Value != conversationId || stored.TurnId.Value != turnId ||
             stored.Invocation.ExpiresAt <= clock.UtcNow)
         {
-            return Problem(context, 409, "Search preview unavailable",
-                "Preview this exact pending query again before applying the decision.", "approval-expired");
+            return Problem(context, 409, "Tool preview unavailable",
+                "Preview this exact pending external read again before applying the decision.", "approval-expired");
         }
 
         var details = await conversations.GetDetailsAsync(stored.ConversationId, cancellationToken);
@@ -187,13 +203,13 @@ internal static partial class ReadyAdminEndpoints
             : null;
         if (pending is null)
         {
-            return Problem(context, 409, "Search request changed",
+            return Problem(context, 409, "Tool request changed",
                 "The pending run changed after preview; reload it before continuing.", "concurrency-conflict");
         }
 
         var credential = await MaterializeAdministratorCredentialAsync(
             session.InstallationId, administrators, secretStore, cancellationToken);
-        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Search approval failed");
+        if (!credential.IsSuccess) return DomainProblem(context, credential.Failure!, "Tool approval failed");
         DomainResult<CapabilityApproval> approval;
         await using (var lease = credential.Value)
         {
@@ -202,12 +218,12 @@ internal static partial class ReadyAdminEndpoints
                 stored.Invocation.Disposition,
                 stored.Invocation.ExpiresAt,
                 stored.Invocation.PreviewHash,
-                $"run-search-approval:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
+                $"run-tool-approval:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
                 session.ActorId,
                 stored.Invocation.CorrelationId,
                 lease.Value), cancellationToken);
         }
-        if (!approval.IsSuccess) return DomainProblem(context, approval.Failure!, "Search approval failed");
+        if (!approval.IsSuccess) return DomainProblem(context, approval.Failure!, "Tool approval failed");
 
         string resultJson;
         var denied = stored.Invocation.Disposition is CapabilityApprovalDisposition.Deny;
@@ -217,8 +233,8 @@ internal static partial class ReadyAdminEndpoints
         {
             resultJson = JsonSerializer.Serialize(new
             {
-                error = "The operator denied this exact search query.",
-                citations = Array.Empty<object>(),
+                error = "The operator denied this exact external read.",
+                results = Array.Empty<object>(),
             });
         }
         else
@@ -228,14 +244,14 @@ internal static partial class ReadyAdminEndpoints
                 stored.Invocation.Plan.Invocation.AgentId,
                 stored.Invocation.Plan.Invocation.AgentVersion,
                 session.ActorId,
-                "tool:search.brave",
-                "1.0.0",
+                stored.Invocation.Plan.Invocation.ToolId!,
+                stored.Invocation.Plan.Invocation.ToolVersion!,
                 stored.Invocation.Parameters,
                 stored.Invocation.Plan.Authorization.NormalizedWorkspace!,
-                $"run-search:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
+                $"run-tool:{conversationId:D}:{turnId:D}:{pending.ToolCallId}",
                 stored.Invocation.CorrelationId,
                 details.Value.Snapshot.CorrelationId), null, cancellationToken);
-            if (!invocation.IsSuccess) return DomainProblem(context, invocation.Failure!, "Approved search failed");
+            if (!invocation.IsSuccess) return DomainProblem(context, invocation.Failure!, "Approved tool execution failed");
             resultJson = Encoding.UTF8.GetString(invocation.Value.StandardOutput);
             invocationId = invocation.Value.Invocation.Id.Value;
         }
@@ -249,7 +265,7 @@ internal static partial class ReadyAdminEndpoints
             isError,
             denied,
             cancellationToken);
-        if (!resolved.IsSuccess) return DomainProblem(context, resolved.Failure!, "Search result could not be attached");
+        if (!resolved.IsSuccess) return DomainProblem(context, resolved.Failure!, "Tool result could not be attached");
         session.ConversationToolPreviews.TryRemove(request.PreviewHash, out _);
         return Results.Ok(new
         {
@@ -262,7 +278,111 @@ internal static partial class ReadyAdminEndpoints
         });
     }
 
-    private static DomainResult<IReadOnlyDictionary<string, ToolParameterValue>> ConversationSearchParameters(
+    private static Task<DomainResult<PreparedConversationToolRequest>> ConversationToolRequestAsync(
+        RunConversationToolCall call,
+        InstallationId installationId,
+        IHttpApiRequestResolver httpApiResolver,
+        CancellationToken cancellationToken) => call.ToolName switch
+        {
+            "search_web" => Task.FromResult(ConversationSearchRequest(call.ArgumentsJson)),
+            "http_api_get" => ConversationHttpApiRequestAsync(
+                call.ArgumentsJson, installationId, httpApiResolver, cancellationToken),
+            _ => Task.FromResult(DomainResult.Fail<PreparedConversationToolRequest>(new DomainFailure(
+                FailureCode.PolicyDenied,
+                "The model requested a tool outside the supported governed catalog."))),
+        };
+
+    private static async Task<DomainResult<PreparedConversationToolRequest>> ConversationHttpApiRequestAsync(
+        string argumentsJson,
+        InstallationId installationId,
+        IHttpApiRequestResolver resolver,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 8,
+            });
+            var root = document.RootElement;
+            var properties = root.ValueKind is JsonValueKind.Object ? root.EnumerateObject().ToArray() : [];
+            if (root.ValueKind is not JsonValueKind.Object || properties.Length is < 2 or > 4 ||
+                properties.Select(item => item.Name).Distinct(StringComparer.Ordinal).Count() != properties.Length ||
+                properties.Any(item => item.Name is not (
+                    "profileId" or "relativePath" or "query" or "maximumResponseBytes")) ||
+                !root.TryGetProperty("profileId", out var profileValue) ||
+                profileValue.ValueKind is not JsonValueKind.String ||
+                profileValue.GetString() is not { Length: >= 3 and <= 64 } profileId ||
+                !root.TryGetProperty("relativePath", out var pathValue) ||
+                pathValue.ValueKind is not JsonValueKind.String ||
+                pathValue.GetString() is not { Length: >= 1 and <= 2048 } relativePath)
+            {
+                return InvalidConversationTool(
+                    "The generated API skill must select one configured profile and bounded relative GET path.");
+            }
+            var query = new SortedDictionary<string, string>(StringComparer.Ordinal);
+            if (root.TryGetProperty("query", out var queryValue))
+            {
+                if (queryValue.ValueKind is not JsonValueKind.Object || queryValue.GetRawText().Length > 8192)
+                {
+                    return InvalidConversationTool("The generated API query must be one bounded object of scalar values.");
+                }
+                foreach (var item in queryValue.EnumerateObject())
+                {
+                    if (query.Count >= 32 || item.Name.Length is < 1 or > 128 ||
+                        !query.TryAdd(item.Name, item.Value.ValueKind switch
+                        {
+                            JsonValueKind.String => item.Value.GetString()!,
+                            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => item.Value.GetRawText(),
+                            _ => string.Empty,
+                        }) || query[item.Name].Length is < 1 or > 2048)
+                    {
+                        return InvalidConversationTool("The generated API query must contain bounded unique scalar values.");
+                    }
+                }
+            }
+            var maximumBytes = 262_144L;
+            if (root.TryGetProperty("maximumResponseBytes", out var maximumValue) &&
+                (maximumValue.ValueKind is not JsonValueKind.Number || !maximumValue.TryGetInt64(out maximumBytes) ||
+                 maximumBytes is < 1 or > 1_048_576))
+            {
+                return InvalidConversationTool("The generated API response limit must be from 1 to 1,048,576 bytes.");
+            }
+            var resolved = await resolver.ResolveAsync(
+                installationId, new HttpApiProfileId(profileId), relativePath, query, cancellationToken);
+            if (!resolved.IsSuccess) return DomainResult.Fail<PreparedConversationToolRequest>(resolved.Failure!);
+            var queryJson = JsonSerializer.Serialize(query);
+            return DomainResult.Success(new PreparedConversationToolRequest(
+                "tool:http-api.get",
+                "1.0.0",
+                new Dictionary<string, ToolParameterValue>(StringComparer.Ordinal)
+                {
+                    ["profileId"] = new(ToolParameterValueKind.Text, profileId, null, null),
+                    ["relativePath"] = new(ToolParameterValueKind.Text, relativePath, null, null),
+                    ["queryJson"] = new(ToolParameterValueKind.Text, queryJson, null, null),
+                    ["maximumResponseBytes"] = new(ToolParameterValueKind.WholeNumber, null, maximumBytes, null),
+                    ["endpoint"] = new(ToolParameterValueKind.Text, resolved.Value.Endpoint.AbsoluteUri, null, null),
+                },
+                $"Read {resolved.Value.Profile.DisplayName}",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["Credential profile"] = profileId,
+                    ["Relative path"] = relativePath,
+                    ["Query"] = queryJson,
+                    ["Response limit"] = $"{maximumBytes:N0} bytes",
+                },
+                resolved.Value.Endpoint.AbsoluteUri,
+                "Credential-isolated potentially sensitive read from one operator-configured HTTPS origin"));
+        }
+        catch (JsonException)
+        {
+            return InvalidConversationTool("The generated API request must contain strict bounded JSON.");
+        }
+    }
+
+    private static DomainResult<PreparedConversationToolRequest> ConversationSearchRequest(
         string argumentsJson)
     {
         try
@@ -279,33 +399,44 @@ internal static partial class ReadyAdminEndpoints
                 queryValue.ValueKind is not JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(queryValue.GetString()) || queryValue.GetString()!.Length > 512)
             {
-                return InvalidSearchParameters();
+                return InvalidConversationTool("The model search request must contain one bounded query and an optional result count from 1 to 10.");
             }
             var maximumResults = 5L;
             if (root.TryGetProperty("maximumResults", out var maximumValue) &&
                 (maximumValue.ValueKind is not JsonValueKind.Number ||
                 !maximumValue.TryGetInt64(out maximumResults) || maximumResults is < 1 or > 10))
             {
-                return InvalidSearchParameters();
+                return InvalidConversationTool("The model search request must contain one bounded query and an optional result count from 1 to 10.");
             }
-            return DomainResult.Success<IReadOnlyDictionary<string, ToolParameterValue>>(
+            var query = queryValue.GetString()!.Trim();
+            return DomainResult.Success(new PreparedConversationToolRequest(
+                "tool:search.brave",
+                "1.0.0",
                 new Dictionary<string, ToolParameterValue>(StringComparer.Ordinal)
                 {
-                    ["query"] = new(ToolParameterValueKind.Text, queryValue.GetString()!.Trim(), null, null),
+                    ["query"] = new(ToolParameterValueKind.Text, query, null, null),
                     ["maximumResults"] = new(ToolParameterValueKind.WholeNumber, null, maximumResults, null),
                     ["endpoint"] = new(ToolParameterValueKind.Text, BraveSearchEndpoint, null, null),
-                });
+                },
+                "Search public web",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["Exact query"] = query,
+                    ["Result limit"] = maximumResults.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                },
+                BraveSearchEndpoint,
+                "Credential-isolated public read from one fixed endpoint"));
         }
         catch (JsonException)
         {
-            return InvalidSearchParameters();
+            return InvalidConversationTool("The model search request must contain valid bounded JSON.");
         }
     }
 
-    private static DomainResult<IReadOnlyDictionary<string, ToolParameterValue>> InvalidSearchParameters() =>
-        DomainResult.Fail<IReadOnlyDictionary<string, ToolParameterValue>>(new DomainFailure(
+    private static DomainResult<PreparedConversationToolRequest> InvalidConversationTool(string message) =>
+        DomainResult.Fail<PreparedConversationToolRequest>(new DomainFailure(
             FailureCode.ValidationFailure,
-            "The model search request must contain one bounded query and an optional result count from 1 to 10."));
+            message));
 
     private static async Task<IResult> GetRunConversationAsync(
         Guid conversationId,
@@ -341,6 +472,8 @@ internal static partial class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
         IProviderProfileRepository providers,
+        IHttpApiProfileRepository httpApiProfiles,
+        ISkillRegistryRepository skillRegistry,
         ITaskOrchestrator orchestrator,
         IRunConversationService conversations,
         ILocalModelInteractionService interactions,
@@ -492,6 +625,9 @@ internal static partial class ReadyAdminEndpoints
                 .ExecuteAsync(context);
             return;
         }
+        var generatedApiProfiles = await AvailableGeneratedHttpApiProfilesAsync(
+            started.Value.Snapshot, authority.Value.Agent, authority.Value.Provider,
+            httpApiProfiles, skillRegistry, cancellationToken);
 
         await ExecuteConversationTurnAsync(
             context,
@@ -500,6 +636,7 @@ internal static partial class ReadyAdminEndpoints
             started.Value,
             authority.Value.Agent,
             authority.Value.Provider,
+            generatedApiProfiles,
             claim.Value,
             interactions,
             orchestrator,
@@ -516,6 +653,8 @@ internal static partial class ReadyAdminEndpoints
         IInstallationStateReader stateReader,
         IAgentIdentityRepository agents,
         IProviderProfileRepository providers,
+        IHttpApiProfileRepository httpApiProfiles,
+        ISkillRegistryRepository skillRegistry,
         ITaskOrchestrator orchestrator,
         ITaskSnapshotStore taskSnapshots,
         IRunConversationService conversations,
@@ -563,8 +702,8 @@ internal static partial class ReadyAdminEndpoints
         if (details.Value.Snapshot.ToolCalls.Any(item => item.TurnId == turn.Id &&
             item.State is RunConversationToolCallState.AwaitingApproval))
         {
-            await Problem(context, 409, "Search approval required",
-                "Approve or deny the exact pending search request before resuming this turn.",
+            await Problem(context, 409, "Tool approval required",
+                "Approve or deny the exact pending external read before resuming this turn.",
                 "approval-required").ExecuteAsync(context);
             return;
         }
@@ -644,6 +783,9 @@ internal static partial class ReadyAdminEndpoints
                 .ExecuteAsync(context);
             return;
         }
+        var generatedApiProfiles = await AvailableGeneratedHttpApiProfilesAsync(
+            started.Value.Snapshot, authority.Value.Agent, authority.Value.Provider,
+            httpApiProfiles, skillRegistry, cancellationToken);
 
         await ExecuteConversationTurnAsync(
             context,
@@ -652,6 +794,7 @@ internal static partial class ReadyAdminEndpoints
             started.Value,
             authority.Value.Agent,
             authority.Value.Provider,
+            generatedApiProfiles,
             claim.Value,
             interactions,
             orchestrator,
@@ -667,6 +810,7 @@ internal static partial class ReadyAdminEndpoints
         RunConversationMutationResult started,
         AgentIdentity agent,
         ProviderProfile provider,
+        IReadOnlyList<HttpApiProfile> generatedApiProfiles,
         TaskLeaseGrant claimed,
         ILocalModelInteractionService interactions,
         ITaskOrchestrator orchestrator,
@@ -777,10 +921,16 @@ internal static partial class ReadyAdminEndpoints
             var toolContinuation = ConversationToolContinuation(detailsBeforeTurn.Snapshot, turn.Id);
             var remainingToolCalls = Math.Max(0, agent.Budget.MaxToolInvocations -
                 detailsBeforeTurn.Snapshot.ToolCalls.Count(item => item.TurnId == turn.Id));
-            var searchTools = SearchToolEnabled(agent, provider) && remainingToolCalls > 0
-                ? new[] { BraveSearchModelTool() }
-                : [];
-            var interactionProvider = SearchToolCallProfile(provider, searchTools.Length > 0);
+            var modelTools = new List<ModelToolDefinition>();
+            if (remainingToolCalls > 0 && SearchToolEnabled(agent, provider))
+            {
+                modelTools.Add(BraveSearchModelTool());
+            }
+            if (remainingToolCalls > 0 && generatedApiProfiles.Count > 0)
+            {
+                modelTools.Add(HttpApiModelTool(generatedApiProfiles));
+            }
+            var interactionProvider = ToolCallProfile(provider, modelTools.Count > 0);
             var interaction = await interactions.InvokeAsync(new LocalModelInteractionRequest(
                 new ModelRequestId(turn.TaskId.Value),
                 interactionProvider,
@@ -788,12 +938,12 @@ internal static partial class ReadyAdminEndpoints
                 detailsBeforeTurn.Turns.Single(item => item.Turn.Id == turn.Id).Prompt,
                 new ModelInvocationLimits(
                     turn.MaximumOutputTokens,
-                    searchTools.Length > 0 ? 1 : 0,
+                    modelTools.Count > 0 ? 1 : 0,
                     Math.Max(4_096, Math.Min(MaximumInteractiveEvents, turn.MaximumOutputTokens + 512)),
                     turn.MaximumWallClockSeconds),
                 started.Snapshot.CorrelationId,
                 preparedContext.Value.History,
-                searchTools,
+                modelTools,
                 toolContinuation), observer, linkedCancellation.Token);
             if (!interaction.IsSuccess)
             {
@@ -838,8 +988,8 @@ internal static partial class ReadyAdminEndpoints
             if (interaction.Value.ToolCalls.Count > 0)
             {
                 var toolCall = interaction.Value.ToolCalls.Single();
-                if (!string.Equals(toolCall.ToolName, "search_web", StringComparison.Ordinal) ||
-                    searchTools.Length == 0)
+                if (!modelTools.Any(item => string.Equals(
+                    item.Name, toolCall.ToolName, StringComparison.Ordinal)))
                 {
                     var policyEvidence = SnapshotHash(new
                     {
@@ -908,7 +1058,7 @@ internal static partial class ReadyAdminEndpoints
                 {
                     code = resumable ? FailureCode.ApprovalRequired.ToString() : FailureCode.BudgetExceeded.ToString(),
                     message = resumable
-                        ? "The agent requested an exact Brave Search query. Review it before network access."
+                        ? "The agent requested an exact governed external read. Review it before network access."
                         : "The run exhausted its bounded tool-call attempts.",
                     resumable,
                     toolCall = resumable ? new
@@ -1277,14 +1427,44 @@ internal static partial class ReadyAdminEndpoints
     }
 
     private static bool SearchToolEnabled(AgentIdentity agent, ProviderProfile provider) =>
-        agent.Budget.MaxToolInvocations > 0 && SupportsSearchToolTransport(provider) &&
+        agent.Budget.MaxToolInvocations > 0 && SupportsToolTransport(provider) &&
         agent.CapabilityPolicy.NetworkPosture is NetworkPosture.ApprovedEndpointsOnly &&
         agent.CapabilityPolicy.ToolGrants.Contains("tool:search.web", StringComparer.Ordinal);
 
-    private static bool SupportsSearchToolTransport(ProviderProfile provider) =>
+    private static async Task<IReadOnlyList<HttpApiProfile>> AvailableGeneratedHttpApiProfilesAsync(
+        RunConversationSnapshot conversation,
+        AgentIdentity agent,
+        ProviderProfile provider,
+        IHttpApiProfileRepository profiles,
+        ISkillRegistryRepository skillRegistry,
+        CancellationToken cancellationToken)
+    {
+        if (agent.Budget.MaxToolInvocations <= 0 || !SupportsToolTransport(provider) ||
+            agent.CapabilityPolicy.NetworkPosture is not NetworkPosture.ApprovedEndpointsOnly ||
+            !agent.CapabilityPolicy.ToolGrants.Contains("tool:http-api.read", StringComparer.Ordinal)) return [];
+        var requiresTool = false;
+        foreach (var id in conversation.SkillIds)
+        {
+            var active = await skillRegistry.FindActiveAsync(
+                conversation.InstallationId, new SkillId(id), cancellationToken);
+            if (active?.Package.Requirements.ToolIds.Contains("tool:http-api.get", StringComparer.Ordinal) == true)
+            {
+                requiresTool = true;
+                break;
+            }
+        }
+        if (!requiresTool) return [];
+        return (await profiles.ListAsync(conversation.InstallationId, cancellationToken))
+            .Where(profile => profile.IsEnabled)
+            .OrderBy(profile => profile.Id.Value, StringComparer.Ordinal)
+            .Take(16)
+            .ToArray();
+    }
+
+    private static bool SupportsToolTransport(ProviderProfile provider) =>
         provider.Capabilities.ToolCalls || provider.ProviderType is "vllm" or "openai-compatible";
 
-    private static ProviderProfile SearchToolCallProfile(ProviderProfile provider, bool enabled) =>
+    private static ProviderProfile ToolCallProfile(ProviderProfile provider, bool enabled) =>
         enabled && !provider.Capabilities.ToolCalls
             ? provider with
             {
@@ -1302,6 +1482,21 @@ internal static partial class ReadyAdminEndpoints
         """
         {"type":"object","additionalProperties":false,"properties":{"query":{"type":"string","minLength":1,"maxLength":512},"maximumResults":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]}
         """);
+
+    private static ModelToolDefinition HttpApiModelTool(IReadOnlyList<HttpApiProfile> profiles)
+    {
+        var available = string.Join(", ", profiles.Select(profile =>
+            $"{profile.Id.Value} ({profile.DisplayName}, base {profile.BaseEndpoint.AbsoluteUri})"));
+        return new ModelToolDefinition(
+            "http_api_get",
+            "Issue one read-only GET through a configured AgentForge bearer profile. " +
+            $"Available profiles: {available}. Use only the relative paths documented by the selected skill. " +
+            "Every exact profile, path, query, response limit, and resolved endpoint pauses for operator approval. " +
+            "The bearer token is never visible to you.",
+            """
+            {"type":"object","additionalProperties":false,"properties":{"profileId":{"type":"string","minLength":3,"maxLength":64},"relativePath":{"type":"string","minLength":1,"maxLength":2048},"query":{"type":"object","maxProperties":32,"additionalProperties":{"type":["string","number","boolean"]}},"maximumResponseBytes":{"type":"integer","minimum":1,"maximum":1048576}},"required":["profileId","relativePath"]}
+            """);
+    }
 
     private static List<ModelMessage> ConversationToolContinuation(
         RunConversationSnapshot snapshot,

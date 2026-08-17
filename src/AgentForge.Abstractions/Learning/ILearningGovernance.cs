@@ -89,7 +89,8 @@ public sealed record ProposeNewSkillFromSignalRequest(
     IReadOnlyList<string> RequestedPermissions,
     LearningRoleAssignments Roles,
     string? GeneratedMarkdown = null,
-    SkillCandidateGenerationEvidence? GenerationEvidence = null);
+    SkillCandidateGenerationEvidence? GenerationEvidence = null,
+    IReadOnlyList<string>? RequiredTools = null);
 
 public sealed record SkillCandidateGenerationEvidence(
     int SchemaVersion,
@@ -110,7 +111,8 @@ public sealed record SkillCandidateGenerationEvidence(
     string SelectedMarkdownHash,
     string GenerationRequestHash,
     int ContextRedactionCount,
-    string FinishReason);
+    string FinishReason,
+    IReadOnlyList<string>? RequiredTools = null);
 
 public sealed record GenerateNewSkillFromSignalRequest(
     LearningCandidateId CandidateId,
@@ -122,7 +124,8 @@ public sealed record GenerateNewSkillFromSignalRequest(
     IReadOnlyList<string> RequestedPermissions,
     LearningRoleAssignments Roles,
     AgentIdentityId AgentId,
-    string? OperatorGuidance);
+    string? OperatorGuidance,
+    IReadOnlyList<string>? RequiredTools = null);
 
 public sealed record GenerateNewSkillFromSignalResult(
     LearningCandidate Candidate,

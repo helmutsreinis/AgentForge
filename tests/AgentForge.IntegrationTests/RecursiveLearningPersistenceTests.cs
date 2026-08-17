@@ -77,7 +77,7 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
             candidateId, new SkillProposalId(Guid.NewGuid()), signalId,
             new SkillId("skill:test.local-generation"), new SkillVersion("1.0.0"),
             "Generate one bounded local skill.", ["repository:read"], roles, agentId,
-            "Prefer observable verification evidence.");
+            "Prefer observable verification evidence.", ["tool:http-api.get"]);
         await using (var first = services.CreateAsyncScope())
         {
             var governance = first.ServiceProvider.GetRequiredService<ILearningGovernanceService>();
@@ -91,6 +91,11 @@ public sealed class RecursiveLearningPersistenceTests : IDisposable
             Assert.False(generated.Value.WasReplay);
             Assert.Equal("qwen-fixture", generated.Value.Evidence.Model);
             Assert.Equal(agentId, generated.Value.Evidence.AgentId);
+            Assert.Equal(["tool:http-api.get"], generated.Value.Evidence.RequiredTools);
+            var package = await first.ServiceProvider.GetRequiredService<ISkillRegistryRepository>().FindAsync(
+                installationId, generated.Value.Candidate.SkillId, generated.Value.Candidate.CandidateVersion,
+                CancellationToken.None);
+            Assert.Equal(["tool:http-api.get"], package!.Package.Requirements.ToolIds);
             firstEvidence = generated.Value.Evidence;
         }
 
@@ -592,7 +597,7 @@ Stop on missing input, ambiguous evidence, unavailable permission, or an unverif
 
 ## Permission boundary
 
-This proposal declares repository:read only and receives no tool, network, write, credential, message, device, or approval authority.
+This proposal declares repository:read only and receives no tool, network, write, credential, message, device, or approval authority. Never bypass policy or execute without approval.
 """;
             return Task.FromResult(DomainResult.Success(new LocalModelInteractionResult(
                 request.RequestId,

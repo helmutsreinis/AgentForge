@@ -320,13 +320,27 @@ public sealed class ToolCatalog : IToolCatalog
                 {
                     Type: ToolParameterType.Text,
                     Required: true,
-                    AllowedValues.Count: 1,
-                } target && Uri.TryCreate(target.AllowedValues[0], UriKind.Absolute, out var uri) &&
-                uri.Scheme is "https" && string.IsNullOrEmpty(uri.UserInfo) &&
+                } target && (ValidFixedTarget(target) || ValidManagedProfileTarget(definition, target)) &&
                 definition.SideEffects.HasFlag(ToolSideEffectKind.ReadsNetwork) &&
                 !definition.SideEffects.HasFlag(ToolSideEffectKind.ExternalMutation),
             _ => false,
         };
+
+    private static bool ValidFixedTarget(ToolParameterDescriptor target) =>
+        target.AllowedValues.Count == 1 &&
+        Uri.TryCreate(target.AllowedValues[0], UriKind.Absolute, out var uri) &&
+        uri.Scheme is "https" && string.IsNullOrEmpty(uri.UserInfo);
+
+    private static bool ValidManagedProfileTarget(
+        ToolDescriptorDefinition definition,
+        ToolParameterDescriptor target) =>
+        target.AllowedValues.Count == 0 &&
+        string.Equals(definition.Id, "tool:http-api.get", StringComparison.Ordinal) &&
+        string.Equals(definition.BuiltInHandlerId, "http-api.get", StringComparison.Ordinal) &&
+        string.Equals(definition.Provenance.SourceId, "agentforge.generated-skill-http-api", StringComparison.Ordinal) &&
+        definition.RiskClass is CapabilityRiskClass.Credential &&
+        definition.SideEffects.HasFlag(ToolSideEffectKind.CredentialAccess) &&
+        definition.OutputSensitivity is ToolOutputSensitivity.PotentiallySensitive;
 
     private static bool ValidateBinding(
         ToolArgumentBinding binding,

@@ -786,9 +786,40 @@ a failed or regressing canary quarantines. Approval does not activate, and start
 Only a passing canary may change the registry package to `Active`; the agent still needs an exact skill grant before
 a run can select it. **Roll back promotion** requires fresh evidence and quarantines the candidate while restoring an
 exact baseline when one exists. Every request is optimistic-versioned and idempotent. On a stale conflict, reload the
-queue and never edit candidate, proposal, registry, or artifact records directly. Until the automated evaluator slice
-lands, these web gate receipts are explicit local-operator attestations rather than proof that AgentForge executed the
-referenced suites itself.
+queue and never edit candidate, proposal, registry, or artifact records directly. The managed evaluator owns structural,
+provenance, deterministic, adversarial-authority, and permission checks; critic/canary notes remain explicit operator
+evidence until an independently sandboxed behavioral-fixture contract is available.
+
+### AI-built bearer API skills
+
+Use this workflow when AgentForge should build an integration procedure instead of receiving a hand-written product
+adapter. First open **Skills → Bearer-authenticated HTTP API** and create a named profile. For Microsoft Partner
+Center use profile ID `microsoft-partner-center`, base endpoint
+`https://api.partnercenter.microsoft.com/v1/`, probe path `customers?size=1`, and the non-secret headers
+`MS-Contract-Version: v1`, `MS-CorrelationId: {correlationId}`, and `MS-RequestId: {requestId}`. Paste the bearer
+token only into the write-only token field. Preview performs one bounded live GET; apply repeats it and persists only
+the OS-backed reference. Later rotation uses the same form and deletes the prior reference only after commit.
+
+Create or select a terminal run whose exact evidence demonstrates the missing integration. From **Learning**, capture
+it as `MissingCapability`. On the resulting `NewSkill` card choose **Generate with local agent**, set the immutable
+skill ID/version/description, declare only bounded read permissions, enable **Require configured HTTP API reads**, and
+give non-secret endpoint guidance. The pinned local model receives `tool:http-api.get` as a declaration in its authoring
+context but receives no live tool and no token. Generation must finish as strict JSON; AgentForge writes the package and
+provenance receipt, then the managed evaluator independently verifies it.
+
+Complete critique, governor approval, canary, and promotion. In **Skills**, grant the Active skill to the agent. In
+**Agents**, enable **Read configured APIs for active skills**; this maps to `tool:http-api.read`, approved-endpoint
+network posture, and a positive tool ceiling. Start a new run and select the skill. The model sees only enabled profile
+names/base endpoints plus the skill procedure. Every proposed GET pauses with the exact profile, path, scalar query,
+response limit, resolved HTTPS endpoint, and risk. Approval is single-use. Denial makes no request. The bearer token is
+materialized for that invocation only and never enters the model result, package, audit payload, or profile API.
+
+If preview returns 401/403, rotate or reissue the Partner Center bearer token; do not put it in skill guidance or
+static headers. If a call is unavailable, confirm all four independent authorities: profile enabled, skill Active and
+selected, skill granted to the agent, and `tool:http-api.read` present with `ApprovedEndpointsOnly`. Path/origin escape,
+secret-shaped static headers, unknown templates, oversized/non-UTF-8 output, stale approvals, and disabled profiles
+fail closed. Set `AGENTFORGE_LIVE_PARTNER_CENTER_BEARER_TOKEN` only on a credential-equipped test agent to run the
+named live gate; normal CI skips it.
 
 ## Gate and recovery rules
 

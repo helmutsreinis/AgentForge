@@ -682,6 +682,7 @@
           "AgentForge.Devices": "[1.0.0, )",
           "AgentForge.Domain": "[1.0.0, )",
           "AgentForge.Environment": "[1.0.0, )",
+          "AgentForge.HttpApi": "[1.0.0, )",
           "AgentForge.Learning": "[1.0.0, )",
           "AgentForge.Mcp": "[1.0.0, )",
           "AgentForge.Memory": "[1.0.0, )",
@@ -698,6 +699,13 @@
           "Microsoft.Extensions.Hosting.Systemd": "[10.0.10, )",
           "Microsoft.Extensions.Hosting.WindowsServices": "[10.0.10, )",
           "ModelContextProtocol.AspNetCore": "[2.0.0, )"
+        }
+      },
+      "agentforge.httpapi": {
+        "type": "Project",
+        "dependencies": {
+          "AgentForge.Abstractions": "[1.0.0, )",
+          "AgentForge.Domain": "[1.0.0, )"
         }
       },
       "agentforge.learning": {
